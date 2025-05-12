@@ -1,0 +1,33 @@
+# FastAPI core
+fastapi
+uvicorn[standard]
+
+# Auth and password hashing
+python-jose[cryptography]
+passlib[bcrypt]
+
+# Env and config
+python-dotenv
+pydantic
+
+# WebSockets / Socket.IO
+python-socketio[asgi]
+
+# Logging (included with standard libs, config in app)
+# Database
+sqlalchemy
+asyncpg
+databases
+
+# CORS & ASGI Tools
+starlette
+
+# Data processing
+pandas
+openpyxl
+
+# Dev tools (optional)
+# black
+# isort
+# mypy
+# pytest
