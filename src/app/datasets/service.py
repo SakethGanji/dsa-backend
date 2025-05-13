@@ -84,132 +84,12 @@ class DatasetsService:
                 await self.repository.create_dataset_tag(dataset_id, tag_id)
         
         # Step 6: Parse file into sheets
-        sheet_infos = []
-
-        try:
-            # Different parsing logic based on file type
-            if file_type in ["xls", "xlsx", "xlsm"]:
-                # For Excel files, read sheets
-                # Create a BytesIO object from contents for pandas to read
-                excel_buffer = BytesIO(contents)
-                excel_file = pd.ExcelFile(excel_buffer)
-                sheets = []
-
-                for i, sheet_name in enumerate(excel_file.sheet_names):
-                    sheet_create = SheetCreate(
-                        dataset_version_id=version_id,
-                        name=sheet_name,
-                        sheet_index=i,
-                        description=None
-                    )
-
-                    sheet_id = await self.repository.create_sheet(sheet_create)
-
-                    # Optional: Process sheet for profiling
-                    # This would analyze the sheet and generate statistics
-                    # Uncomment and implement profiling when needed
-                    # profile_report_file_id = await self._generate_profile_report(excel_file, sheet_name)
-
-                    # Create sheet metadata
-                    metadata = {
-                        "columns": len(excel_file.parse(sheet_name).columns),
-                        "rows": len(excel_file.parse(sheet_name))
-                        # Additional metadata can be added here
-                    }
-
-                    await self.repository.create_sheet_metadata(sheet_id, metadata)
-
-                    sheet_infos.append(SheetInfo(
-                        id=sheet_id,
-                        name=sheet_name,
-                        index=i,
-                        description=None
-                    ))
-
-            elif file_type == "csv":
-                # For CSV files, create a single sheet
-                sheet_create = SheetCreate(
-                    dataset_version_id=version_id,
-                    name=os.path.basename(file.filename),
-                    sheet_index=0,
-                    description=None
-                )
-
-                sheet_id = await self.repository.create_sheet(sheet_create)
-
-                # Create a BytesIO object from contents for pandas to read
-                csv_buffer = BytesIO(contents)
-                df = pd.read_csv(csv_buffer)
-
-                # Create sheet metadata
-                metadata = {
-                    "columns": len(df.columns),
-                    "rows": len(df)
-                    # Additional metadata can be added here
-                }
-
-                await self.repository.create_sheet_metadata(sheet_id, metadata)
-
-                sheet_infos.append(SheetInfo(
-                    id=sheet_id,
-                    name=os.path.basename(file.filename),
-                    index=0,
-                    description=None
-                ))
-            else:
-                # Handle other file types (e.g., JSON, parquet, etc.)
-                sheet_create = SheetCreate(
-                    dataset_version_id=version_id,
-                    name=os.path.basename(file.filename),
-                    sheet_index=0,
-                    description=f"Unsupported file type: {file_type}"
-                )
-
-                sheet_id = await self.repository.create_sheet(sheet_create)
-
-                # Create minimal metadata
-                metadata = {
-                    "file_type": file_type,
-                    "note": "Unsupported file type - no parsing performed"
-                }
-
-                await self.repository.create_sheet_metadata(sheet_id, metadata)
-
-                sheet_infos.append(SheetInfo(
-                    id=sheet_id,
-                    name=os.path.basename(file.filename),
-                    index=0,
-                    description=f"Unsupported file type: {file_type}"
-                ))
-        except Exception as e:
-            # Log the error
-            error_msg = f"Error parsing file: {str(e)}"
-            logger.error(error_msg, exc_info=True)
-
-            # Create a sheet entry to indicate parsing error
-            sheet_create = SheetCreate(
-                dataset_version_id=version_id,
-                name=os.path.basename(file.filename),
-                sheet_index=0,
-                description="Error parsing file"
-            )
-
-            sheet_id = await self.repository.create_sheet(sheet_create)
-
-            # Create error metadata
-            metadata = {
-                "error": error_msg,
-                "file_type": file_type
-            }
-
-            await self.repository.create_sheet_metadata(sheet_id, metadata)
-
-            sheet_infos.append(SheetInfo(
-                id=sheet_id,
-                name=os.path.basename(file.filename),
-                index=0,
-                description="Error parsing file"
-            ))
+        sheet_infos = await self._parse_file_into_sheets(
+            file=file, 
+            contents=contents, 
+            file_type=file_type, 
+            version_id=version_id
+        )
         
         # Step 8: Return response with dataset info
         return DatasetUploadResponse(
@@ -218,6 +98,162 @@ class DatasetsService:
             sheets=sheet_infos
         )
 
+    async def _parse_file_into_sheets(
+        self,
+        file: UploadFile,
+        contents: bytes,
+        file_type: str,
+        version_id: int
+    ) -> List[SheetInfo]:
+        """Parse file contents into sheets based on file type"""
+        sheet_infos = []
+        
+        try:
+            filename = os.path.basename(file.filename)
+            parser = self._get_file_parser(file_type)
+            sheet_infos = await parser(contents, filename, version_id)
+        except Exception as e:
+            # Log the error and create an error sheet
+            error_msg = f"Error parsing file: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            sheet_infos = await self._create_error_sheet(file, version_id, file_type, error_msg)
+            
+        return sheet_infos
+    
+    def _get_file_parser(self, file_type: str):
+        """Factory method to get the appropriate file parser"""
+        parsers = {
+            "xlsx": self._parse_excel_file,
+            "xls": self._parse_excel_file,
+            "xlsm": self._parse_excel_file,
+            "csv": self._parse_csv_file
+        }
+        return parsers.get(file_type, self._handle_unsupported_file_type)
+    
+    async def _parse_excel_file(self, contents: bytes, filename: str, version_id: int) -> List[SheetInfo]:
+        """Parse Excel file into sheets"""
+        sheet_infos = []
+        
+        # Create a BytesIO object from contents for pandas to read
+        excel_buffer = BytesIO(contents)
+        excel_file = pd.ExcelFile(excel_buffer)
+        
+        for i, sheet_name in enumerate(excel_file.sheet_names):
+            sheet_create = SheetCreate(
+                dataset_version_id=version_id,
+                name=sheet_name,
+                sheet_index=i,
+                description=None
+            )
+
+            sheet_id = await self.repository.create_sheet(sheet_create)
+
+            # Optional: Process sheet for profiling
+            # profile_report_file_id = await self._generate_profile_report(excel_file, sheet_name)
+
+            # Create sheet metadata
+            metadata = {
+                "columns": len(excel_file.parse(sheet_name).columns),
+                "rows": len(excel_file.parse(sheet_name))
+                # Additional metadata can be added here
+            }
+
+            await self.repository.create_sheet_metadata(sheet_id, metadata)
+
+            sheet_infos.append(SheetInfo(
+                id=sheet_id,
+                name=sheet_name,
+                index=i,
+                description=None
+            ))
+            
+        return sheet_infos
+    
+    async def _parse_csv_file(self, contents: bytes, filename: str, version_id: int) -> List[SheetInfo]:
+        """Parse CSV file into a sheet"""
+        sheet_create = SheetCreate(
+            dataset_version_id=version_id,
+            name=filename,
+            sheet_index=0,
+            description=None
+        )
+
+        sheet_id = await self.repository.create_sheet(sheet_create)
+
+        # Create a BytesIO object from contents for pandas to read
+        csv_buffer = BytesIO(contents)
+        df = pd.read_csv(csv_buffer)
+
+        # Create sheet metadata
+        metadata = {
+            "columns": len(df.columns),
+            "rows": len(df)
+            # Additional metadata can be added here
+        }
+
+        await self.repository.create_sheet_metadata(sheet_id, metadata)
+
+        return [SheetInfo(
+            id=sheet_id,
+            name=filename,
+            index=0,
+            description=None
+        )]
+    
+    async def _handle_unsupported_file_type(self, contents: bytes, filename: str, version_id: int) -> List[SheetInfo]:
+        """Handle unsupported file types"""
+        file_type = os.path.splitext(filename)[1].lower()[1:]
+        sheet_create = SheetCreate(
+            dataset_version_id=version_id,
+            name=filename,
+            sheet_index=0,
+            description=f"Unsupported file type: {file_type}"
+        )
+
+        sheet_id = await self.repository.create_sheet(sheet_create)
+
+        # Create minimal metadata
+        metadata = {
+            "file_type": file_type,
+            "note": "Unsupported file type - no parsing performed"
+        }
+
+        await self.repository.create_sheet_metadata(sheet_id, metadata)
+
+        return [SheetInfo(
+            id=sheet_id,
+            name=filename,
+            index=0,
+            description=f"Unsupported file type: {file_type}"
+        )]
+    
+    async def _create_error_sheet(self, file: UploadFile, version_id: int, file_type: str, error_msg: str) -> List[SheetInfo]:
+        """Create a sheet entry for a file parsing error"""
+        filename = os.path.basename(file.filename)
+        sheet_create = SheetCreate(
+            dataset_version_id=version_id,
+            name=filename,
+            sheet_index=0,
+            description="Error parsing file"
+        )
+
+        sheet_id = await self.repository.create_sheet(sheet_create)
+
+        # Create error metadata
+        metadata = {
+            "error": error_msg,
+            "file_type": file_type
+        }
+
+        await self.repository.create_sheet_metadata(sheet_id, metadata)
+
+        return [SheetInfo(
+            id=sheet_id,
+            name=filename,
+            index=0,
+            description="Error parsing file"
+        )]
+    
     async def _generate_profile_report(self, data_source, sheet_name=None):
         """
         Generate profiling report for a dataset.
@@ -239,100 +275,6 @@ class DatasetsService:
         return None
 
     # Dataset listing and retrieval methods
-    async def list_datasets_very_simple(
-        self,
-        limit: int = 10,
-        offset: int = 0
-    ) -> List[Dict[str, Any]]:
-        """Very simple dataset listing without any filters"""
-        # Validate inputs
-        if limit < 1:
-            limit = 10
-        elif limit > 100:
-            limit = 100
-
-        if offset < 0:
-            offset = 0
-
-        # Call repository method
-        result = await self.repository.list_datasets_very_simple(
-            limit=limit,
-            offset=offset
-        )
-
-        # Transform raw results into appropriate response models
-        datasets = []
-        for row in result:
-            tags = []
-            if row.get("tag_ids") and row.get("tag_names"):
-                for tag_id, tag_name in zip(row["tag_ids"], row["tag_names"]):
-                    tags.append({"id": tag_id, "name": tag_name})
-
-            dataset = {
-                "id": row["id"],
-                "name": row["name"],
-                "description": row["description"],
-                "created_by": row["created_by"],
-                "created_at": row["created_at"],
-                "updated_at": row["updated_at"],
-                "tags": tags,
-                "current_version": row["current_version"],
-                "file_type": row["file_type"],
-                "file_size": row["file_size"]
-            }
-            datasets.append(dataset)
-
-        return datasets
-
-    async def list_datasets_simple(
-        self,
-        limit: int = 10,
-        offset: int = 0,
-        name: Optional[str] = None,
-        created_by: Optional[int] = None
-    ) -> List[Dict[str, Any]]:
-        """Simplified list datasets with basic filtering"""
-        # Validate inputs
-        if limit < 1:
-            limit = 10
-        elif limit > 100:
-            limit = 100
-
-        if offset < 0:
-            offset = 0
-
-        # Call repository method
-        result = await self.repository.list_datasets_simple(
-            limit=limit,
-            offset=offset,
-            name=name,
-            created_by=created_by
-        )
-
-        # Transform raw results into appropriate response models
-        datasets = []
-        for row in result:
-            tags = []
-            if row.get("tag_ids") and row.get("tag_names"):
-                for tag_id, tag_name in zip(row["tag_ids"], row["tag_names"]):
-                    tags.append({"id": tag_id, "name": tag_name})
-
-            dataset = {
-                "id": row["id"],
-                "name": row["name"],
-                "description": row["description"],
-                "created_by": row["created_by"],
-                "created_at": row["created_at"],
-                "updated_at": row["updated_at"],
-                "tags": tags,
-                "current_version": row["current_version"],
-                "file_type": row["file_type"],
-                "file_size": row["file_size"]
-            }
-            datasets.append(dataset)
-
-        return datasets
-
     async def list_datasets(
         self,
         limit: int = 10,
@@ -363,6 +305,7 @@ class DatasetsService:
         if offset < 0:
             offset = 0
 
+        # Default sort parameters
         valid_sort_fields = ["name", "created_at", "updated_at", "file_size", "current_version"]
         if sort_by not in valid_sort_fields:
             sort_by = "updated_at"
@@ -370,7 +313,7 @@ class DatasetsService:
         valid_sort_orders = ["asc", "desc"]
         if sort_order not in valid_sort_orders:
             sort_order = "desc"
-
+        
         # Call repository method
         result = await self.repository.list_datasets(
             limit=limit,

@@ -75,42 +75,14 @@ class DatasetsController:
             )
     
     # Controller methods for dataset operations
-    async def list_datasets_very_simple(
-        self,
-        limit: int = 10,
-        offset: int = 0
-    ) -> List[Dict[str, Any]]:
-        """Very simplified list datasets with no filtering"""
-        try:
-            return await self.service.list_datasets_very_simple(
-                limit=limit,
-                offset=offset
-            )
-        except Exception as e:
+    async def _handle_service_error(self, operation: str, error: Exception) -> None:
+        """Centralized error handling for service operations"""
+        if isinstance(error, HTTPException):
+            raise error
+        else:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to list datasets: {str(e)}"
-            )
-
-    async def list_datasets_simple(
-        self,
-        limit: int = 10,
-        offset: int = 0,
-        name: Optional[str] = None,
-        created_by: Optional[int] = None
-    ) -> List[Dict[str, Any]]:
-        """Simplified list datasets with basic filtering"""
-        try:
-            return await self.service.list_datasets_simple(
-                limit=limit,
-                offset=offset,
-                name=name,
-                created_by=created_by
-            )
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to list datasets: {str(e)}"
+                detail=f"Failed to {operation}: {str(error)}"
             )
 
     async def list_datasets(
@@ -134,28 +106,28 @@ class DatasetsController:
         updated_at_to: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """List datasets with optional filtering, sorting, and pagination"""
-        # Parse datetime strings if provided
-        created_at_from_dt = None
-        created_at_to_dt = None
-        updated_at_from_dt = None
-        updated_at_to_dt = None
-
         try:
-            if created_at_from:
-                created_at_from_dt = datetime.fromisoformat(created_at_from.replace('Z', '+00:00'))
-            if created_at_to:
-                created_at_to_dt = datetime.fromisoformat(created_at_to.replace('Z', '+00:00'))
-            if updated_at_from:
-                updated_at_from_dt = datetime.fromisoformat(updated_at_from.replace('Z', '+00:00'))
-            if updated_at_to:
-                updated_at_to_dt = datetime.fromisoformat(updated_at_to.replace('Z', '+00:00'))
-        except ValueError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid datetime format: {str(e)}"
-            )
+            # Parse datetime strings if provided
+            created_at_from_dt = None
+            created_at_to_dt = None
+            updated_at_from_dt = None
+            updated_at_to_dt = None
 
-        try:
+            try:
+                if created_at_from:
+                    created_at_from_dt = datetime.fromisoformat(created_at_from.replace('Z', '+00:00'))
+                if created_at_to:
+                    created_at_to_dt = datetime.fromisoformat(created_at_to.replace('Z', '+00:00'))
+                if updated_at_from:
+                    updated_at_from_dt = datetime.fromisoformat(updated_at_from.replace('Z', '+00:00'))
+                if updated_at_to:
+                    updated_at_to_dt = datetime.fromisoformat(updated_at_to.replace('Z', '+00:00'))
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid datetime format: {str(e)}"
+                )
+
             return await self.service.list_datasets(
                 limit=limit,
                 offset=offset,
@@ -176,28 +148,27 @@ class DatasetsController:
                 updated_at_to=updated_at_to_dt
             )
         except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to list datasets: {str(e)}"
-            )
+            await self._handle_service_error("list datasets", e)
+
+
+    async def _check_resource_exists(self, resource_id: int, get_method, resource_type: str) -> Dict[str, Any]:
+        """Check if a resource exists and raise 404 if not"""
+        try:
+            resource = await get_method(resource_id)
+            if not resource:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"{resource_type} with ID {resource_id} not found"
+                )
+            return resource
+        except Exception as e:
+            await self._handle_service_error(f"get {resource_type.lower()}", e)
 
     async def get_dataset(self, dataset_id: int) -> Dict[str, Any]:
         """Get detailed information about a single dataset"""
-        try:
-            dataset = await self.service.get_dataset(dataset_id)
-            if not dataset:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Dataset with ID {dataset_id} not found"
-                )
-            return dataset
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to get dataset: {str(e)}"
-            )
+        return await self._check_resource_exists(
+            dataset_id, self.service.get_dataset, "Dataset"
+        )
 
     async def update_dataset(self, dataset_id: int, data: DatasetUpdate) -> Dict[str, Any]:
         """Update dataset metadata"""
@@ -209,13 +180,8 @@ class DatasetsController:
                     detail=f"Dataset with ID {dataset_id} not found"
                 )
             return updated_dataset
-        except HTTPException:
-            raise
         except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to update dataset: {str(e)}"
-            )
+            await self._handle_service_error("update dataset", e)
 
     async def list_dataset_versions(self, dataset_id: int) -> List[Dict[str, Any]]:
         """List all versions of a dataset"""
@@ -224,42 +190,27 @@ class DatasetsController:
             versions = await self.service.list_dataset_versions(dataset_id)
             if not versions:
                 # Check if dataset exists
-                dataset = await self.service.get_dataset(dataset_id)
-                if not dataset:
-                    raise HTTPException(
-                        status_code=status.HTTP_404_NOT_FOUND,
-                        detail=f"Dataset with ID {dataset_id} not found"
-                    )
+                await self._check_resource_exists(
+                    dataset_id, self.service.get_dataset, "Dataset"
+                )
             return versions
-        except HTTPException:
-            raise
         except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to list dataset versions: {str(e)}"
-            )
+            await self._handle_service_error("list dataset versions", e)
 
     async def get_dataset_version(self, version_id: int) -> Dict[str, Any]:
         """Get detailed information about a single dataset version"""
-        try:
-            version = await self.service.get_dataset_version(version_id)
-            if not version:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Dataset version with ID {version_id} not found"
-                )
-            return version
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to get dataset version: {str(e)}"
-            )
+        return await self._check_resource_exists(
+            version_id, self.service.get_dataset_version, "Dataset version"
+        )
 
     async def get_dataset_version_file(self, version_id: int):
         """Get file for a dataset version"""
         try:
+            # Verify version exists first
+            await self._check_resource_exists(
+                version_id, self.service.get_dataset_version, "Dataset version"
+            )
+
             file_info = await self.service.get_dataset_version_file(version_id)
             if not file_info:
                 raise HTTPException(
@@ -267,73 +218,49 @@ class DatasetsController:
                     detail=f"File for dataset version with ID {version_id} not found"
                 )
             return file_info
-        except HTTPException:
-            raise
         except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to get dataset version file: {str(e)}"
-            )
+            await self._handle_service_error("get dataset version file", e)
 
     async def delete_dataset_version(self, version_id: int) -> Dict[str, bool]:
         """Delete a dataset version"""
         try:
-            success = await self.service.delete_dataset_version(version_id)
-            if not success:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Dataset version with ID {version_id} not found"
-                )
-            return {"ok": True}
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to delete dataset version: {str(e)}"
+            # Verify version exists first
+            await self._check_resource_exists(
+                version_id, self.service.get_dataset_version, "Dataset version"
             )
+
+            success = await self.service.delete_dataset_version(version_id)
+            return {"ok": True}
+        except Exception as e:
+            await self._handle_service_error("delete dataset version", e)
 
     async def list_tags(self) -> List[Dict[str, Any]]:
         """List all available tags"""
         try:
             return await self.service.list_tags()
         except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to list tags: {str(e)}"
-            )
+            await self._handle_service_error("list tags", e)
 
     async def list_version_sheets(self, version_id: int) -> List[Dict[str, Any]]:
         """Get all sheets for a dataset version"""
         try:
-            sheets = await self.service.list_version_sheets(version_id)
-            if not sheets:
-                # Check if version exists
-                version = await self.service.get_dataset_version(version_id)
-                if not version:
-                    raise HTTPException(
-                        status_code=status.HTTP_404_NOT_FOUND,
-                        detail=f"Dataset version with ID {version_id} not found"
-                    )
-            return sheets
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to list sheets: {str(e)}"
+            # Verify version exists first
+            await self._check_resource_exists(
+                version_id, self.service.get_dataset_version, "Dataset version"
             )
+
+            sheets = await self.service.list_version_sheets(version_id)
+            return sheets
+        except Exception as e:
+            await self._handle_service_error("list sheets", e)
 
     async def get_sheet_data(self, version_id: int, sheet_name: Optional[str], limit: int, offset: int) -> Dict[str, Any]:
         """Get paginated data from a sheet"""
         try:
-            # First check if version exists
-            version = await self.service.get_dataset_version(version_id)
-            if not version:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Dataset version with ID {version_id} not found"
-                )
+            # Verify version exists first
+            await self._check_resource_exists(
+                version_id, self.service.get_dataset_version, "Dataset version"
+            )
 
             # Get sheet data
             headers, rows, has_more = await self.service.get_sheet_data(
@@ -357,10 +284,5 @@ class DatasetsController:
                 "limit": limit,
                 "total": None  # We don't know the total without scanning the whole file
             }
-        except HTTPException:
-            raise
         except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to get sheet data: {str(e)}"
-            )
+            await self._handle_service_error("get sheet data", e)

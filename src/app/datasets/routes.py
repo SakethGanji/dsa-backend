@@ -62,13 +62,25 @@ async def upload_dataset(
 async def list_datasets(
     limit: int = Query(10, ge=1, le=100, description="Maximum number of results to return"),
     offset: int = Query(0, ge=0, description="Number of results to skip"),
+    name: Optional[str] = Query(None, description="Filter by name"),
+    description: Optional[str] = Query(None, description="Filter by description"),
+    created_by: Optional[int] = Query(None, description="Filter by creator ID"),
+    tags: Optional[List[str]] = Query(None, description="Filter by tags"),
+    sort_by: Optional[str] = Query(None, description="Field to sort by"),
+    sort_order: Optional[str] = Query(None, description="Sort order (asc or desc)"),
     controller: DatasetsController = Depends(get_datasets_controller),
     current_user: User = Depends(get_current_user)
 ):
-    """List all datasets"""
-    return await controller.list_datasets_very_simple(
+    """List datasets with optional filtering"""
+    return await controller.list_datasets(
         limit=limit,
-        offset=offset
+        offset=offset,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        name=name,
+        description=description,
+        created_by=created_by,
+        tags=tags
     )
 
 @router.get("/tags", response_model=List[Tag])

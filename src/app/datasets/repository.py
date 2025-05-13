@@ -119,68 +119,17 @@ class DatasetsRepository:
         await self.session.commit()
         return result.scalar_one()
 
-    # Simple method to list datasets with minimal filtering
-    async def list_datasets_very_simple(
-        self,
-        limit: int = 10,
-        offset: int = 0
-    ) -> List[Dict[str, Any]]:
-        query = sa.text("""
-        WITH dataset_data AS (
-            SELECT 
-                d.id,
-                d.name,
-                d.description,
-                d.created_by,
-                d.created_at,
-                d.updated_at,
-                array_agg(DISTINCT t.id) FILTER (WHERE t.id IS NOT NULL) AS tag_ids,
-                array_agg(DISTINCT t.name) FILTER (WHERE t.name IS NOT NULL) AS tag_names
-            FROM 
-                datasets d
-            LEFT JOIN dataset_tags dt ON d.id = dt.dataset_id
-            LEFT JOIN tags t ON dt.tag_id = t.id
-            GROUP BY 
-                d.id, d.name, d.description, d.created_by, d.created_at, d.updated_at
-        )
-        SELECT 
-            dd.id,
-            dd.name,
-            dd.description,
-            dd.created_by,
-            dd.created_at,
-            dd.updated_at,
-            dd.tag_ids,
-            dd.tag_names,
-            dv.version_number as current_version,
-            f.file_type,
-            f.file_size
-        FROM 
-            dataset_data dd
-        LEFT JOIN LATERAL (
-            SELECT version_number, file_id
-            FROM dataset_versions
-            WHERE dataset_id = dd.id
-            ORDER BY version_number DESC
-            LIMIT 1
-        ) dv ON true
-        LEFT JOIN files f ON dv.file_id = f.id
-        ORDER BY 
-            dd.updated_at DESC
-        LIMIT :limit
-        OFFSET :offset;
-        """)
-        result = await self.session.execute(query, {"limit": limit, "offset": offset})
-        return [dict(row) for row in result.mappings()]
-        
-    async def list_datasets_simple(
+    # Dataset listing methods
+    async def _build_dataset_query(
         self,
         limit: int = 10,
         offset: int = 0,
-        name: Optional[str] = None,
-        created_by: Optional[int] = None
-    ) -> List[Dict[str, Any]]:
-        # Create base query
+        filters: Optional[Dict[str, Any]] = None,
+        sort_by: Optional[str] = None,
+        sort_order: Optional[str] = "desc"
+    ) -> Tuple[str, Dict[str, Any]]:
+        """Build a SQL query for listing datasets with various filters"""
+        # Start building the base query
         sql = """
         WITH dataset_data AS (
             SELECT 
@@ -198,18 +147,39 @@ class DatasetsRepository:
             LEFT JOIN tags t ON dt.tag_id = t.id
         """
         
-        # Add WHERE clause conditionally
-        where_clauses = []
+        # Process filters
         params = {"limit": limit, "offset": offset}
+        where_clauses = []
         
-        if name is not None:
-            where_clauses.append("d.name ILIKE '%' || :name || '%'")
-            params["name"] = name
-            
-        if created_by is not None:
-            where_clauses.append("d.created_by = :created_by")
-            params["created_by"] = created_by
-            
+        if filters:
+            for key, value in filters.items():
+                if value is not None:
+                    # Handle special cases
+                    if key == "name" or key == "description":
+                        where_clauses.append(f"d.{key} ILIKE '%' || :{key} || '%'")
+                        params[key] = value
+                    elif key == "created_by":
+                        where_clauses.append("d.created_by = :created_by")
+                        params["created_by"] = value
+                    elif key == "created_at_from":
+                        where_clauses.append("d.created_at >= :created_at_from")
+                        params["created_at_from"] = value
+                    elif key == "created_at_to":
+                        where_clauses.append("d.created_at <= :created_at_to")
+                        params["created_at_to"] = value
+                    elif key == "updated_at_from":
+                        where_clauses.append("d.updated_at >= :updated_at_from")
+                        params["updated_at_from"] = value
+                    elif key == "updated_at_to":
+                        where_clauses.append("d.updated_at <= :updated_at_to")
+                        params["updated_at_to"] = value
+                    elif key == "tags" and isinstance(value, list) and len(value) > 0:
+                        tag_placeholders = [f":tag_{i}" for i in range(len(value))]
+                        for i, tag in enumerate(value):
+                            params[f"tag_{i}"] = tag
+                        where_clauses.append(f"t.name IN ({', '.join(tag_placeholders)})")
+        
+        # Add WHERE clause if filters are present
         if where_clauses:
             sql += " WHERE " + " AND ".join(where_clauses)
             
@@ -240,17 +210,29 @@ class DatasetsRepository:
             LIMIT 1
         ) dv ON true
         LEFT JOIN files f ON dv.file_id = f.id
-        ORDER BY 
-            dd.updated_at DESC
-        LIMIT :limit
-        OFFSET :offset;
         """
         
+        # Add sorting
+        if sort_by in ["name", "created_at", "updated_at", "current_version"]:
+            order_col = "dd." + sort_by if sort_by != "current_version" else "dv.version_number"
+            sql += f"\nORDER BY {order_col} {sort_order.upper()}"
+        elif sort_by == "file_size":
+            sql += f"\nORDER BY f.file_size {sort_order.upper()}"
+        else:  # Default sort
+            sql += "\nORDER BY dd.updated_at DESC"
+        
+        # Add pagination
+        sql += "\nLIMIT :limit OFFSET :offset;"
+        
+        return sql, params
+    
+    async def _execute_dataset_query(self, sql: str, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Execute a dataset query and return the results"""
         query = sa.text(sql)
         result = await self.session.execute(query, params)
         return [dict(row) for row in result.mappings()]
-
-    # Original methods for listing and retrieving datasets and versions
+    
+    # Dataset listing with full filtering
     async def list_datasets(
         self, 
         limit: int = 10, 
@@ -271,30 +253,60 @@ class DatasetsRepository:
         updated_at_from: Optional[datetime] = None,
         updated_at_to: Optional[datetime] = None
     ) -> List[Dict[str, Any]]:
-        query = sa.text(open(os.path.join(os.path.dirname(__file__), "sql/list_datasets.sql")).read())
-        values = {
-            "limit": limit,
-            "offset": offset,
-            "sort_by": sort_by,
-            "sort_order": sort_order.lower() if sort_order else "desc",
+        filters = {
             "name": name,
             "description": description,
             "created_by": created_by,
-            "tag": tags,
-            "file_type": file_type,
-            "file_size_min": file_size_min,
-            "file_size_max": file_size_max,
-            "version_min": version_min,
-            "version_max": version_max,
+            "tags": tags,
             "created_at_from": created_at_from,
             "created_at_to": created_at_to,
             "updated_at_from": updated_at_from,
             "updated_at_to": updated_at_to
         }
-        result = await self.session.execute(query, values)
-        return [dict(row) for row in result.mappings()]
+        
+        # Filter out None values
+        filters = {k: v for k, v in filters.items() if v is not None}
+        
+        sql, params = await self._build_dataset_query(
+            limit=limit,
+            offset=offset,
+            filters=filters,
+            sort_by=sort_by,
+            sort_order=sort_order if sort_order else "desc"
+        )
+        
+        # Add additional specialized filters
+        # (These would need to be added to the query string directly)
+        if file_type or file_size_min or file_size_max or version_min or version_max:
+            # For now, just use the SQL file for the full complex query
+            query = sa.text(open(os.path.join(os.path.dirname(__file__), "sql/list_datasets.sql")).read())
+            values = {
+                "limit": limit,
+                "offset": offset,
+                "sort_by": sort_by,
+                "sort_order": sort_order.lower() if sort_order else "desc",
+                "name": name,
+                "description": description,
+                "created_by": created_by,
+                "tag": tags,
+                "file_type": file_type,
+                "file_size_min": file_size_min,
+                "file_size_max": file_size_max,
+                "version_min": version_min,
+                "version_max": version_max,
+                "created_at_from": created_at_from,
+                "created_at_to": created_at_to,
+                "updated_at_from": updated_at_from,
+                "updated_at_to": updated_at_to
+            }
+            result = await self.session.execute(query, values)
+            return [dict(row) for row in result.mappings()]
+        else:
+            # Use the dynamically built query for simpler cases
+            return await self._execute_dataset_query(sql, params)
 
-    async def get_dataset_simple(self, dataset_id: int) -> Optional[Dict[str, Any]]:
+    async def get_dataset(self, dataset_id: int) -> Optional[Dict[str, Any]]:
+        """Get a dataset by ID including versions and tags"""
         query = sa.text(open(os.path.join(os.path.dirname(__file__), "sql/get_dataset_simple.sql")).read())
         values = {"dataset_id": dataset_id}
         result = await self.session.execute(query, values)
@@ -319,10 +331,6 @@ class DatasetsRepository:
         dataset["tags"] = tags
 
         return dataset
-
-    async def get_dataset(self, dataset_id: int) -> Optional[Dict[str, Any]]:
-        # Use the simple version instead
-        return await self.get_dataset_simple(dataset_id)
         
     async def update_dataset(
         self, 
@@ -390,8 +398,11 @@ class DatasetsRepository:
         return [dict(row) for row in result.mappings()]
         
     async def get_file(self, file_id: int) -> Optional[Dict[str, Any]]:
+        """Get file information by ID"""
         query = sa.text("""
-        SELECT * FROM files WHERE id = :file_id
+        SELECT id, storage_type, file_type, mime_type, file_path, file_size, file_data, created_at 
+        FROM files 
+        WHERE id = :file_id
         """)
         result = await self.session.execute(query, {"file_id": file_id})
         row = result.mappings().first()
