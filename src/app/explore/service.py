@@ -3,7 +3,7 @@ import numpy as np
 import logging
 import json
 from io import BytesIO, StringIO
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any, Union, Tuple, Callable
 from app.explore.models import ProfileFormat
 import ydata_profiling
 from ydata_profiling import ProfileReport
@@ -17,6 +17,16 @@ logger = logging.getLogger(__name__)
 class ExploreService:
     def __init__(self, repository):
         self.repository = repository
+        # Initialize operations map
+        self._operations_map = {
+            "filter_rows": self._apply_filter_rows,
+            "sample_rows": self._apply_sample_rows,
+            "remove_columns": self._apply_remove_columns,
+            "rename_columns": self._apply_rename_columns,
+            "remove_nulls": self._apply_remove_nulls,
+            "derive_column": self._apply_derive_column,
+            "sort_rows": self._apply_sort_rows
+        }
         
     async def explore_dataset(
         self,
@@ -32,20 +42,8 @@ class ExploreService:
         The profiling especially can take considerable time even with minimal=True.
         """
         try:
-            # Get version info
-            logger.info(f"Exploring dataset {dataset_id}, version {version_id}")
-            version = await self.repository.get_dataset_version(version_id)
-            if not version:
-                raise ValueError(f"Dataset version with ID {version_id} not found")
-                
-            # Verify dataset ID matches
-            if version["dataset_id"] != dataset_id:
-                raise ValueError(f"Version {version_id} does not belong to dataset {dataset_id}")
-                
-            # Get file data
-            file_info = await self.repository.get_file(version["file_id"])
-            if not file_info or not file_info.get("file_data"):
-                raise ValueError("File data not found")
+            # Validate dataset and version
+            version, file_info = await self._validate_and_get_data(dataset_id, version_id)
             
             # Load file into pandas DataFrame
             df = self._load_dataframe(file_info, request.sheet)
@@ -53,144 +51,39 @@ class ExploreService:
             logger.info(f"Loaded DataFrame with {original_row_count} rows and {len(df.columns)} columns")
             
             # Apply operations
-            for op in request.operations:
-                op_type = op.get("type")
-                
-                if op_type == "filter_rows":
-                    expression = op.get("expression", "")
-                    if expression:
-                        try:
-                            df = df.query(expression)
-                            logger.info(f"Filtered rows with expression '{expression}', {len(df)} rows remaining")
-                        except Exception as e:
-                            logger.warning(f"Error applying filter: {str(e)}")
-                
-                elif op_type == "sample_rows":
-                    if "fraction" in op:
-                        fraction = float(op.get("fraction", 0.1))
-                    else:
-                        fraction = float(op.get("frac", 0.1))
-                        
-                    method = op.get("method", "random")
-                    try:
-                        # Make sure fraction is between 0 and 1
-                        fraction = max(0.01, min(1.0, fraction))
-                        # If DataFrame is very small, just return all rows
-                        if len(df) <= 100:
-                            pass
-                        else:
-                            if method == "random":
-                                df = df.sample(frac=fraction)
-                            elif method == "head":
-                                df = df.head(int(len(df) * fraction))
-                            elif method == "tail":
-                                df = df.tail(int(len(df) * fraction))
-                                
-                        logger.info(f"Sampled rows with {method} method, fraction {fraction}, {len(df)} rows selected")
-                    except Exception as e:
-                        logger.warning(f"Error sampling rows: {str(e)}")
-                
-                elif op_type == "remove_columns":
-                    columns = op.get("columns", [])
-                    if columns:
-                        try:
-                            # Only keep columns that exist
-                            columns_to_drop = [col for col in columns if col in df.columns]
-                            if columns_to_drop:
-                                df = df.drop(columns=columns_to_drop)
-                                logger.info(f"Removed columns: {columns_to_drop}, {len(df.columns)} columns remaining")
-                        except Exception as e:
-                            logger.warning(f"Error removing columns: {str(e)}")
-                
-                elif op_type == "rename_columns":
-                    mappings = op.get("mappings", {})
-                    if mappings:
-                        try:
-                            # Only rename columns that exist
-                            valid_mappings = {k: v for k, v in mappings.items() if k in df.columns}
-                            if valid_mappings:
-                                df = df.rename(columns=valid_mappings)
-                                logger.info(f"Renamed columns: {valid_mappings}")
-                        except Exception as e:
-                            logger.warning(f"Error renaming columns: {str(e)}")
-                
-                elif op_type == "remove_nulls":
-                    columns = op.get("columns", [])
-                    try:
-                        if columns:
-                            # Only consider columns that exist in the DataFrame
-                            valid_columns = [col for col in columns if col in df.columns]
-                            if valid_columns:
-                                df = df.dropna(subset=valid_columns)
-                        else:
-                            # If no columns specified, remove rows with any nulls
-                            df = df.dropna()
-                        
-                        logger.info(f"Removed null values, {len(df)} rows remaining")
-                    except Exception as e:
-                        logger.warning(f"Error removing nulls: {str(e)}")
-                
-                elif op_type == "derive_column":
-                    column_name = op.get("column", "")
-                    expression = op.get("expression", "")
-                    if column_name and expression:
-                        try:
-                            # Use safer evaluation for derived columns
-                            # Limit the scope of what can be executed
-                            local_vars = {"df": df}
-                            df[column_name] = eval(expression, {"__builtins__": {}}, local_vars)
-                            logger.info(f"Created derived column '{column_name}'")
-                        except Exception as e:
-                            logger.warning(f"Error creating derived column: {str(e)}")
-                
-                elif op_type == "sort_rows":
-                    columns = op.get("columns", [])
-                    order = op.get("order", [])
-                    if columns:
-                        try:
-                            # Validate columns exist
-                            valid_columns = [col for col in columns if col in df.columns]
-                            if valid_columns:
-                                # Convert order strings to boolean (True for ascending)
-                                ascending = []
-                                for i, col in enumerate(valid_columns):
-                                    if i < len(order):
-                                        ascending.append(order[i].lower() == "asc")
-                                    else:
-                                        ascending.append(True)  # Default to ascending
-                                
-                                df = df.sort_values(by=valid_columns, ascending=ascending)
-                                logger.info(f"Sorted rows by columns: {valid_columns}")
-                        except Exception as e:
-                            logger.warning(f"Error sorting rows: {str(e)}")
+            df = self._apply_operations(df, request.operations)
             
-            # Create a simple data summary before the expensive profiling
-            summary = {
-                "rows": len(df),
-                "columns": len(df.columns),
-                "column_names": list(df.columns),
-                "memory_usage_mb": df.memory_usage(deep=True).sum() / (1024 * 1024),
-                "sample": df.head(10).to_dict(orient="records")
-            }
+            # Generate response
+            return self._create_response(df, request)
             
-            # Only run profiling if specifically requested via a flag
-            if getattr(request, 'run_profiling', False):  # Default to False for performance
-                # Generate a profiling report using ydata-profiling (can be slow)
-                profile = self._generate_profile(df, request.format)
-                
-                # Format the response based on the requested format
-                if request.format == ProfileFormat.HTML:
-                    return {"profile": profile, "format": "html", "summary": summary}
-                else:  # Default to JSON
-                    return {"profile": profile, "format": "json", "summary": summary}
-            else:
-                # Return just the summary for faster response
-                return {"summary": summary, "format": "json", "message": "Profiling skipped for performance reasons"}
-            
+        except ValueError as e:
+            # Specific error handling for validation errors
+            logger.warning(f"Validation error in explore_dataset: {str(e)}")
+            raise
         except Exception as e:
+            # General error handling
             logger.error(f"Error in explore_dataset: {str(e)}", exc_info=True)
             raise
+    
+    async def _validate_and_get_data(self, dataset_id: int, version_id: int) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """Validate dataset and version IDs and get file data"""
+        # Get version info
+        logger.info(f"Exploring dataset {dataset_id}, version {version_id}")
+        version = await self.repository.get_dataset_version(version_id)
+        if not version:
+            raise ValueError(f"Dataset version with ID {version_id} not found")
             
+        # Verify dataset ID matches
+        if version["dataset_id"] != dataset_id:
+            raise ValueError(f"Version {version_id} does not belong to dataset {dataset_id}")
+            
+        # Get file data
+        file_info = await self.repository.get_file(version["file_id"])
+        if not file_info or not file_info.get("file_data"):
+            raise ValueError("File data not found")
+            
+        return version, file_info
+    
     def _load_dataframe(self, file_info: Dict[str, Any], sheet_name: Optional[str] = None) -> pd.DataFrame:
         """Load file data into a pandas DataFrame"""
         file_data = file_info["file_data"]
@@ -216,26 +109,217 @@ class ExploreService:
             # Return an empty DataFrame with a message column
             return pd.DataFrame({"message": [f"Error loading file: {str(e)}"]})
             
+    def _apply_operations(self, df: pd.DataFrame, operations: List[Dict[str, Any]]) -> pd.DataFrame:
+        """Apply a series of operations to the DataFrame"""
+        for op in operations:
+            op_type = op.get("type")
+            if op_type in self._operations_map:
+                try:
+                    df = self._operations_map[op_type](df, op)
+                except Exception as e:
+                    logger.warning(f"Error applying operation {op_type}: {str(e)}")
+        return df
+    
+    def _apply_filter_rows(self, df: pd.DataFrame, op: Dict[str, Any]) -> pd.DataFrame:
+        """Apply filter_rows operation to DataFrame"""
+        expression = op.get("expression", "")
+        if not expression:
+            return df
+            
+        try:
+            filtered_df = df.query(expression)
+            logger.info(f"Filtered rows with expression '{expression}', {len(filtered_df)} rows remaining")
+            return filtered_df
+        except Exception as e:
+            logger.warning(f"Error applying filter: {str(e)}")
+            return df
+    
+    def _apply_sample_rows(self, df: pd.DataFrame, op: Dict[str, Any]) -> pd.DataFrame:
+        """Apply sample_rows operation to DataFrame"""
+        # Get sample fraction (support both "fraction" and "frac" keys for backward compatibility)
+        if "fraction" in op:
+            fraction = float(op.get("fraction", 0.1))
+        else:
+            fraction = float(op.get("frac", 0.1))
+            
+        method = op.get("method", "random")
+        
+        # Make sure fraction is between 0.01 and 1.0
+        fraction = max(0.01, min(1.0, fraction))
+        
+        # If DataFrame is very small, just return all rows
+        if len(df) <= 100:
+            return df
+            
+        try:
+            if method == "random":
+                sampled_df = df.sample(frac=fraction)
+            elif method == "head":
+                sampled_df = df.head(int(len(df) * fraction))
+            elif method == "tail":
+                sampled_df = df.tail(int(len(df) * fraction))
+            else:
+                # Default to random sampling
+                sampled_df = df.sample(frac=fraction)
+                
+            logger.info(f"Sampled rows with {method} method, fraction {fraction}, {len(sampled_df)} rows selected")
+            return sampled_df
+        except Exception as e:
+            logger.warning(f"Error sampling rows: {str(e)}")
+            return df
+    
+    def _apply_remove_columns(self, df: pd.DataFrame, op: Dict[str, Any]) -> pd.DataFrame:
+        """Apply remove_columns operation to DataFrame"""
+        columns = op.get("columns", [])
+        if not columns:
+            return df
+            
+        try:
+            # Only drop columns that exist in the DataFrame
+            columns_to_drop = [col for col in columns if col in df.columns]
+            if columns_to_drop:
+                result_df = df.drop(columns=columns_to_drop)
+                logger.info(f"Removed columns: {columns_to_drop}, {len(result_df.columns)} columns remaining")
+                return result_df
+            return df
+        except Exception as e:
+            logger.warning(f"Error removing columns: {str(e)}")
+            return df
+    
+    def _apply_rename_columns(self, df: pd.DataFrame, op: Dict[str, Any]) -> pd.DataFrame:
+        """Apply rename_columns operation to DataFrame"""
+        mappings = op.get("mappings", {})
+        if not mappings:
+            return df
+            
+        try:
+            # Only rename columns that exist in the DataFrame
+            valid_mappings = {k: v for k, v in mappings.items() if k in df.columns}
+            if valid_mappings:
+                renamed_df = df.rename(columns=valid_mappings)
+                logger.info(f"Renamed columns: {valid_mappings}")
+                return renamed_df
+            return df
+        except Exception as e:
+            logger.warning(f"Error renaming columns: {str(e)}")
+            return df
+    
+    def _apply_remove_nulls(self, df: pd.DataFrame, op: Dict[str, Any]) -> pd.DataFrame:
+        """Apply remove_nulls operation to DataFrame"""
+        columns = op.get("columns", [])
+        
+        try:
+            if columns:
+                # Only consider columns that exist in the DataFrame
+                valid_columns = [col for col in columns if col in df.columns]
+                if valid_columns:
+                    result_df = df.dropna(subset=valid_columns)
+                    logger.info(f"Removed null values in columns {valid_columns}, {len(result_df)} rows remaining")
+                    return result_df
+                return df
+            else:
+                # If no columns specified, remove rows with any nulls
+                result_df = df.dropna()
+                logger.info(f"Removed rows with any null values, {len(result_df)} rows remaining")
+                return result_df
+        except Exception as e:
+            logger.warning(f"Error removing nulls: {str(e)}")
+            return df
+    
+    def _apply_derive_column(self, df: pd.DataFrame, op: Dict[str, Any]) -> pd.DataFrame:
+        """Apply derive_column operation to DataFrame"""
+        column_name = op.get("column", "")
+        expression = op.get("expression", "")
+        
+        if not column_name or not expression:
+            return df
+            
+        try:
+            # Use safer evaluation for derived columns
+            # Limit the scope of what can be executed
+            local_vars = {"df": df}
+            result_df = df.copy()
+            result_df[column_name] = eval(expression, {"__builtins__": {}}, local_vars)
+            logger.info(f"Created derived column '{column_name}'")
+            return result_df
+        except Exception as e:
+            logger.warning(f"Error creating derived column: {str(e)}")
+            return df
+    
+    def _apply_sort_rows(self, df: pd.DataFrame, op: Dict[str, Any]) -> pd.DataFrame:
+        """Apply sort_rows operation to DataFrame"""
+        columns = op.get("columns", [])
+        order = op.get("order", [])
+        
+        if not columns:
+            return df
+            
+        try:
+            # Validate columns exist
+            valid_columns = [col for col in columns if col in df.columns]
+            if not valid_columns:
+                return df
+                
+            # Convert order strings to boolean (True for ascending)
+            ascending = []
+            for i, col in enumerate(valid_columns):
+                if i < len(order):
+                    ascending.append(order[i].lower() == "asc")
+                else:
+                    ascending.append(True)  # Default to ascending
+            
+            sorted_df = df.sort_values(by=valid_columns, ascending=ascending)
+            logger.info(f"Sorted rows by columns: {valid_columns} with order {ascending}")
+            return sorted_df
+        except Exception as e:
+            logger.warning(f"Error sorting rows: {str(e)}")
+            return df
+    
+    def _create_response(self, df: pd.DataFrame, request) -> Dict[str, Any]:
+        """Create response with summary and optional profile"""
+        # Create a simple data summary
+        summary = {
+            "rows": len(df),
+            "columns": len(df.columns),
+            "column_names": list(df.columns),
+            "memory_usage_mb": df.memory_usage(deep=True).sum() / (1024 * 1024),
+            "sample": df.head(10).to_dict(orient="records")
+        }
+
+        # Only run profiling if specifically requested via a flag
+        if getattr(request, 'run_profiling', False):
+            # Generate a profiling report using ydata-profiling
+            profile = self._generate_profile(df, request.format)
+
+            # Format the response based on the requested format
+            if request.format == ProfileFormat.HTML:
+                return {"profile": profile, "format": "html", "summary": summary}
+            else:  # Default to JSON
+                return {"profile": profile, "format": "json", "summary": summary}
+        else:
+            # Return just the summary for faster response
+            return {"summary": summary, "format": "json", "message": "Profiling skipped. Set run_profiling=true to enable full profiling."}
+    
     def _generate_profile(self, df: pd.DataFrame, output_format: ProfileFormat = ProfileFormat.JSON) -> Any:
         """
         Generate a profile report for the DataFrame using ydata-profiling
-        
+
         Args:
             df: The DataFrame to profile
             output_format: The desired output format (HTML or JSON)
-            
+
         Returns:
             HTML string or JSON dict based on the output_format
         """
         try:
-            # Create a profile report with minimal configuration for speed
+            # Create a profile report
             profile = ProfileReport(
                 df,
                 title="Dataset Profiling Report",
                 explorative=True,
                 minimal=True  # Set to True for faster but less detailed reports
             )
-            
+
             # Return based on requested format
             if output_format == ProfileFormat.HTML:
                 return profile.to_html()
@@ -243,122 +327,11 @@ class ExploreService:
                 return profile.to_json()
         except Exception as e:
             logger.error(f"Error generating profile with ydata-profiling: {str(e)}")
-            # Fallback to simple profile if ydata-profiling fails
-            return self._generate_simple_profile(df)
-        
-    def _calculate_histogram(self, series: pd.Series) -> Dict[str, Any]:
-        """Calculate histogram data for a numeric series"""
-        try:
-            # Drop nulls and convert to numpy array
-            data = series.dropna().to_numpy()
-            if len(data) == 0:
-                return {"counts": [], "bin_edges": []}
-            
-            # Calculate histogram
-            counts, bin_edges = np.histogram(data, bins=10)
-            
-            # Convert to Python types for JSON serialization
+            # Instead of a fallback profile, just return basic DataFrame info
             return {
-                "counts": counts.tolist(),
-                "bin_edges": bin_edges.tolist()
+                "error": f"Could not generate profile: {str(e)}",
+                "rows": len(df),
+                "columns": len(df.columns),
+                "column_names": list(df.columns),
+                "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()}
             }
-        except:
-            return {"counts": [], "bin_edges": []}
-            
-    def _generate_simple_profile(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """Generate a simple profile report for the DataFrame (fallback method)"""
-        # Limit sample size for profiling
-        df_sample = df.sample(min(1000, len(df))) if len(df) > 1000 else df
-        
-        # Basic statistics
-        profile = {
-            "table": {
-                "n": len(df),
-                "n_var": len(df.columns),
-                "n_cells_missing": int(df.isna().sum().sum()),
-                "memory_size": int(df.memory_usage(deep=True).sum()),
-                "record_size": int(df.memory_usage(deep=True).sum() / len(df)) if len(df) > 0 else 0,
-                "columns": list(df.columns)
-            },
-            "variables": {},
-            "correlations": {},
-            "sample_data": []
-        }
-        
-        # Generate variable statistics
-        for col in df.columns:
-            col_stats = {
-                "count": len(df),
-                "n_missing": int(df[col].isna().sum()),
-                "p_missing": float(df[col].isna().mean()),
-                "type": str(df[col].dtype),
-                "unique": int(df[col].nunique())
-            }
-            
-            # Add type-specific statistics
-            if pd.api.types.is_numeric_dtype(df[col]):
-                # For numeric columns
-                if not df[col].isna().all():
-                    col_stats.update({
-                        "min": float(df[col].min()),
-                        "max": float(df[col].max()),
-                        "mean": float(df[col].mean()),
-                        "std": float(df[col].std()),
-                        "median": float(df[col].median()),
-                        "range": float(df[col].max() - df[col].min()),
-                        "histogram": self._calculate_histogram(df[col])
-                    })
-            
-            elif pd.api.types.is_string_dtype(df[col]) or pd.api.types.is_object_dtype(df[col]):
-                # For string/object columns
-                value_counts = df_sample[col].value_counts(dropna=False).head(10)
-                value_counts_dict = {}
-                for k, v in value_counts.items():
-                    key = str(k) if k is not None else "null"
-                    value_counts_dict[key] = int(v)
-                
-                col_stats.update({
-                    "top": str(value_counts.index[0]) if len(value_counts) > 0 else None,
-                    "freq": int(value_counts.iloc[0]) if len(value_counts) > 0 else 0,
-                    "value_counts": value_counts_dict
-                })
-            
-            elif pd.api.types.is_datetime64_dtype(df[col]):
-                # For datetime columns
-                if not df[col].isna().all():
-                    col_stats.update({
-                        "min": str(df[col].min()),
-                        "max": str(df[col].max())
-                    })
-            
-            profile["variables"][col] = col_stats
-        
-        # Calculate correlations between numeric columns
-        numeric_cols = df.select_dtypes(include=['number']).columns
-        if len(numeric_cols) > 1:
-            try:
-                corr_matrix = df[numeric_cols].corr(method='pearson')
-                profile["correlations"]["pearson"] = corr_matrix.to_dict()
-            except:
-                # If correlation calculation fails, provide empty dict
-                profile["correlations"]["pearson"] = {}
-        
-        # Add sample data (first 10 rows)
-        sample_rows = min(10, len(df))
-        try:
-            profile["sample_data"] = df.head(sample_rows).to_dict(orient='records')
-        except:
-            # Handle any serialization issues
-            sample_data = []
-            for i in range(sample_rows):
-                row_dict = {}
-                for col in df.columns:
-                    try:
-                        value = df.iloc[i][col]
-                        row_dict[col] = str(value) if value is not None else None
-                    except:
-                        row_dict[col] = None
-                sample_data.append(row_dict)
-            profile["sample_data"] = sample_data
-        
-        return profile
