@@ -137,14 +137,7 @@ async def get_dataset_version(
         current_user: User = Depends(get_current_user)
 ):
     """Get metadata for a single version"""
-    version = await controller.get_dataset_version(version_id)
-    # Verify the version belongs to the specified dataset
-    if version["dataset_id"] != dataset_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Version {version_id} does not belong to dataset {dataset_id}"
-        )
-    return version
+    return await controller.get_version_for_dataset(dataset_id, version_id)
 
 
 @router.get("/{dataset_id}/versions/{version_id}/download")
@@ -155,31 +148,19 @@ async def download_dataset_version(
         current_user: User = Depends(get_current_user)
 ):
     """Stream-download the raw file for that version"""
-    # Get version info first to verify it exists and belongs to the dataset
-    version = await controller.get_dataset_version(version_id)
-    if version["dataset_id"] != dataset_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Version {version_id} does not belong to dataset {dataset_id}"
-        )
-
-    # Get the file data
+    version = await controller.get_version_for_dataset(dataset_id, version_id)
     file_info = await controller.get_dataset_version_file(version_id)
     if not file_info or not file_info.get("file_data"):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="File data not found"
         )
-
-    # Prepare streaming response
     file_data = file_info["file_data"]
     file_type = file_info["file_type"]
     file_name = f"{version['dataset_id']}_v{version['version_number']}.{file_type}"
     media_type = file_info["mime_type"] or "application/octet-stream"
-
     def iter_file():
         yield file_data
-
     return StreamingResponse(
         iter_file(),
         media_type=media_type,
@@ -197,14 +178,7 @@ async def delete_dataset_version(
         current_user: User = Depends(get_current_user)
 ):
     """Delete one specific dataset version"""
-    # Get version info first to verify it exists and belongs to the dataset
-    version = await controller.get_dataset_version(version_id)
-    if version["dataset_id"] != dataset_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Version {version_id} does not belong to dataset {dataset_id}"
-        )
-
+    await controller.get_version_for_dataset(dataset_id, version_id)
     return await controller.delete_dataset_version(version_id)
 
 
@@ -216,14 +190,7 @@ async def list_version_sheets(
         current_user: User = Depends(get_current_user)
 ):
     """List all sheets in a dataset version"""
-    # Get version info first to verify it exists and belongs to the dataset
-    version = await controller.get_dataset_version(version_id)
-    if version["dataset_id"] != dataset_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Version {version_id} does not belong to dataset {dataset_id}"
-        )
-
+    await controller.get_version_for_dataset(dataset_id, version_id)
     sheets = await controller.list_version_sheets(version_id)
     return sheets
 
@@ -239,19 +206,12 @@ async def get_sheet_data(
         current_user: User = Depends(get_current_user)
 ):
     """Get paginated data from a sheet in a dataset version"""
-    # Get version info first to verify it exists and belongs to the dataset
-    version = await controller.get_dataset_version(version_id)
-    if version["dataset_id"] != dataset_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Version {version_id} does not belong to dataset {dataset_id}"
-        )
-
+    await controller.get_version_for_dataset(dataset_id, version_id)
     data = await controller.get_sheet_data(
         version_id=version_id,
         sheet_name=sheet,
         limit=limit,
         offset=offset
     )
-
     return data
+
