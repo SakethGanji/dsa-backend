@@ -3,7 +3,7 @@ from datetime import datetime
 
 class UserCreate(BaseModel):
     soeid: constr(min_length=7, max_length=7)
-    password_hash: str
+    password: str  # Changed from password_hash
     role_id: int
 
 class UserOut(BaseModel):

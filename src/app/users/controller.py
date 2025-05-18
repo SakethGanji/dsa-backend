@@ -7,3 +7,7 @@ async def list_users_ctrl(session: AsyncSession) -> list[UserOut]:
 
 async def create_user_ctrl(payload: UserCreate, session: AsyncSession) -> UserOut:
     return await UserService(session).create_user(payload)
+
+async def register_user_ctrl(payload: UserCreate, session: AsyncSession) -> UserOut:
+    return await UserService(session).register_user(payload)
+

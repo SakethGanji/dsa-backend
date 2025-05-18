@@ -22,3 +22,12 @@ async def create_user(session: AsyncSession, soeid: str, password_hash: str, rol
         )
     row = result.first()
     return dict(row._mapping) if row else None
+
+async def get_user_by_soeid(session: AsyncSession, soeid: str) -> dict | None:
+    result = await session.execute(
+        text("SELECT * FROM users WHERE soeid=:soeid"),
+        {"soeid": soeid}
+    )
+    row = result.first()
+    return dict(row._mapping) if row else None
+
