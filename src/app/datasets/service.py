@@ -294,7 +294,7 @@ class DatasetsService:
         created_at_to: Optional[datetime] = None,
         updated_at_from: Optional[datetime] = None,
         updated_at_to: Optional[datetime] = None
-    ) -> List[Dict[str, Any]]:
+    ) -> List[Dataset]:
         """List datasets with optional filtering, sorting, and pagination"""
         # Validate and normalize inputs
         if limit < 1:
@@ -336,54 +336,23 @@ class DatasetsService:
         )
 
         # Transform raw results into appropriate response models
-        datasets = []
-        for row in result:
-            tags = []
-            if row.get("tag_ids") and row.get("tag_names"):
-                for tag_id, tag_name in zip(row["tag_ids"], row["tag_names"]):
-                    tags.append({"id": tag_id, "name": tag_name})
+        # The repository now returns List[Dataset], so direct transformation might not be needed
+        # or needs to be adjusted if the structure from repository.list_datasets is already Pydantic models.
+        # Assuming result is List[Dataset] as per repository changes.
+        return result
 
-            dataset = {
-                "id": row["id"],
-                "name": row["name"],
-                "description": row["description"],
-                "created_by": row["created_by"],
-                "created_at": row["created_at"],
-                "updated_at": row["updated_at"],
-                "tags": tags,
-                "current_version": row["current_version"],
-                "file_type": row["file_type"],
-                "file_size": row["file_size"]
-            }
-            datasets.append(dataset)
-
-        return datasets
-
-    async def get_dataset(self, dataset_id: int) -> Optional[Dict[str, Any]]:
+    async def get_dataset(self, dataset_id: int) -> Optional[Dataset]:
         """Get detailed information about a single dataset"""
         result = await self.repository.get_dataset(dataset_id)
-        if not result:
-            return None
+        # No transformation needed if repository returns Optional[Dataset]
+        return result
 
-        # Transform the raw result to a clean response format
-        dataset = {
-            "id": result["id"],
-            "name": result["name"],
-            "description": result["description"],
-            "created_by": result["created_by"],
-            "created_at": result["created_at"],
-            "updated_at": result["updated_at"],
-            "tags": result["tags"] if result["tags"] else [],
-            "versions": result["versions"] if result["versions"] else []
-        }
-
-        return dataset
-
-    async def update_dataset(self, dataset_id: int, data: DatasetUpdate) -> Optional[Dict[str, Any]]:
+    async def update_dataset(self, dataset_id: int, data: DatasetUpdate) -> Optional[Dataset]:
         """Update dataset metadata including name, description, and tags"""
         # First check if dataset exists
-        dataset = await self.get_dataset(dataset_id)
-        if not dataset:
+        # get_dataset now returns Optional[Dataset]
+        existing_dataset = await self.get_dataset(dataset_id)
+        if not existing_dataset:
             return None
 
         # Update basic metadata
@@ -404,38 +373,35 @@ class DatasetsService:
         # Return the updated dataset
         return await self.get_dataset(dataset_id)
 
-    async def list_dataset_versions(self, dataset_id: int) -> List[Dict[str, Any]]:
+    async def list_dataset_versions(self, dataset_id: int) -> List[DatasetVersion]:
         """List all versions of a dataset"""
         # Check if dataset exists
-        dataset = await self.get_dataset(dataset_id)
+        dataset = await self.get_dataset(dataset_id) # Returns Optional[Dataset]
         if not dataset:
-            return []
+            return [] # Return empty list if dataset not found
 
         result = await self.repository.list_dataset_versions(dataset_id)
+        # No transformation needed if repository returns List[DatasetVersion]
         return result
 
-    async def get_dataset_version(self, version_id: int) -> Optional[Dict[str, Any]]:
+    async def get_dataset_version(self, version_id: int) -> Optional[DatasetVersion]:
         """Get detailed information about a single dataset version"""
         result = await self.repository.get_dataset_version(version_id)
-        if not result:
-            return None
-
-        # Parse the JSON sheets array if it exists
-        if result.get("sheets") and isinstance(result["sheets"], str):
-            import json
-            result["sheets"] = json.loads(result["sheets"])
-
+        # No transformation needed if repository returns Optional[DatasetVersion]
+        # JSON parsing for sheets should ideally be handled within the repository or model itself if possible.
+        # However, if sheets are part of the DatasetVersion Pydantic model and are complex,
+        # the repository should ensure they are correctly populated.
         return result
 
-    async def get_dataset_version_file(self, version_id: int) -> Optional[Dict[str, Any]]:
+    async def get_dataset_version_file(self, version_id: int) -> Optional[File]:
         """Get file information for a dataset version"""
         # Get the version first
-        version = await self.get_dataset_version(version_id)
-        if not version:
+        version = await self.get_dataset_version(version_id) # Returns Optional[DatasetVersion]
+        if not version or not version.file_id: # Check if version and file_id exist
             return None
 
         # Get the associated file
-        file_info = await self.repository.get_file(version["file_id"])
+        file_info = await self.repository.get_file(version.file_id) # Returns Optional[File]
         return file_info
 
     async def delete_dataset_version(self, version_id: int) -> bool:
@@ -448,20 +414,21 @@ class DatasetsService:
         deleted_id = await self.repository.delete_dataset_version(version_id)
         return deleted_id is not None
 
-    async def list_tags(self) -> List[Dict[str, Any]]:
+    async def list_tags(self) -> List[Tag]:
         """List all available tags"""
         result = await self.repository.list_tags()
+        # No transformation needed if repository returns List[Tag]
         return result
 
-    async def list_version_sheets(self, version_id: int) -> List[Dict[str, Any]]:
+    async def list_version_sheets(self, version_id: int) -> List[Sheet]:
         """Get all sheets for a dataset version"""
         # First check if version exists
-        version = await self.get_dataset_version(version_id)
+        version = await self.get_dataset_version(version_id) # Returns Optional[DatasetVersion]
         if not version:
             return []
 
         # Get sheets
-        sheets = await self.repository.list_version_sheets(version_id)
+        sheets = await self.repository.list_version_sheets(version_id) # Returns List[Sheet]
         return sheets
 
     async def get_sheet_data(self, version_id: int, sheet_name: str, limit: int = 100, offset: int = 0) -> Tuple[List[str], List[Dict[str, Any]], bool]:
@@ -472,17 +439,17 @@ class DatasetsService:
             return [], [], False
 
         # Get file info
-        file_info = await self.repository.get_file(version["file_id"])
-        if not file_info or not file_info.get("file_data"):
+        file_info = await self.repository.get_file(version.file_id)
+        if not file_info or not file_info.file_data:
             return [], [], False
 
         # Get sheets to validate sheet_name
         sheets = await self.repository.list_version_sheets(version_id)
-        sheet_names = [sheet["name"] for sheet in sheets]
+        sheet_names = [sheet.name for sheet in sheets]
 
         # For CSV, there should be just one sheet, use that
-        if file_info["file_type"] == "csv" and not sheet_name and sheets:
-            sheet_name = sheets[0]["name"]
+        if file_info.file_type == "csv" and not sheet_name and sheets:
+            sheet_name = sheets[0].name
 
         # Validate sheet name
         if sheet_name not in sheet_names:
@@ -490,10 +457,10 @@ class DatasetsService:
 
         # Get the data based on file type
         try:
-            if file_info["file_type"] == "csv":
-                return await self._get_csv_data(file_info["file_data"], limit, offset)
-            elif file_info["file_type"] in ["xls", "xlsx", "xlsm"]:
-                return await self._get_excel_data(file_info["file_data"], sheet_name, limit, offset)
+            if file_info.file_type == "csv":
+                return await self._get_csv_data(file_info.file_data, limit, offset)
+            elif file_info.file_type in ["xls", "xlsx", "xlsm"]:
+                return await self._get_excel_data(file_info.file_data, sheet_name, limit, offset)
             else:
                 return [], [], False
         except Exception as e:
@@ -589,3 +556,4 @@ class DatasetsService:
         has_more = (offset_index + limit) < len(rows)
 
         return header, data_rows, has_more
+

@@ -8,7 +8,7 @@ from app.datasets.service import DatasetsService
 from app.datasets.repository import DatasetsRepository
 from app.datasets.models import (
     Dataset, DatasetCreate, DatasetUploadResponse, DatasetUpdate,
-    DatasetVersion, Tag, DatasetListParams
+    DatasetVersion, Tag, DatasetListParams, Sheet
 )
 from app.users.models import UserOut as User
 from app.db.connection import get_session
@@ -119,7 +119,7 @@ async def update_dataset(
     return await controller.update_dataset(dataset_id, data)
 
 
-@router.get("/{dataset_id}/versions", response_model=List[Dict[str, Any]])
+@router.get("/{dataset_id}/versions", response_model=List[DatasetVersion])
 async def list_dataset_versions(
         dataset_id: int = Path(..., description="The ID of the dataset"),
         controller: DatasetsController = Depends(get_datasets_controller),
@@ -129,7 +129,7 @@ async def list_dataset_versions(
     return await controller.list_dataset_versions(dataset_id)
 
 
-@router.get("/{dataset_id}/versions/{version_id}", response_model=Dict[str, Any])
+@router.get("/{dataset_id}/versions/{version_id}", response_model=DatasetVersion)
 async def get_dataset_version(
         dataset_id: int = Path(..., description="The ID of the dataset"),
         version_id: int = Path(..., description="The ID of the version"),
@@ -150,15 +150,15 @@ async def download_dataset_version(
     """Stream-download the raw file for that version"""
     version = await controller.get_version_for_dataset(dataset_id, version_id)
     file_info = await controller.get_dataset_version_file(version_id)
-    if not file_info or not file_info.get("file_data"):
+    if not file_info or not file_info.file_data:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="File data not found"
         )
-    file_data = file_info["file_data"]
-    file_type = file_info["file_type"]
-    file_name = f"{version['dataset_id']}_v{version['version_number']}.{file_type}"
-    media_type = file_info["mime_type"] or "application/octet-stream"
+    file_data = file_info.file_data
+    file_type = file_info.file_type
+    file_name = f"{version.dataset_id}_v{version.version_number}.{file_type}"
+    media_type = file_info.mime_type or "application/octet-stream"
     def iter_file():
         yield file_data
     return StreamingResponse(
@@ -182,7 +182,7 @@ async def delete_dataset_version(
     return await controller.delete_dataset_version(version_id)
 
 
-@router.get("/{dataset_id}/versions/{version_id}/sheets")
+@router.get("/{dataset_id}/versions/{version_id}/sheets", response_model=List[Sheet])
 async def list_version_sheets(
         dataset_id: int = Path(..., description="The ID of the dataset"),
         version_id: int = Path(..., description="The ID of the version"),

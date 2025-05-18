@@ -29,6 +29,7 @@ class FileCreate(FileBase):
 class File(FileBase):
     id: int
     created_at: datetime
+    file_data: Optional[bytes] = None
 
     class Config:
         from_attributes = True
@@ -136,3 +137,4 @@ class DatasetListParams(BaseModel):
     created_at_to: Optional[datetime] = None
     updated_at_from: Optional[datetime] = None
     updated_at_to: Optional[datetime] = None
+

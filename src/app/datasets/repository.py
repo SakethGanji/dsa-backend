@@ -5,7 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import sqlalchemy as sa
 from app.datasets.models import (
     Dataset, DatasetCreate, DatasetUpdate, DatasetVersion, DatasetVersionCreate,
-    File, FileCreate, Sheet, SheetCreate, SheetMetadata, Tag, TagCreate
+    File, FileCreate, Sheet, SheetCreate, SheetMetadata, Tag, TagCreate, TagBase, FileBase,
+    SheetBase, DatasetVersionBase, DatasetBase
 )
 
 class DatasetsRepository:
@@ -318,7 +319,7 @@ class DatasetsRepository:
     GET_FILE_SQL = """
     SELECT id, storage_type, file_type, mime_type, file_path, file_size, file_data, created_at 
     FROM files 
-    WHERE id = :file_id
+    WHERE id = :file_id;
     """
 
     def __init__(self, session: AsyncSession):
@@ -563,86 +564,122 @@ class DatasetsRepository:
         created_at_to: Optional[datetime] = None,
         updated_at_from: Optional[datetime] = None,
         updated_at_to: Optional[datetime] = None
-    ) -> List[Dict[str, Any]]:
-        filters = {
-            "name": name,
-            "description": description,
-            "created_by": created_by,
-            "tags": tags,
-            "created_at_from": created_at_from,
-            "created_at_to": created_at_to,
-            "updated_at_from": updated_at_from,
-            "updated_at_to": updated_at_to
-        }
-        
-        # Filter out None values
-        filters = {k: v for k, v in filters.items() if v is not None}
-        
-        sql, params = await self._build_dataset_query(
-            limit=limit,
-            offset=offset,
-            filters=filters,
-            sort_by=sort_by,
-            sort_order=sort_order if sort_order else "desc"
-        )
-        
-        # Add additional specialized filters
-        # (These would need to be added to the query string directly)
+    ) -> List[Dataset]:
+        raw_results: List[Dict[str, Any]]
         if file_type or file_size_min or file_size_max or version_min or version_max:
-            # For now, just use the SQL directly
+            # Use the direct LIST_DATASETS_SQL for complex filters not fully handled by _build_dataset_query
             query = sa.text(self.LIST_DATASETS_SQL)
             values = {
-                "limit": limit,
-                "offset": offset,
-                "sort_by": sort_by,
+                "limit": limit, "offset": offset, "sort_by": sort_by,
                 "sort_order": sort_order.lower() if sort_order else "desc",
-                "name": name,
-                "description": description,
-                "created_by": created_by,
-                "tag": tags,
-                "file_type": file_type,
-                "file_size_min": file_size_min,
-                "file_size_max": file_size_max,
-                "version_min": version_min,
-                "version_max": version_max,
-                "created_at_from": created_at_from,
-                "created_at_to": created_at_to,
-                "updated_at_from": updated_at_from,
+                "name": name, "description": description, "created_by": created_by,
+                "tag": tags, # SQL query uses 'tag' for this parameter
+                "file_type": file_type, "file_size_min": file_size_min,
+                "file_size_max": file_size_max, "version_min": version_min,
+                "version_max": version_max, "created_at_from": created_at_from,
+                "created_at_to": created_at_to, "updated_at_from": updated_at_from,
                 "updated_at_to": updated_at_to
             }
             result = await self.session.execute(query, values)
-            return [dict(row) for row in result.mappings()]
+            raw_results = [dict(row) for row in result.mappings()]
         else:
-            # Use the dynamically built query for simpler cases
-            return await self._execute_dataset_query(sql, params)
+            filters = {
+                "name": name, "description": description, "created_by": created_by,
+                "tags": tags, "created_at_from": created_at_from,
+                "created_at_to": created_at_to, "updated_at_from": updated_at_from,
+                "updated_at_to": updated_at_to
+            }
+            filters = {k: v for k, v in filters.items() if v is not None}
 
-    async def get_dataset(self, dataset_id: int) -> Optional[Dict[str, Any]]:
+            sql, params = await self._build_dataset_query(
+                limit=limit, offset=offset, filters=filters,
+                sort_by=sort_by, sort_order=sort_order if sort_order else "desc"
+            )
+            raw_results = await self._execute_dataset_query(sql, params)
+
+        datasets: List[Dataset] = []
+        for row_dict in raw_results:
+            tag_objects = []
+            if row_dict.get("tag_ids") and row_dict.get("tag_names"):
+                for tag_id, tag_name_val in zip(row_dict["tag_ids"], row_dict["tag_names"]):
+                    tag_objects.append(Tag(id=tag_id, name=tag_name_val, usage_count=None)) # usage_count not in this query result
+
+            dataset_obj = Dataset(
+                id=row_dict["id"],
+                name=row_dict["name"],
+                description=row_dict.get("description"),
+                created_by=row_dict["created_by"],
+                created_at=row_dict["created_at"],
+                updated_at=row_dict["updated_at"],
+                tags=tag_objects if tag_objects else None,
+                current_version=row_dict.get("current_version"),
+                file_type=row_dict.get("file_type"),
+                file_size=row_dict.get("file_size"),
+                versions=None  # This query doesn't fetch full version details
+            )
+            datasets.append(dataset_obj)
+        return datasets
+
+    async def get_dataset(self, dataset_id: int) -> Optional[Dataset]:
         """Get a dataset by ID including versions and tags"""
         query = sa.text(self.GET_DATASET_SIMPLE_SQL)
         values = {"dataset_id": dataset_id}
         result = await self.session.execute(query, values)
-        row = result.mappings().first()
-        if not row:
+        dataset_row = result.mappings().first()
+
+        if not dataset_row:
             return None
+
+        dataset_dict = dict(dataset_row)
 
         # Get versions separately
         versions_query = sa.text(self.GET_DATASET_VERSIONS_SQL)
         versions_result = await self.session.execute(versions_query, {"dataset_id": dataset_id})
-        versions = [dict(v) for v in versions_result.mappings()]
+        versions_list: List[DatasetVersion] = []
+        for v_row_data in versions_result.mappings():
+            v_dict = dict(v_row_data)
+            versions_list.append(DatasetVersion(
+                id=v_dict["id"],
+                dataset_id=v_dict["dataset_id"],
+                version_number=v_dict["version_number"],
+                file_id=v_dict["file_id"],
+                uploaded_by=v_dict["uploaded_by"],
+                ingestion_timestamp=v_dict["ingestion_timestamp"],
+                last_updated_timestamp=v_dict["last_updated_timestamp"],
+                file_type=v_dict.get("file_type"),
+                file_size=v_dict.get("file_size"),
+                sheets=None # Sheets are not fetched by GET_DATASET_VERSIONS_SQL
+            ))
 
-        # Combine results
-        dataset = dict(row)
-        dataset["versions"] = versions
+        tag_objects: List[Tag] = []
+        if dataset_dict.get("tag_ids") and dataset_dict.get("tag_names"):
+            for tag_id, tag_name in zip(dataset_dict["tag_ids"], dataset_dict["tag_names"]):
+                tag_objects.append(Tag(id=tag_id, name=tag_name, usage_count=None)) # GET_DATASET_SIMPLE_SQL doesn't provide usage_count
 
-        # Transform tag arrays into objects
-        tags = []
-        if dataset.get("tag_ids") and dataset.get("tag_names"):
-            for tag_id, tag_name in zip(dataset["tag_ids"], dataset["tag_names"]):
-                tags.append({"id": tag_id, "name": tag_name})
-        dataset["tags"] = tags
+        # Populate current_version, file_type, file_size from the latest version if available
+        current_version_num: Optional[int] = None
+        latest_file_type: Optional[str] = None
+        latest_file_size: Optional[int] = None
+        if versions_list: # Assuming versions_list is sorted DESC by version_number from query
+            latest_version = versions_list[0]
+            current_version_num = latest_version.version_number
+            latest_file_type = latest_version.file_type
+            latest_file_size = latest_version.file_size
 
-        return dataset
-        
+        return Dataset(
+            id=dataset_dict["id"],
+            name=dataset_dict["name"],
+            description=dataset_dict.get("description"),
+            created_by=dataset_dict["created_by"],
+            created_at=dataset_dict["created_at"],
+            updated_at=dataset_dict["updated_at"],
+            tags=tag_objects if tag_objects else None,
+            versions=versions_list if versions_list else None,
+            current_version=current_version_num,
+            file_type=latest_file_type,
+            file_size=latest_file_size
+        )
+
     async def update_dataset(
         self, 
         dataset_id: int, 
@@ -664,38 +701,78 @@ class DatasetsRepository:
         await self.session.execute(query, values)
         await self.session.commit()
         
-    async def list_dataset_versions(self, dataset_id: int) -> List[Dict[str, Any]]:
+    async def list_dataset_versions(self, dataset_id: int) -> List[DatasetVersion]:
         query = sa.text(self.LIST_DATASET_VERSIONS_SIMPLE_SQL)
         values = {"dataset_id": dataset_id}
         result = await self.session.execute(query, values)
-        return [dict(row) for row in result.mappings()]
-        
-    async def get_dataset_version(self, version_id: int) -> Optional[Dict[str, Any]]:
+
+        versions_list: List[DatasetVersion] = []
+        for row_data in result.mappings():
+            row_dict = dict(row_data)
+            # storage_type and mime_type from query are not in DatasetVersion model directly
+            versions_list.append(DatasetVersion(
+                id=row_dict["id"],
+                dataset_id=row_dict["dataset_id"],
+                version_number=row_dict["version_number"],
+                file_id=row_dict["file_id"],
+                uploaded_by=row_dict["uploaded_by"],
+                ingestion_timestamp=row_dict["ingestion_timestamp"],
+                last_updated_timestamp=row_dict["last_updated_timestamp"],
+                file_type=row_dict.get("file_type"),
+                file_size=row_dict.get("file_size"),
+                sheets=None # This simplified query does not fetch sheets
+            ))
+        return versions_list
+
+    async def get_dataset_version(self, version_id: int) -> Optional[DatasetVersion]:
         query = sa.text(self.GET_DATASET_VERSION_SIMPLE_SQL)
         values = {"version_id": version_id}
         result = await self.session.execute(query, values)
-        row = result.mappings().first()
-        if not row:
+        version_row = result.mappings().first()
+
+        if not version_row:
             return None
 
-        version = dict(row)
+        version_dict = dict(version_row)
 
         # Get sheets for this version
         sheets_query = sa.text(self.GET_VERSION_SHEETS_SQL)
         sheets_result = await self.session.execute(sheets_query, {"version_id": version_id})
-        sheets = [dict(s) for s in sheets_result.mappings()]
-
-        # Parse metadata JSON if needed
-        for sheet in sheets:
-            if sheet.get("metadata") and isinstance(sheet["metadata"], str):
+        sheets_list: List[Sheet] = []
+        for s_row_data in sheets_result.mappings():
+            s_dict = dict(s_row_data)
+            sheet_metadata_obj: Optional[SheetMetadata] = None
+            if "metadata" in s_dict and s_dict["metadata"] is not None:
                 try:
-                    sheet["metadata"] = json.loads(sheet["metadata"])
-                except:
-                    pass
+                    parsed_meta = json.loads(s_dict["metadata"]) if isinstance(s_dict["metadata"], str) else s_dict["metadata"]
+                    # GET_VERSION_SHEETS_SQL does not fetch profiling_report_file_id
+                    sheet_metadata_obj = SheetMetadata(metadata=parsed_meta, profiling_report_file_id=None)
+                except json.JSONDecodeError:
+                    # Handle cases where metadata might not be valid JSON, though it should be
+                    sheet_metadata_obj = SheetMetadata(metadata={"error": "Invalid JSON metadata in DB"}, profiling_report_file_id=None)
 
-        version["sheets"] = sheets
-        return version
-        
+            sheets_list.append(Sheet(
+                id=s_dict["id"],
+                name=s_dict["name"],
+                sheet_index=s_dict["sheet_index"],
+                description=s_dict.get("description"),
+                dataset_version_id=version_id, # Key for Sheet model
+                metadata=sheet_metadata_obj
+            ))
+
+        return DatasetVersion(
+            id=version_dict["id"],
+            dataset_id=version_dict["dataset_id"],
+            version_number=version_dict["version_number"],
+            file_id=version_dict["file_id"],
+            uploaded_by=version_dict["uploaded_by"],
+            ingestion_timestamp=version_dict["ingestion_timestamp"],
+            last_updated_timestamp=version_dict["last_updated_timestamp"],
+            file_type=version_dict.get("file_type"),
+            file_size=version_dict.get("file_size"),
+            sheets=sheets_list if sheets_list else None
+        )
+
     async def delete_dataset_version(self, version_id: int) -> Optional[int]:
         query = sa.text(self.DELETE_DATASET_VERSION_SQL)
         values = {"version_id": version_id}
@@ -703,21 +780,34 @@ class DatasetsRepository:
         await self.session.commit()
         return result.scalar_one_or_none()
         
-    async def list_tags(self) -> List[Dict[str, Any]]:
+    async def list_tags(self) -> List[Tag]:
         query = sa.text(self.LIST_TAGS_SQL)
         result = await self.session.execute(query)
-        return [dict(row) for row in result.mappings()]
-        
-    async def get_file(self, file_id: int) -> Optional[Dict[str, Any]]:
+        return [Tag.model_validate(row) for row in result.mappings()]
+
+    async def get_file(self, file_id: int) -> Optional[File]:
         """Get file information by ID"""
         query = sa.text(self.GET_FILE_SQL)
         result = await self.session.execute(query, {"file_id": file_id})
         row = result.mappings().first()
-        return dict(row) if row else None
+        return File.model_validate(row) if row else None
 
-    async def list_version_sheets(self, version_id: int) -> List[Dict[str, Any]]:
+    async def list_version_sheets(self, version_id: int) -> List[Sheet]:
         """Get all sheets for a dataset version"""
-        query = sa.text(self.LIST_VERSION_SHEETS_SQL)
+        query = sa.text(self.LIST_VERSION_SHEETS_SQL) # This SQL doesn't fetch metadata or dataset_version_id column
         values = {"version_id": version_id}
         result = await self.session.execute(query, values)
-        return [dict(row) for row in result.mappings()]
+
+        sheets_list: List[Sheet] = []
+        for row_data in result.mappings():
+            s_dict = dict(row_data)
+            sheets_list.append(Sheet(
+                id=s_dict["id"],
+                name=s_dict["name"],
+                sheet_index=s_dict["sheet_index"],
+                description=s_dict.get("description"),
+                dataset_version_id=version_id, # Add version_id as it's required by Sheet model
+                metadata=None # LIST_VERSION_SHEETS_SQL does not fetch metadata
+            ))
+        return sheets_list
+
