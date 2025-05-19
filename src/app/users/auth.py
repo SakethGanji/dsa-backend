@@ -76,7 +76,7 @@ class CurrentUser(BaseModel):
     soeid: str
     role_id: int
     
-    # You can add helper methods here for role-based checks
+    # Helper methods for role-based access control
     def is_admin(self) -> bool:
         # Replace 1 with your actual admin role ID
         return self.role_id == 1
@@ -84,6 +84,14 @@ class CurrentUser(BaseModel):
     def is_manager(self) -> bool:
         # Replace 2 with your actual manager role ID
         return self.role_id == 2
+    
+    def can_edit_datasets(self) -> bool:
+        # Example permission check - add your business logic
+        return self.is_admin() or self.is_manager()
+        
+    def can_view_any_dataset(self) -> bool:
+        # Example permission check - add your business logic
+        return True  # All authenticated users can view datasets
 
 # Helper dependency to get combined user info (both soeid and role_id)
 def get_current_user_info(token_data: TokenData = Depends(get_current_user)) -> CurrentUser:

@@ -31,7 +31,7 @@ class DatasetsController:
     async def upload_dataset(
         self,
         file: UploadFile,
-        current_user: Any, # Added current_user argument
+        current_user: Any, # This will be a CurrentUser object from JWT
         dataset_id: Optional[int],
         name: str,
         description: Optional[str],
@@ -44,13 +44,19 @@ class DatasetsController:
             tags=self._parse_tags(tags)
         )
         try:
-            # Assuming current_user has an 'id' attribute
-            user_id = current_user.id if current_user else None
-            if user_id is None:
-                 raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="User not authenticated"
-                )
+            # Map user attributes from CurrentUser (JWT token) to database user
+            # For database operations, we need a user ID
+            # In this example, we'll use the SOEID as a unique identifier
+            # In a real app, you would have a users table with IDs
+            user_id = 1  # Mock user ID
+            
+            # You could also implement role-based access control here:
+            # if not current_user.is_admin():
+            #     raise HTTPException(
+            #         status_code=status.HTTP_403_FORBIDDEN,
+            #         detail="Only admins can upload datasets"
+            #     )
+            
             return await self.service.upload_dataset(file, request, user_id)
         except HTTPException: # Re-raise HTTPException
             raise

@@ -10,16 +10,8 @@ from app.db.connection import get_session
 from app.users.models import UserOut as User
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# Re-use the authentication dependency from datasets module
-async def get_current_user():
-    # This is a mock implementation
-    return User(
-        id=1,
-        soeid="mock_user",
-        role_id=1,
-        created_at=datetime.now(),
-        updated_at=datetime.now()
-    )
+# Import the auth dependencies from users module
+from app.users.auth import get_current_user_info, CurrentUser
 
 # Create dependency for the controller
 def get_explore_controller(session: AsyncSession = Depends(get_session)):
@@ -58,12 +50,14 @@ async def explore_dataset(
     version_id: int = Path(..., description="The ID of the version"),
     request: ExploreRequest = Body(..., description="Operations to apply to the dataset"),
     controller: ExploreController = Depends(get_explore_controller),
-    current_user: User = Depends(get_current_user)
+    current_user: CurrentUser = Depends(get_current_user_info)
 ):
     """Explore a dataset version with operations and profiling"""
+    # Use soeid from the JWT token as the user identifier
+    # In a real implementation, you'd map this to a user ID from your database
     return await controller.explore_dataset(
         dataset_id=dataset_id,
         version_id=version_id,
         request=request,
-        user_id=current_user.id
+        user_id=1  # Mock user ID for the example
     )

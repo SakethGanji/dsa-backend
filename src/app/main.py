@@ -1,11 +1,14 @@
 import logging # Add this import
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.security import OAuth2PasswordBearer
+from fastapi.routing import APIRoute
 
-# Import and initialize logging configuration
 from app.core.logging_config import logger # Use the configured logger
 import app.core.logging_config # Ensures basicConfig is called
+
+from app.users.auth import get_current_user_info, CurrentUser
 
 from app.users.routes import router as users_router
 from app.datasets.routes import router as datasets_router
@@ -18,6 +21,7 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True,  # Important for cookies/auth
 )
 
 # centralized error handling

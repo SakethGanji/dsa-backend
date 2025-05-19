@@ -15,18 +15,8 @@ from app.db.connection import get_session
 import io
 
 
-# Authentication dependency - needs to be implemented or imported
-# This is a placeholder - you'll need to implement proper auth
-async def get_current_user():
-    # This is a mock implementation
-    # Replace with your actual authentication logic
-    return User(
-        id=1,
-        soeid="mock_user",
-        role_id=1,
-        created_at=datetime.now(),
-        updated_at=datetime.now()
-    )
+# Import the auth dependencies from users module
+from app.users.auth import get_current_user_info, CurrentUser
 
 
 router = APIRouter(prefix="/api/datasets", tags=["Datasets"])
@@ -47,7 +37,7 @@ async def upload_dataset(
         description: Optional[str] = Form(None),
         tags: Optional[str] = Form(None),
         controller: DatasetsController = Depends(get_datasets_controller),
-        current_user: User = Depends(get_current_user)
+        current_user: CurrentUser = Depends(get_current_user_info)
 ):
     """
     Upload a new dataset or a new version of an existing dataset
@@ -74,7 +64,7 @@ async def list_datasets(
         sort_by: Optional[str] = Query(None, description="Field to sort by"),
         sort_order: Optional[str] = Query(None, description="Sort order (asc or desc)"),
         controller: DatasetsController = Depends(get_datasets_controller),
-        current_user: User = Depends(get_current_user)
+        current_user: CurrentUser = Depends(get_current_user_info)
 ):
     """List datasets with optional filtering"""
     return await controller.list_datasets(
@@ -92,7 +82,7 @@ async def list_datasets(
 @router.get("/tags", response_model=List[Tag])
 async def list_tags(
         controller: DatasetsController = Depends(get_datasets_controller),
-        current_user: User = Depends(get_current_user)
+        current_user: CurrentUser = Depends(get_current_user_info)
 ):
     """List all existing tags"""
     return await controller.list_tags()
@@ -102,7 +92,7 @@ async def list_tags(
 async def get_dataset(
         dataset_id: int = Path(..., description="The ID of the dataset to retrieve"),
         controller: DatasetsController = Depends(get_datasets_controller),
-        current_user: User = Depends(get_current_user)
+        current_user: CurrentUser = Depends(get_current_user_info)
 ):
     """Get full metadata for one dataset"""
     return await controller.get_dataset(dataset_id)
@@ -113,7 +103,7 @@ async def update_dataset(
         dataset_id: int = Path(..., description="The ID of the dataset to update"),
         data: DatasetUpdate = Body(...),
         controller: DatasetsController = Depends(get_datasets_controller),
-        current_user: User = Depends(get_current_user)
+        current_user: CurrentUser = Depends(get_current_user_info)
 ):
     """Update dataset metadata (name, description, tags)"""
     return await controller.update_dataset(dataset_id, data)
@@ -123,7 +113,7 @@ async def update_dataset(
 async def list_dataset_versions(
         dataset_id: int = Path(..., description="The ID of the dataset"),
         controller: DatasetsController = Depends(get_datasets_controller),
-        current_user: User = Depends(get_current_user)
+        current_user: CurrentUser = Depends(get_current_user_info)
 ):
     """List all versions for a dataset"""
     return await controller.list_dataset_versions(dataset_id)
@@ -134,7 +124,7 @@ async def get_dataset_version(
         dataset_id: int = Path(..., description="The ID of the dataset"),
         version_id: int = Path(..., description="The ID of the version"),
         controller: DatasetsController = Depends(get_datasets_controller),
-        current_user: User = Depends(get_current_user)
+        current_user: CurrentUser = Depends(get_current_user_info)
 ):
     """Get metadata for a single version"""
     return await controller.get_version_for_dataset(dataset_id, version_id)
@@ -145,7 +135,7 @@ async def download_dataset_version(
         dataset_id: int = Path(..., description="The ID of the dataset"),
         version_id: int = Path(..., description="The ID of the version"),
         controller: DatasetsController = Depends(get_datasets_controller),
-        current_user: User = Depends(get_current_user)
+        current_user: CurrentUser = Depends(get_current_user_info)
 ):
     """Stream-download the raw file for that version"""
     version = await controller.get_version_for_dataset(dataset_id, version_id)
@@ -175,7 +165,7 @@ async def delete_dataset_version(
         dataset_id: int = Path(..., description="The ID of the dataset"),
         version_id: int = Path(..., description="The ID of the version"),
         controller: DatasetsController = Depends(get_datasets_controller),
-        current_user: User = Depends(get_current_user)
+        current_user: CurrentUser = Depends(get_current_user_info)
 ):
     """Delete one specific dataset version"""
     await controller.get_version_for_dataset(dataset_id, version_id)
@@ -187,7 +177,7 @@ async def list_version_sheets(
         dataset_id: int = Path(..., description="The ID of the dataset"),
         version_id: int = Path(..., description="The ID of the version"),
         controller: DatasetsController = Depends(get_datasets_controller),
-        current_user: User = Depends(get_current_user)
+        current_user: CurrentUser = Depends(get_current_user_info)
 ):
     """List all sheets in a dataset version"""
     await controller.get_version_for_dataset(dataset_id, version_id)
@@ -203,7 +193,7 @@ async def get_sheet_data(
         limit: int = Query(100, ge=1, le=1000, description="Maximum number of rows to return"),
         offset: int = Query(0, ge=0, description="Number of rows to skip"),
         controller: DatasetsController = Depends(get_datasets_controller),
-        current_user: User = Depends(get_current_user)
+        current_user: CurrentUser = Depends(get_current_user_info)
 ):
     """Get paginated data from a sheet in a dataset version"""
     await controller.get_version_for_dataset(dataset_id, version_id)
