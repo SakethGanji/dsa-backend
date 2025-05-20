@@ -1,11 +1,8 @@
 import pandas as pd
-import numpy as np
 import logging
-import json
-from io import BytesIO, StringIO
-from typing import Dict, List, Optional, Any, Union, Tuple, Callable
+from io import BytesIO
+from typing import Dict, List, Optional, Any, Tuple
 from app.explore.models import ProfileFormat
-import ydata_profiling
 from ydata_profiling import ProfileReport
 import matplotlib
 matplotlib.use('Agg')  # Set non-interactive backend for matplotlib
@@ -65,7 +62,7 @@ class ExploreService:
             logger.error(f"Error in explore_dataset: {str(e)}", exc_info=True)
             raise
     
-    async def _validate_and_get_data(self, dataset_id: int, version_id: int) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    async def _validate_and_get_data(self, dataset_id: int, version_id: int) -> Tuple[Any, Any]:
         """Validate dataset and version IDs and get file data"""
         # Get version info
         logger.info(f"Exploring dataset {dataset_id}, version {version_id}")
@@ -74,21 +71,21 @@ class ExploreService:
             raise ValueError(f"Dataset version with ID {version_id} not found")
             
         # Verify dataset ID matches
-        if version["dataset_id"] != dataset_id:
+        if version.dataset_id != dataset_id:
             raise ValueError(f"Version {version_id} does not belong to dataset {dataset_id}")
             
         # Get file data
-        file_info = await self.repository.get_file(version["file_id"])
-        if not file_info or not file_info.get("file_data"):
+        file_info = await self.repository.get_file(version.file_id)
+        if not file_info or not file_info.file_data:
             raise ValueError("File data not found")
             
         return version, file_info
     
-    def _load_dataframe(self, file_info: Dict[str, Any], sheet_name: Optional[str] = None) -> pd.DataFrame:
+    def _load_dataframe(self, file_info: Any, sheet_name: Optional[str] = None) -> pd.DataFrame:
         """Load file data into a pandas DataFrame"""
-        file_data = file_info["file_data"]
-        file_type = file_info["file_type"].lower()
-        
+        file_data = file_info.file_data
+        file_type = file_info.file_type.lower()
+
         # Create BytesIO object from file data
         buffer = BytesIO(file_data)
         
@@ -115,6 +112,7 @@ class ExploreService:
             op_type = op.get("type")
             if op_type in self._operations_map:
                 try:
+                    # op is already a Dict[str, Any] as per ExploreRequest model
                     df = self._operations_map[op_type](df, op)
                 except Exception as e:
                     logger.warning(f"Error applying operation {op_type}: {str(e)}")
