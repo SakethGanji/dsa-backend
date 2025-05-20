@@ -30,15 +30,26 @@ class UserService:
         return None
 
     async def create_user(self, user_create: UserCreate) -> UserOut:
-        # TODO: Implement actual user creation logic
-        # This is a placeholder implementation
+        # Hash the password before storing it
+        password_hash = bcrypt.hashpw(user_create.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
         try:
-            user = await repo_create_user(self.session, user_create)
+            user = await repo_create_user(
+                self.session,
+                soeid=user_create.soeid,
+                password_hash=password_hash,
+                role_id=user_create.role_id
+            )
+            if not user:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to create user",
+                )
             return UserOut.model_validate(user)
         except IntegrityError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="User with this SOEID or email already exists",
+                detail="User with this SOEID already exists",
             )
 
     async def list_users(self) -> List[UserOut]:

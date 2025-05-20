@@ -9,5 +9,4 @@ async def create_user_ctrl(payload: UserCreate, session: AsyncSession) -> UserOu
     return await UserService(session).create_user(payload)
 
 async def register_user_ctrl(payload: UserCreate, session: AsyncSession) -> UserOut:
-    return await UserService(session).register_user(payload)
-
+    return await UserService(session).create_user(payload)
