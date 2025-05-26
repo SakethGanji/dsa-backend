@@ -19,12 +19,12 @@ class ExploreController:
         user_id: int
     ) -> Dict[str, Any]:
         """
-        Apply operations and generate a profile for a dataset
-        
+        Load a dataset and generate a profile
+
         Args:
             dataset_id: The ID of the dataset
             version_id: The ID of the version
-            request: The explore request with operations
+            request: The explore request with profiling options
             user_id: The ID of the user making the request
             
         Returns:
@@ -35,9 +35,6 @@ class ExploreController:
         """
         try:
             logger.info(f"User {user_id} exploring dataset {dataset_id}, version {version_id}")
-            
-            # Validate inputs
-            self._validate_request(request)
             
             # Call service method
             result = await self.service.explore_dataset(
@@ -64,16 +61,4 @@ class ExploreController:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Error exploring dataset: {str(e)}"
             )
-            
-    def _validate_request(self, request: ExploreRequest) -> None:
-        """Validate the explore request"""
-        # Validate that operations is a list
-        if not isinstance(request.operations, list):
-            raise ValueError("Operations must be a list")
-        
-        # Validate that each operation has a type
-        for op in request.operations:
-            if not isinstance(op, dict) or "type" not in op:
-                raise ValueError("Each operation must be a dictionary with a 'type' field")
-                
-        # Note: more detailed validation can be added here if needed
+
