@@ -106,7 +106,9 @@ class SamplingController:
                 completed_at=job.completed_at,
                 output_preview=job.output_preview,
                 output_uri=job.output_uri,
-                error_message=job.error_message
+                error_message=job.error_message,
+                data_summary=job.data_summary,
+                sample_summary=job.sample_summary
             )
             
         except HTTPException:
@@ -149,6 +151,89 @@ class SamplingController:
                 detail=f"Error getting job preview: {str(e)}"
             )
     
+    async def get_dataset_columns(self, dataset_id: int, version_id: int) -> Dict[str, Any]:
+        """
+        Get column information for a dataset version
+        
+        Args:
+            dataset_id: The ID of the dataset
+            version_id: The ID of the version
+            
+        Returns:
+            Dictionary with column information
+            
+        Raises:
+            HTTPException: If the dataset/version is not found
+        """
+        try:
+            logger.info(f"Getting column info for dataset {dataset_id}, version {version_id}")
+            
+            # Call service method
+            columns_info = await self.service.get_dataset_columns(dataset_id, version_id)
+            
+            return columns_info
+            
+        except ValueError as e:
+            # Handle validation and not found errors
+            logger.warning(f"Resource not found: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(e)
+            )
+        except Exception as e:
+            # Handle all other errors
+            logger.error(f"Error getting dataset columns: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error getting dataset columns: {str(e)}"
+            )
+
+    async def execute_sampling_sync(
+        self,
+        dataset_id: int,
+        version_id: int,
+        request: SamplingRequest,
+        user_id: int # Included for consistency, can be used for logging/auditing
+    ) -> List[Dict[str, Any]]:
+        """
+        Execute sampling synchronously and return the data.
+        """
+        try:
+            logger.info(f"User {user_id} executing sampling synchronously for dataset {dataset_id}, version {version_id}")
+
+            # Call service method
+            sampled_df = await self.service.execute_sampling_synchronously(
+                dataset_id=dataset_id,
+                version_id=version_id,
+                request=request
+            )
+
+            logger.info(f"Synchronous sampling completed for dataset {dataset_id}, version {version_id}. Rows: {len(sampled_df)}")
+
+            # Convert DataFrame to List[Dict]
+            return sampled_df.to_dict(orient="records")
+
+        except ValueError as e:
+            # Handle validation and not found errors from service
+            logger.warning(f"Error during synchronous sampling for user {user_id}, dataset {dataset_id}, version {version_id}: {str(e)}")
+            # Determine if it's a 404 or 400 based on error message if possible
+            if "not found" in str(e).lower():
+                 raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=str(e)
+                )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+        except Exception as e:
+            # Handle all other errors
+            logger.error(f"Unexpected error during synchronous sampling for user {user_id}, dataset {dataset_id}, version {version_id}: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error executing sampling: {str(e)}"
+            )
+
     def _get_status_message(self, status: JobStatus) -> str:
         """Get a human-readable message for a job status"""
         if status == JobStatus.PENDING:
@@ -161,3 +246,4 @@ class SamplingController:
             return "Sampling job failed"
         else:
             return "Unknown job status"
+

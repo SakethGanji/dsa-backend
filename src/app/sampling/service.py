@@ -1,16 +1,16 @@
+import duckdb
 import pandas as pd
 import logging
 import asyncio
 from io import BytesIO
 from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime
-import uuid
-import json
 import numpy as np
 from app.sampling.models import (
     SamplingMethod, JobStatus, SamplingRequest, 
     SamplingJob, RandomSamplingParams, StratifiedSamplingParams,
-    SystematicSamplingParams, ClusterSamplingParams, CustomSamplingParams
+    SystematicSamplingParams, ClusterSamplingParams, CustomSamplingParams,
+    DataFilters, DataSelection, FilterCondition, DataSummary
 )
 
 # Configure logging
@@ -69,6 +69,66 @@ class SamplingService:
         
         return job.output_preview or []
     
+    async def get_dataset_columns(self, dataset_id: int, version_id: int) -> Dict[str, Any]:
+        """Get column information for a dataset version"""
+        try:
+            # Create a new connection for this operation
+            from app.db.connection import AsyncSessionLocal
+            
+            async with AsyncSessionLocal() as session:
+                from app.datasets.repository import DatasetsRepository
+                datasets_repo = DatasetsRepository(session)
+                
+                # Get dataset version
+                version = await datasets_repo.get_dataset_version(version_id)
+                if not version:
+                    raise ValueError(f"Dataset version with ID {version_id} not found")
+                
+                # Verify dataset ID matches
+                if version.dataset_id != dataset_id:
+                    raise ValueError(f"Version {version_id} does not belong to dataset {dataset_id}")
+                
+                # Get file data
+                file_info = await datasets_repo.get_file(version.file_id)
+                if not file_info or not file_info.file_data:
+                    raise ValueError("File data not found")
+                
+                # Create DuckDB connection and load data
+                conn = duckdb.connect(':memory:')
+                self._load_data_to_duckdb(conn, file_info)
+                
+                # Get column information
+                data_summary = self._get_data_summary(conn, 'main_data')
+                
+                # Get sample of unique values for each column (helpful for filters)
+                sample_values = {}
+                for col_name in data_summary.column_types.keys():
+                    try:
+                        # Get first 10 unique values for this column
+                        result = conn.execute(f'''
+                            SELECT DISTINCT "{col_name}" 
+                            FROM main_data 
+                            WHERE "{col_name}" IS NOT NULL 
+                            ORDER BY "{col_name}" 
+                            LIMIT 10
+                        ''').fetchall()
+                        sample_values[col_name] = [row[0] for row in result]
+                    except Exception:
+                        # Skip columns that can't be sampled (e.g., complex types)
+                        sample_values[col_name] = []
+                
+                return {
+                    "columns": list(data_summary.column_types.keys()),
+                    "column_types": data_summary.column_types,
+                    "total_rows": data_summary.total_rows,
+                    "null_counts": data_summary.null_counts,
+                    "sample_values": sample_values
+                }
+                
+        except Exception as e:
+            logger.error(f"Error getting dataset columns: {str(e)}", exc_info=True)
+            raise ValueError(f"Error getting dataset columns: {str(e)}")
+    
     async def _process_job(self, job_id: str) -> None:
         """
         Process a sampling job in the background
@@ -109,19 +169,29 @@ class SamplingService:
                 if not file_info or not file_info.file_data:
                     raise ValueError("File data not found")
                 
-                # Load file into pandas DataFrame
-                df = self._load_dataframe(file_info, job.request.sheet)
+                # Create DuckDB connection
+                conn = duckdb.connect(':memory:')
                 
-                # Apply sampling method
-                sampled_df = await self._apply_sampling(df, job.request)
+                # Load file into DuckDB
+                self._load_data_to_duckdb(conn, file_info, job.request.sheet)
+                
+                # Generate data summary
+                data_summary = self._get_data_summary(conn, 'main_data')
+                
+                # Apply filtering and sampling
+                sampled_df = await self._apply_sampling_with_duckdb(conn, job.request)
+                
+                # Generate sample summary
+                sample_summary = self._get_dataframe_summary(sampled_df)
                 
                 # Update preview and job
                 job.output_preview = sampled_df.head(10).to_dict(orient="records")
+                job.data_summary = data_summary
+                job.sample_summary = sample_summary
                 
-                # In a real implementation, save the full sample to storage
-                # For now, we'll just generate a mock URI
-                job.output_uri = f"s3://sample-bucket/samples/{job.dataset_id}/{job.version_id}/{job_id}.parquet"
-                
+                # Use a local file path for the mock URI
+                job.output_uri = f"file://outputs/samples/{job.dataset_id}/{job.version_id}/{job_id}.parquet"
+
                 # Update job status
                 job.status = JobStatus.COMPLETED
                 job.completed_at = datetime.now()
@@ -136,27 +206,6 @@ class SamplingService:
                 job.started_at = datetime.now()
             job.completed_at = datetime.now()
             await self.sampling_repository.update_job(job)
-    
-    # This method is no longer used - validation is done in _process_job
-    # But we're keeping it for reference
-    async def _validate_and_get_data(self, dataset_id: int, version_id: int) -> Tuple[Any, Any]:
-        """Validate dataset and version IDs and get file data"""
-        # Get version info
-        logger.info(f"Sampling dataset {dataset_id}, version {version_id}")
-        version = await self.datasets_repository.get_dataset_version(version_id)
-        if not version:
-            raise ValueError(f"Dataset version with ID {version_id} not found")
-            
-        # Verify dataset ID matches
-        if version.dataset_id != dataset_id:
-            raise ValueError(f"Version {version_id} does not belong to dataset {dataset_id}")
-            
-        # Get file data
-        file_info = await self.datasets_repository.get_file(version.file_id)
-        if not file_info or not file_info.file_data:
-            raise ValueError("File data not found")
-            
-        return version, file_info
     
     def _load_dataframe(self, file_info: Any, sheet_name: Optional[str] = None) -> pd.DataFrame:
         """Load file data into a pandas DataFrame"""
@@ -339,3 +388,307 @@ class SamplingService:
             return df.query(params.query)
         except Exception as e:
             raise ValueError(f"Error in custom query: {str(e)}")
+    
+    def _load_data_to_duckdb(self, conn: duckdb.DuckDBPyConnection, file_info: Any, sheet_name: Optional[str] = None) -> None:
+        """Load file data into DuckDB table"""
+        file_data = file_info.file_data
+        file_type = file_info.file_type.lower()
+        
+        # Create BytesIO object from file data
+        buffer = BytesIO(file_data)
+        
+        try:
+            if file_type == "csv":
+                df = pd.read_csv(buffer)
+            elif file_type in ["xls", "xlsx", "xlsm"]:
+                if sheet_name:
+                    df = pd.read_excel(buffer, sheet_name=sheet_name)
+                else:
+                    df = pd.read_excel(buffer)
+            else:
+                df = pd.read_csv(buffer)
+            
+            # Register the DataFrame as a table in DuckDB
+            conn.register('main_data', df)
+            
+        except Exception as e:
+            logger.error(f"Error loading file to DuckDB: {str(e)}")
+            raise ValueError(f"Error loading file: {str(e)}")
+    
+    def _get_data_summary(self, conn: duckdb.DuckDBPyConnection, table_name: str) -> DataSummary:
+        """Generate data summary statistics using DuckDB"""
+        try:
+            # Get basic info
+            result = conn.execute(f"SELECT COUNT(*) as total_rows FROM {table_name}").fetchone()
+            total_rows = result[0]
+            
+            # Get column info
+            columns_result = conn.execute(f"PRAGMA table_info('{table_name}')").fetchall()
+            total_columns = len(columns_result)
+            
+            # Get column types and null counts
+            column_types = {}
+            null_counts = {}
+            
+            for col_info in columns_result:
+                col_name = col_info[1]
+                col_type = col_info[2]
+                column_types[col_name] = col_type
+                
+                # Get null count for this column
+                null_result = conn.execute(f"SELECT COUNT(*) FROM {table_name} WHERE \"{col_name}\" IS NULL").fetchone()
+                null_counts[col_name] = null_result[0]
+            
+            # Estimate memory usage (rough calculation)
+            memory_usage_mb = total_rows * total_columns * 8 / (1024 * 1024)  # Rough estimate
+            
+            return DataSummary(
+                total_rows=total_rows,
+                total_columns=total_columns,
+                column_types=column_types,
+                memory_usage_mb=round(memory_usage_mb, 2),
+                null_counts=null_counts
+            )
+            
+        except Exception as e:
+            logger.error(f"Error getting data summary: {str(e)}")
+            raise ValueError(f"Error getting data summary: {str(e)}")
+    
+    async def execute_sampling_synchronously(
+        self,
+        dataset_id: int,
+        version_id: int,
+        request: SamplingRequest
+    ) -> pd.DataFrame:
+        """
+        Execute sampling synchronously and return the result as a DataFrame.
+        """
+        try:
+            # Create a new connection for this operation
+            from app.db.connection import AsyncSessionLocal
+
+            async with AsyncSessionLocal() as session:
+                from app.datasets.repository import DatasetsRepository
+                datasets_repo = DatasetsRepository(session)
+
+                # Get dataset version
+                version = await datasets_repo.get_dataset_version(version_id)
+                if not version:
+                    raise ValueError(f"Dataset version with ID {version_id} not found")
+
+                # Verify dataset ID matches
+                if version.dataset_id != dataset_id:
+                    raise ValueError(f"Version {version_id} does not belong to dataset {dataset_id}")
+
+                # Get file data
+                file_info = await datasets_repo.get_file(version.file_id)
+                if not file_info or not file_info.file_data:
+                    raise ValueError("File data not found")
+
+                # Create DuckDB connection
+                conn = duckdb.connect(':memory:')
+
+                # Load file into DuckDB
+                self._load_data_to_duckdb(conn, file_info, request.sheet)
+
+                # Apply filtering and sampling
+                sampled_df = await self._apply_sampling_with_duckdb(conn, request)
+
+                return sampled_df
+
+        except Exception as e:
+            logger.error(f"Error executing sampling synchronously: {str(e)}", exc_info=True)
+            # Re-raise as ValueError to be handled by the controller
+            raise ValueError(f"Error executing sampling synchronously: {str(e)}")
+
+    def _get_dataframe_summary(self, df: pd.DataFrame) -> DataSummary:
+        """Generate summary statistics for a pandas DataFrame"""
+        column_types = {col: str(df[col].dtype) for col in df.columns}
+        null_counts = df.isnull().sum().to_dict()
+        memory_usage_mb = df.memory_usage(deep=True).sum() / (1024 * 1024)
+        
+        return DataSummary(
+            total_rows=len(df),
+            total_columns=len(df.columns),
+            column_types=column_types,
+            memory_usage_mb=round(memory_usage_mb, 2),
+            null_counts=null_counts
+        )
+    
+    def _build_filter_query(self, filters: Optional[DataFilters]) -> Tuple[str, List[Any]]:
+        """Build SQL WHERE clause from filter conditions, returning clause and parameters."""
+        if not filters or not filters.conditions:
+            return "", []
+
+        condition_strings = []
+        params: List[Any] = []
+        for condition in filters.conditions:
+            col = f'"{condition.column}"'  # Quote column names
+
+            if condition.operator in ['IS NULL', 'IS NOT NULL']:
+                condition_strings.append(f"{col} {condition.operator}")
+            elif condition.operator in ['IN', 'NOT IN']:
+                if isinstance(condition.value, list):
+                    if not condition.value:  # Empty list
+                        if condition.operator == 'IN':
+                            condition_strings.append("0=1")  # Always false for IN empty list
+                        else:  # NOT IN
+                            condition_strings.append("1=1")  # Always true for NOT IN empty list
+                    else:  # Non-empty list
+                        placeholders = ', '.join(['?'] * len(condition.value))
+                        condition_strings.append(f"{col} {condition.operator} ({placeholders})")
+                        params.extend(condition.value)
+                else:  # Single value, treat as = or !=
+                    actual_operator = '=' if condition.operator == 'IN' else '!='
+                    condition_strings.append(f"{col} {actual_operator} ?")
+                    params.append(condition.value)
+            else:  # For other operators like =, !=, >, <, LIKE, ILIKE
+                condition_strings.append(f"{col} {condition.operator} ?")
+                params.append(condition.value)
+
+        if not condition_strings:
+            return "", []
+
+        return f"WHERE {f' {filters.logic} '.join(condition_strings)}", params
+
+    def _build_select_from_clause(self, conn: duckdb.DuckDBPyConnection, selection: Optional[DataSelection], table_name: str = 'main_data') -> str:
+        """Build SQL SELECT ... FROM ... clause, handling column selection and exclusion."""
+        columns_sql = "*"
+        if selection:
+            if selection.columns:
+                columns_sql = ', '.join([f'"{col}"' for col in selection.columns])
+            elif selection.exclude_columns:
+                # Fetch all column names from the table
+                all_columns_info = conn.execute(f"PRAGMA table_info('{table_name}')").fetchall()
+                all_column_names = [info[1] for info in all_columns_info]
+
+                # Filter out excluded columns
+                selected_columns = [col for col in all_column_names if col not in selection.exclude_columns]
+
+                if not selected_columns:
+                    # If all columns are excluded, this would result in an error.
+                    # Default to selecting a literal to prevent SQL errors, or raise.
+                    # For simplicity, let's raise if it results in no columns.
+                    # A more sophisticated approach might select 'NULL' or similar if allowed.
+                    raise ValueError("Excluding all columns or resulting in an empty column set is not allowed.")
+                columns_sql = ', '.join([f'"{col}"' for col in selected_columns])
+
+        return f"SELECT {columns_sql} FROM {table_name}"
+
+    def _build_order_limit_offset_clause(self, selection: Optional[DataSelection]) -> str:
+        """Build SQL ORDER BY, LIMIT, OFFSET clause."""
+        parts = []
+        if selection:
+            if selection.order_by:
+                order_direction = "DESC" if selection.order_desc else "ASC"
+                parts.append(f'ORDER BY "{selection.order_by}" {order_direction}')
+            if selection.limit is not None: # Allow 0 as a valid limit
+                parts.append(f"LIMIT {selection.limit}")
+                if selection.offset is not None: # Offset typically used with limit
+                    parts.append(f"OFFSET {selection.offset}")
+        return " ".join(parts)
+
+    async def _apply_sampling_with_duckdb(self, conn: duckdb.DuckDBPyConnection, request: SamplingRequest) -> pd.DataFrame:
+        """Apply filtering, selection, and sampling using DuckDB for initial processing."""
+        try:
+            # Validate filters and selection (checks if columns exist, etc.)
+            if request.filters:
+                self._validate_filters(conn, request.filters)
+            if request.selection:
+                self._validate_selection(conn, request.selection)
+            
+            # Build query parts
+            select_from_clause = self._build_select_from_clause(conn, request.selection, 'main_data')
+            filter_clause_str, filter_params = self._build_filter_query(request.filters)
+            order_limit_offset_clause_str = self._build_order_limit_offset_clause(request.selection)
+
+            query_parts = [select_from_clause]
+            if filter_clause_str:
+                query_parts.append(filter_clause_str)
+            if order_limit_offset_clause_str:
+                query_parts.append(order_limit_offset_clause_str)
+
+            final_query = " ".join(query_parts).strip()
+
+            logger.debug(f"Executing DuckDB query: {final_query} with params: {filter_params}")
+
+            # Execute query to get filtered/selected data
+            query_result = conn.execute(final_query, filter_params if filter_params else None)
+            filtered_df = query_result.fetchdf()
+
+            # Validate that we still have data after filtering
+            if len(filtered_df) == 0:
+                # This can be a valid result of filtering, so just log a warning.
+                logger.warning("No data remaining after applying filters/selection, or the source table was empty.")
+
+            # Now apply sampling method to the filtered data (which might be empty)
+            return await self._apply_sampling(filtered_df, request)
+            
+        except Exception as e:
+            logger.error(f"Error applying sampling with DuckDB: {str(e)}", exc_info=True)
+            raise ValueError(f"Error applying sampling with DuckDB: {str(e)}")
+
+    def _validate_filters(self, conn: duckdb.DuckDBPyConnection, filters: DataFilters) -> None:
+        """Validate that filter columns exist and have appropriate types"""
+        if not filters.conditions:
+            return
+        
+        # Get available columns
+        columns_result = conn.execute("PRAGMA table_info('main_data')").fetchall()
+        available_columns = {col[1]: col[2] for col in columns_result}  # name: type
+        
+        for condition in filters.conditions:
+            # Check if column exists
+            if condition.column not in available_columns:
+                raise ValueError(f"Filter column '{condition.column}' does not exist")
+            
+            # Basic type validation for certain operators
+            col_type = available_columns[condition.column].lower()
+            if condition.operator in ['>', '<', '>=', '<='] and 'text' in col_type:
+                logger.warning(f"Using numeric comparison operator on text column '{condition.column}'")
+    
+    def _validate_selection(self, conn: duckdb.DuckDBPyConnection, selection: DataSelection) -> None:
+        """Validate that selection columns exist"""
+        # Get available columns
+        columns_result = conn.execute("PRAGMA table_info('main_data')").fetchall()
+        available_columns = [col[1] for col in columns_result]
+        
+        # Validate columns to include
+        if selection.columns:
+            for col in selection.columns:
+                if col not in available_columns:
+                    raise ValueError(f"Selection column '{col}' does not exist")
+        
+        # Validate columns to exclude
+        if selection.exclude_columns:
+            for col in selection.exclude_columns:
+                if col not in available_columns:
+                    raise ValueError(f"Exclude column '{col}' does not exist")
+        
+        # Validate order by column
+        if selection.order_by and selection.order_by not in available_columns:
+            raise ValueError(f"Order by column '{selection.order_by}' does not exist")
+    
+    def get_export_formats(self) -> List[str]:
+        """Get supported export formats"""
+        from app.sampling.config import get_sampling_settings
+        settings = get_sampling_settings()
+        return settings.supported_export_formats
+    
+    async def export_sample(self, job_id: str, format: str) -> bytes:
+        """Export sample data in the specified format"""
+        # This is a placeholder for export functionality
+        # In a real implementation, you would:
+        # 1. Get the job and its sampled data
+        # 2. Convert to the requested format
+        # 3. Return the bytes
+        
+        job = await self.sampling_repository.get_job(job_id)
+        if not job or job.status != JobStatus.COMPLETED:
+            raise ValueError("Job not found or not completed")
+        
+        if format not in self.get_export_formats():
+            raise ValueError(f"Unsupported export format: {format}")
+        
+        # For now, just return a placeholder
+        return b"Export functionality not yet implemented"

@@ -25,6 +25,7 @@ starlette
 # Data processing
 pandas
 openpyxl
+duckdb
 
 # Dev tools (optional)
 # black

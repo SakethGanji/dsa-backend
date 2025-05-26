@@ -53,6 +53,40 @@ class CustomSamplingParams(BaseModel):
     """Parameters for custom sampling"""
     query: str = Field(..., description="SQL WHERE clause for filtering")
 
+# New filtering models
+class FilterCondition(BaseModel):
+    """A single filter condition"""
+    column: str = Field(..., description="Column name to filter on")
+    operator: str = Field(..., description="Operator: =, !=, >, <, >=, <=, LIKE, IN, NOT IN")
+    value: Union[str, int, float, List[Union[str, int, float]]] = Field(..., description="Value(s) to compare against")
+    
+    @validator('operator')
+    def validate_operator(cls, v):
+        allowed_ops = ['=', '!=', '>', '<', '>=', '<=', 'LIKE', 'ILIKE', 'IN', 'NOT IN', 'IS NULL', 'IS NOT NULL']
+        if v not in allowed_ops:
+            raise ValueError(f"Operator must be one of: {allowed_ops}")
+        return v
+
+class DataFilters(BaseModel):
+    """Data filtering options"""
+    conditions: Optional[List[FilterCondition]] = Field(None, description="Filter conditions")
+    logic: str = Field("AND", description="Logic between conditions: AND or OR")
+    
+    @validator('logic')
+    def validate_logic(cls, v):
+        if v not in ['AND', 'OR']:
+            raise ValueError("Logic must be 'AND' or 'OR'")
+        return v
+
+class DataSelection(BaseModel):
+    """Data selection and ordering options"""
+    columns: Optional[List[str]] = Field(None, description="Columns to select (null = all)")
+    exclude_columns: Optional[List[str]] = Field(None, description="Columns to exclude")
+    order_by: Optional[str] = Field(None, description="Column to order by")
+    order_desc: bool = Field(False, description="Use descending order")
+    limit: Optional[int] = Field(None, description="Limit number of rows before sampling")
+    offset: Optional[int] = Field(None, description="Skip number of rows before sampling")
+
 # Main request model
 class SamplingRequest(BaseModel):
     """
@@ -74,6 +108,15 @@ class SamplingRequest(BaseModel):
     output_name: str = Field(
         ...,
         description="Name for the output sample dataset"
+    )
+    # New filtering and selection options
+    filters: Optional[DataFilters] = Field(
+        None,
+        description="Row filtering options"
+    )
+    selection: Optional[DataSelection] = Field(
+        None,
+        description="Column selection and ordering options"
     )
 
     def get_typed_parameters(self):
@@ -98,6 +141,14 @@ class SamplingJobResponse(BaseModel):
     status: JobStatus = Field(..., description="Current status of the job")
     message: str = Field(..., description="Human-readable message about the job")
 
+class DataSummary(BaseModel):
+    """Data summary statistics"""
+    total_rows: int
+    total_columns: int
+    column_types: Dict[str, str]
+    memory_usage_mb: float
+    null_counts: Dict[str, int]
+
 class SamplingJobDetails(SamplingJobResponse):
     """Detailed information about a sampling job"""
     started_at: Optional[datetime] = Field(None, description="When the job started")
@@ -105,6 +156,8 @@ class SamplingJobDetails(SamplingJobResponse):
     output_preview: Optional[List[Dict[str, Any]]] = Field(None, description="Preview of sampled data")
     output_uri: Optional[str] = Field(None, description="URI of the complete output file")
     error_message: Optional[str] = Field(None, description="Error message if job failed")
+    data_summary: Optional[DataSummary] = Field(None, description="Summary of the original data")
+    sample_summary: Optional[DataSummary] = Field(None, description="Summary of the sampled data")
 
 # Database model for storing job information
 class SamplingJob(BaseModel):
@@ -121,3 +174,5 @@ class SamplingJob(BaseModel):
     output_preview: Optional[List[Dict[str, Any]]] = None
     output_uri: Optional[str] = None
     error_message: Optional[str] = None
+    data_summary: Optional[DataSummary] = None
+    sample_summary: Optional[DataSummary] = None
