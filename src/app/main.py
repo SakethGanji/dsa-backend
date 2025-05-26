@@ -13,6 +13,7 @@ from app.users.auth import get_current_user_info, CurrentUser
 from app.users.routes import router as users_router
 from app.datasets.routes import router as datasets_router
 from app.explore.routes import router as explore_router
+from app.sampling.routes import router as sampling_router
 
 app = FastAPI()
 
@@ -39,3 +40,4 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(users_router)
 app.include_router(datasets_router)
 app.include_router(explore_router)
+app.include_router(sampling_router)

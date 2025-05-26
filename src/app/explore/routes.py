@@ -43,12 +43,11 @@ async def explore_dataset(
     current_user: CurrentUser = Depends(get_current_user_info)
 ):
     """Explore a dataset version and generate profiling"""
-    # Use soeid from the JWT token as the user identifier
-    # In a real implementation, you'd map this to a user ID from your database
+    # Use soeid from the CurrentUser object
+    # In a real implementation, you might want to map this to a user ID in your database
     return await controller.explore_dataset(
         dataset_id=dataset_id,
         version_id=version_id,
         request=request,
-        user_id=1  # Mock user ID for the example
+        user_id=current_user.role_id  # Using role_id as a simple user identifier for now
     )
-
