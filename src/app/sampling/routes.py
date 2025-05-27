@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Path, Body, HTTPException, status, Response
+from fastapi import APIRouter, Depends, Path, Body, HTTPException, status, Response, Query
 from typing import Dict, List, Any
 from datetime import datetime
 
@@ -123,7 +123,7 @@ async def get_job_details(
 
 @router.get(
     "/jobs/{run_id}/preview",
-    response_model=List[Dict[str, Any]],
+    response_model=Dict[str, Any],
     summary="Get sampling job preview",
     description="""
     Get a preview of the sampled data.
@@ -131,15 +131,19 @@ async def get_job_details(
     This endpoint returns the first few rows of the sampled data
     once it's available. Returns an empty array if the preview
     is not yet ready.
+    
+    Supports pagination with page and page_size parameters.
     """
 )
 async def get_job_preview(
     run_id: str = Path(..., description="The ID of the sampling job"),
+    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
+    page_size: int = Query(100, ge=1, le=1000, description="Number of items per page"),
     controller: SamplingController = Depends(get_sampling_controller),
     current_user: CurrentUser = Depends(get_current_user_info)
 ):
     """Get preview data for a sampling job"""
-    return await controller.get_job_preview(run_id)
+    return await controller.get_job_preview(run_id, page=page, page_size=page_size)
 
 @router.get(
     "/{dataset_id}/{version_id}/columns",
@@ -163,7 +167,7 @@ async def get_dataset_columns(
 
 @router.post(
     "/{dataset_id}/{version_id}/execute",
-    response_model=List[Dict[str, Any]],
+    response_model=Dict[str, Any],
     status_code=status.HTTP_200_OK,
     summary="Execute sampling synchronously and return data",
     description="""
@@ -173,6 +177,8 @@ async def get_dataset_columns(
     For larger datasets or long-running operations, using the asynchronous `/run` 
     endpoint is recommended to avoid request timeouts.
     
+    Supports pagination with page and page_size parameters.
+    
     Refer to the `/run` endpoint for details on Sampling Methods, Filtering, and Selection.
     The request body structure is identical.
     """
@@ -181,6 +187,8 @@ async def execute_sampling_sync(
     dataset_id: int = Path(..., description="The ID of the dataset"),
     version_id: int = Path(..., description="The ID of the version"),
     request: SamplingRequest = Body(..., description="Sampling configuration"),
+    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
+    page_size: int = Query(100, ge=1, le=1000, description="Number of items per page"),
     controller: SamplingController = Depends(get_sampling_controller),
     current_user: CurrentUser = Depends(get_current_user_info)
 ):
@@ -189,6 +197,8 @@ async def execute_sampling_sync(
         dataset_id=dataset_id,
         version_id=version_id,
         request=request,
-        user_id=current_user.role_id
+        user_id=current_user.role_id,
+        page=page,
+        page_size=page_size
     )
 

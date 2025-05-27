@@ -122,26 +122,46 @@ class SamplingController:
                 detail=f"Error getting job details: {str(e)}"
             )
     
-    async def get_job_preview(self, job_id: str) -> List[Dict[str, Any]]:
+    async def get_job_preview(self, job_id: str, page: int = 1, page_size: int = 100) -> Dict[str, Any]:
         """
-        Get preview data for a sampling job
+        Get preview data for a sampling job with pagination
         
         Args:
             job_id: The ID of the job
+            page: Page number (1-indexed)
+            page_size: Number of items per page
             
         Returns:
-            A list of records as preview data
+            A dictionary with paginated data and metadata
             
         Raises:
             HTTPException: If an error occurs
         """
         try:
-            logger.info(f"Getting preview for job {job_id}")
+            logger.info(f"Getting preview for job {job_id}, page {page}, page_size {page_size}")
             
             # Call service method
             preview = await self.service.get_job_preview(job_id)
             
-            return preview
+            # Apply pagination
+            total_items = len(preview)
+            total_pages = (total_items + page_size - 1) // page_size
+            start_idx = (page - 1) * page_size
+            end_idx = start_idx + page_size
+            
+            paginated_data = preview[start_idx:end_idx]
+            
+            return {
+                "data": paginated_data,
+                "pagination": {
+                    "page": page,
+                    "page_size": page_size,
+                    "total_items": total_items,
+                    "total_pages": total_pages,
+                    "has_next": page < total_pages,
+                    "has_previous": page > 1
+                }
+            }
             
         except Exception as e:
             # Handle all errors
@@ -193,13 +213,15 @@ class SamplingController:
         dataset_id: int,
         version_id: int,
         request: SamplingRequest,
-        user_id: int # Included for consistency, can be used for logging/auditing
-    ) -> List[Dict[str, Any]]:
+        user_id: int, # Included for consistency, can be used for logging/auditing
+        page: int = 1,
+        page_size: int = 100
+    ) -> Dict[str, Any]:
         """
-        Execute sampling synchronously and return the data.
+        Execute sampling synchronously and return the data with pagination.
         """
         try:
-            logger.info(f"User {user_id} executing sampling synchronously for dataset {dataset_id}, version {version_id}")
+            logger.info(f"User {user_id} executing sampling synchronously for dataset {dataset_id}, version {version_id}, page {page}, page_size {page_size}")
 
             # Call service method
             sampled_df = await self.service.execute_sampling_synchronously(
@@ -211,7 +233,27 @@ class SamplingController:
             logger.info(f"Synchronous sampling completed for dataset {dataset_id}, version {version_id}. Rows: {len(sampled_df)}")
 
             # Convert DataFrame to List[Dict]
-            return sampled_df.to_dict(orient="records")
+            data = sampled_df.to_dict(orient="records")
+            
+            # Apply pagination
+            total_items = len(data)
+            total_pages = (total_items + page_size - 1) // page_size
+            start_idx = (page - 1) * page_size
+            end_idx = start_idx + page_size
+            
+            paginated_data = data[start_idx:end_idx]
+            
+            return {
+                "data": paginated_data,
+                "pagination": {
+                    "page": page,
+                    "page_size": page_size,
+                    "total_items": total_items,
+                    "total_pages": total_pages,
+                    "has_next": page < total_pages,
+                    "has_previous": page > 1
+                }
+            }
 
         except ValueError as e:
             # Handle validation and not found errors from service
