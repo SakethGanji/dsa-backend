@@ -140,24 +140,51 @@ async def download_dataset_version(
     """Stream-download the raw file for that version"""
     version = await controller.get_version_for_dataset(dataset_id, version_id)
     file_info = await controller.get_dataset_version_file(version_id)
-    if not file_info or not file_info.file_data:
+    if not file_info:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="File data not found"
         )
-    file_data = file_info.file_data
+    
     file_type = file_info.file_type
     file_name = f"{version.dataset_id}_v{version.version_number}.{file_type}"
     media_type = file_info.mime_type or "application/octet-stream"
-    def iter_file():
-        yield file_data
-    return StreamingResponse(
-        iter_file(),
-        media_type=media_type,
-        headers={
-            "Content-Disposition": f"attachment; filename={file_name}"
-        }
-    )
+    
+    # Handle different storage types
+    if file_info.storage_type == "database" and file_info.file_data:
+        # For small files stored in database
+        def iter_file():
+            yield file_info.file_data
+        return StreamingResponse(
+            iter_file(),
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f"attachment; filename={file_name}"
+            }
+        )
+    elif file_info.storage_type == "filesystem" and hasattr(file_info, 'file_path'):
+        # For large files stored on filesystem
+        import aiofiles
+        
+        async def iter_file():
+            async with aiofiles.open(file_info.file_path, 'rb') as f:
+                chunk_size = 1024 * 1024  # 1MB chunks
+                while chunk := await f.read(chunk_size):
+                    yield chunk
+        
+        return StreamingResponse(
+            iter_file(),
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f"attachment; filename={file_name}",
+                "Content-Length": str(file_info.file_size) if file_info.file_size else None
+            }
+        )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File data not found or unsupported storage type"
+        )
 
 
 @router.delete("/{dataset_id}/versions/{version_id}")

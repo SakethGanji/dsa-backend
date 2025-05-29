@@ -4,7 +4,7 @@ import sys
 LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format=LOG_FORMAT,
     stream=sys.stdout,
 )

@@ -790,6 +790,16 @@ class DatasetsRepository:
         query = sa.text(self.GET_FILE_SQL)
         result = await self.session.execute(query, {"file_id": file_id})
         row = result.mappings().first()
+        
+        if row:
+            # Debug logging
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Retrieved file {file_id} - storage_type: {row.get('storage_type')}, "
+                        f"file_type: {row.get('file_type')}, "
+                        f"has file_data: {row.get('file_data') is not None}, "
+                        f"file_data length: {len(row.get('file_data')) if row.get('file_data') else 0}")
+        
         return File.model_validate(row) if row else None
 
     async def list_version_sheets(self, version_id: int) -> List[Sheet]:

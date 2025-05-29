@@ -2,10 +2,10 @@ from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 import os
 import logging
-import pandas as pd
 from io import BytesIO
 from fastapi import UploadFile, HTTPException
 from app.datasets.repository import DatasetsRepository
+from app.datasets.duckdb_service import DuckDBService
 from app.datasets.models import (
     Dataset, DatasetCreate, DatasetUpdate, DatasetUploadRequest, DatasetUploadResponse,
     DatasetVersion, DatasetVersionCreate, File, FileCreate,
@@ -46,20 +46,49 @@ class DatasetsService:
         
         dataset_id = await self.repository.upsert_dataset(request.dataset_id, dataset_create)
         
-        # Step 1: Save file
+        # Step 1: Check file size before processing
+        # Read file content once to get size and data
         contents = await file.read()
         file_size = len(contents)
+        
+        # Reset file position for potential re-reading
+        await file.seek(0)
+        
+        # Define size limits
+        MAX_MEMORY_SIZE = 100 * 1024 * 1024  # 100MB for in-memory storage
+        MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024  # 10GB max file size
+        
+        if file_size > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File size {file_size / (1024**3):.2f}GB exceeds maximum allowed size of {MAX_FILE_SIZE / (1024**3):.2f}GB"
+            )
+        
         file_type = os.path.splitext(file.filename)[1].lower()[1:]  # Remove the dot
         
-        file_create = FileCreate(
-            storage_type="database",
-            file_type=file_type,
-            mime_type=file.content_type,
-            file_data=contents,
-            file_size=file_size
-        )
-        
-        file_id = await self.repository.create_file(file_create)
+        # For large files, use file system storage
+        if file_size > MAX_MEMORY_SIZE:
+            # Use filesystem storage for large files
+            file_id = await self._save_large_file(file, contents, file_type, file_size)
+        else:
+            # Use database storage for smaller files
+            logger.info(f"Saving file to database - Size: {file_size} bytes, Type: {file_type}")
+            
+            if len(contents) == 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="File is empty or could not be read"
+                )
+            
+            file_create = FileCreate(
+                storage_type="database",
+                file_type=file_type,
+                mime_type=file.content_type,
+                file_data=contents,
+                file_size=file_size
+            )
+            file_id = await self.repository.create_file(file_create)
+            logger.info(f"File saved to database with ID: {file_id}")
         
         # Step 2: Get next version number
         version_number = await self.repository.get_next_version_number(dataset_id)
@@ -84,9 +113,18 @@ class DatasetsService:
                 await self.repository.create_dataset_tag(dataset_id, tag_id)
         
         # Step 6: Parse file into sheets
+        # For large files, we need to get the file info from storage
+        file_info = await self.repository.get_file(file_id)
+        
+        # Debug logging
+        logger.info(f"File info retrieved - ID: {file_info.id if file_info else 'None'}, "
+                   f"Storage type: {file_info.storage_type if file_info else 'None'}, "
+                   f"File type: {file_info.file_type if file_info else 'None'}, "
+                   f"Has file_data: {file_info.file_data is not None if file_info else False}")
+        
         sheet_infos = await self._parse_file_into_sheets(
             file=file, 
-            contents=contents, 
+            file_info=file_info, 
             file_type=file_type, 
             version_id=version_id
         )
@@ -98,10 +136,43 @@ class DatasetsService:
             sheets=sheet_infos
         )
 
+    async def _save_large_file(self, file: UploadFile, contents: bytes, file_type: str, file_size: int) -> int:
+        """Save large file to filesystem and create a reference in database"""
+        import uuid
+        
+        # Create a unique filename
+        file_uuid = str(uuid.uuid4())
+        storage_path = f"/tmp/dsa_files/{file_uuid}.{file_type}"
+        
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(storage_path), exist_ok=True)
+        
+        # Write contents to disk
+        try:
+            with open(storage_path, 'wb') as buffer:
+                buffer.write(contents)
+            
+            # Create file record with filesystem reference
+            file_create = FileCreate(
+                storage_type="filesystem",
+                file_type=file_type,
+                mime_type=file.content_type,
+                file_data=None,  # No data in DB
+                file_size=file_size,
+                file_path=storage_path  # Store path reference
+            )
+            
+            return await self.repository.create_file(file_create)
+        except Exception as e:
+            # Clean up on error
+            if os.path.exists(storage_path):
+                os.unlink(storage_path)
+            raise e
+    
     async def _parse_file_into_sheets(
         self,
         file: UploadFile,
-        contents: bytes,
+        file_info: Any,
         file_type: str,
         version_id: int
     ) -> List[SheetInfo]:
@@ -111,11 +182,11 @@ class DatasetsService:
         try:
             filename = os.path.basename(file.filename)
             parser = self._get_file_parser(file_type)
-            sheet_infos = await parser(contents, filename, version_id)
+            sheet_infos = await parser(file_info, filename, version_id)
         except Exception as e:
             # Log the error and create an error sheet
             error_msg = f"Error parsing file: {str(e)}"
-            logger.error(error_msg, exc_info=True)
+            logger.error(f"Failed to parse {file.filename} (type: {file_type}, version_id: {version_id})", exc_info=True)
             sheet_infos = await self._create_error_sheet(file, version_id, file_type, error_msg)
             
         return sheet_infos
@@ -123,84 +194,71 @@ class DatasetsService:
     def _get_file_parser(self, file_type: str):
         """Factory method to get the appropriate file parser"""
         parsers = {
-            "xlsx": self._parse_excel_file,
-            "xls": self._parse_excel_file,
-            "xlsm": self._parse_excel_file,
-            "csv": self._parse_csv_file
+            "xlsx": self._parse_excel_file_duckdb,
+            "xls": self._parse_excel_file_duckdb,
+            "xlsm": self._parse_excel_file_duckdb,
+            "csv": self._parse_csv_file_duckdb
         }
         return parsers.get(file_type, self._handle_unsupported_file_type)
     
-    async def _parse_excel_file(self, contents: bytes, filename: str, version_id: int) -> List[SheetInfo]:
-        """Parse Excel file into sheets"""
+    async def _parse_excel_file_duckdb(self, file_info: Any, filename: str, version_id: int) -> List[SheetInfo]:
+        """Parse Excel file into sheets using DuckDB"""
         sheet_infos = []
         
-        # Create a BytesIO object from contents for pandas to read
-        excel_buffer = BytesIO(contents)
-        excel_file = pd.ExcelFile(excel_buffer)
+        # Use DuckDB service to parse the Excel file
+        duckdb_service = DuckDBService()
+        parsed_sheets = await duckdb_service.parse_excel_file_from_info(file_info, filename)
         
-        for i, sheet_name in enumerate(excel_file.sheet_names):
+        for sheet_data in parsed_sheets:
             sheet_create = SheetCreate(
                 dataset_version_id=version_id,
-                name=sheet_name,
-                sheet_index=i,
+                name=sheet_data['name'],
+                sheet_index=sheet_data['index'],
                 description=None
             )
 
             sheet_id = await self.repository.create_sheet(sheet_create)
 
-            # Optional: Process sheet for profiling
-            # profile_report_file_id = await self._generate_profile_report(excel_file, sheet_name)
-
-            # Create sheet metadata
-            metadata = {
-                "columns": len(excel_file.parse(sheet_name).columns),
-                "rows": len(excel_file.parse(sheet_name))
-                # Additional metadata can be added here
-            }
-
-            await self.repository.create_sheet_metadata(sheet_id, metadata)
+            # Create sheet metadata from DuckDB results
+            await self.repository.create_sheet_metadata(sheet_id, sheet_data['metadata'])
 
             sheet_infos.append(SheetInfo(
                 id=sheet_id,
-                name=sheet_name,
-                index=i,
+                name=sheet_data['name'],
+                index=sheet_data['index'],
                 description=None
             ))
             
         return sheet_infos
     
-    async def _parse_csv_file(self, contents: bytes, filename: str, version_id: int) -> List[SheetInfo]:
-        """Parse CSV file into a sheet"""
+    async def _parse_csv_file_duckdb(self, file_info: Any, filename: str, version_id: int) -> List[SheetInfo]:
+        """Parse CSV file into a sheet using DuckDB"""
+        # Use DuckDB service to parse the CSV file
+        duckdb_service = DuckDBService()
+        parsed_sheets = await duckdb_service.parse_csv_file_from_info(file_info, filename)
+        
+        sheet_data = parsed_sheets[0]  # CSV has only one sheet
+        
         sheet_create = SheetCreate(
             dataset_version_id=version_id,
-            name=filename,
+            name=sheet_data['name'],
             sheet_index=0,
             description=None
         )
 
         sheet_id = await self.repository.create_sheet(sheet_create)
 
-        # Create a BytesIO object from contents for pandas to read
-        csv_buffer = BytesIO(contents)
-        df = pd.read_csv(csv_buffer)
-
-        # Create sheet metadata
-        metadata = {
-            "columns": len(df.columns),
-            "rows": len(df)
-            # Additional metadata can be added here
-        }
-
-        await self.repository.create_sheet_metadata(sheet_id, metadata)
+        # Create sheet metadata from DuckDB results
+        await self.repository.create_sheet_metadata(sheet_id, sheet_data['metadata'])
 
         return [SheetInfo(
             id=sheet_id,
-            name=filename,
+            name=sheet_data['name'],
             index=0,
             description=None
         )]
     
-    async def _handle_unsupported_file_type(self, contents: bytes, filename: str, version_id: int) -> List[SheetInfo]:
+    async def _handle_unsupported_file_type(self, file_info: Any, filename: str, version_id: int) -> List[SheetInfo]:
         """Handle unsupported file types"""
         file_type = os.path.splitext(filename)[1].lower()[1:]
         sheet_create = SheetCreate(
@@ -440,7 +498,8 @@ class DatasetsService:
 
         # Get file info
         file_info = await self.repository.get_file(version.file_id)
-        if not file_info or not file_info.file_data:
+        if not file_info:
+            logger.error(f"File not found for version {version_id}, file_id: {version.file_id}")
             return [], [], False
 
         # Get sheets to validate sheet_name
@@ -455,105 +514,11 @@ class DatasetsService:
         if sheet_name not in sheet_names:
             return [], [], False
 
-        # Get the data based on file type
+        # Get the data based on file type and storage type
         try:
-            if file_info.file_type == "csv":
-                return await self._get_csv_data(file_info.file_data, limit, offset)
-            elif file_info.file_type in ["xls", "xlsx", "xlsm"]:
-                return await self._get_excel_data(file_info.file_data, sheet_name, limit, offset)
-            else:
-                return [], [], False
+            duckdb_service = DuckDBService()
+            return await duckdb_service.get_sheet_data_from_file_info(file_info, sheet_name, limit, offset)
         except Exception as e:
-            print(f"Error reading file data: {str(e)}")
+            logger.error(f"Error reading file data: {str(e)}")
             return [], [], False
-
-    async def _get_csv_data(self, file_data: bytes, limit: int, offset: int) -> Tuple[List[str], List[Dict[str, Any]], bool]:
-        """Extract data from CSV file"""
-        import csv
-        import io
-
-        # Create a file-like object from the bytes
-        csv_buffer = io.StringIO(file_data.decode('utf-8', errors='replace'))
-
-        # Create CSV reader
-        reader = csv.reader(csv_buffer)
-
-        # Read header row
-        header = next(reader, [])
-        if not header:
-            return [], [], False
-
-        # Skip rows for offset
-        for _ in range(offset):
-            if not next(reader, None):
-                # Reached end of file
-                return header, [], True
-
-        # Read rows up to limit
-        rows = []
-        has_more = False
-        for i, row in enumerate(reader):
-            if i >= limit:
-                has_more = True
-                break
-
-            # Convert to dictionary
-            row_dict = {}
-            for j, col in enumerate(header):
-                if j < len(row):
-                    row_dict[col] = row[j]
-                else:
-                    row_dict[col] = ""
-            rows.append(row_dict)
-
-        return header, rows, has_more
-
-    async def _get_excel_data(self, file_data: bytes, sheet_name: str, limit: int, offset: int) -> Tuple[List[str], List[Dict[str, Any]], bool]:
-        """Extract data from Excel file"""
-        import openpyxl
-        import io
-
-        # Create a file-like object from the bytes
-        excel_buffer = io.BytesIO(file_data)
-
-        # Load workbook in read-only mode for better performance
-        try:
-            workbook = openpyxl.load_workbook(excel_buffer, read_only=True, data_only=True)
-        except Exception as e:
-            print(f"Error loading Excel file: {str(e)}")
-            return [], [], False
-
-        # Get sheet
-        if sheet_name not in workbook.sheetnames:
-            return [], [], False
-
-        sheet = workbook[sheet_name]
-
-        # Get header row
-        rows = list(sheet.iter_rows(values_only=True))
-        if not rows:
-            return [], [], False
-
-        header = [str(cell) if cell is not None else f"Column_{i+1}" for i, cell in enumerate(rows[0])]
-
-        # Skip rows for offset (add 1 to skip header)
-        offset_index = offset + 1
-        if offset_index >= len(rows):
-            return header, [], False
-
-        # Read rows up to limit
-        data_rows = []
-        for i in range(offset_index, min(offset_index + limit, len(rows))):
-            row = rows[i]
-            row_dict = {}
-            for j, col in enumerate(header):
-                if j < len(row):
-                    row_dict[col] = row[j] if row[j] is not None else ""
-                else:
-                    row_dict[col] = ""
-            data_rows.append(row_dict)
-
-        has_more = (offset_index + limit) < len(rows)
-
-        return header, data_rows, has_more
 

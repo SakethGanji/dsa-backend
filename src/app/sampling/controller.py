@@ -223,17 +223,14 @@ class SamplingController:
         try:
             logger.info(f"User {user_id} executing sampling synchronously for dataset {dataset_id}, version {version_id}, page {page}, page_size {page_size}")
 
-            # Call service method
-            sampled_df = await self.service.execute_sampling_synchronously(
+            # Call service method - now returns List[Dict] directly
+            data = await self.service.execute_sampling_synchronously(
                 dataset_id=dataset_id,
                 version_id=version_id,
                 request=request
             )
 
-            logger.info(f"Synchronous sampling completed for dataset {dataset_id}, version {version_id}. Rows: {len(sampled_df)}")
-
-            # Convert DataFrame to List[Dict]
-            data = sampled_df.to_dict(orient="records")
+            logger.info(f"Synchronous sampling completed for dataset {dataset_id}, version {version_id}. Rows: {len(data)}")
             
             # Apply pagination
             total_items = len(data)
