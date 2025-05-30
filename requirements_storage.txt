@@ -1,0 +1,4 @@
+# Additional requirements for Parquet storage support
+pyarrow>=14.0.0
+pandas>=2.0.0
+aiofiles>=23.0.0

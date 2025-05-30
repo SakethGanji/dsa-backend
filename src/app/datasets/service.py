@@ -3,9 +3,11 @@ from datetime import datetime
 import os
 import logging
 from io import BytesIO
+import duckdb
 from fastapi import UploadFile, HTTPException
 from app.datasets.repository import DatasetsRepository
 from app.datasets.duckdb_service import DuckDBService
+from app.storage.local_storage import LocalFileStorage
 from app.datasets.models import (
     Dataset, DatasetCreate, DatasetUpdate, DatasetUploadRequest, DatasetUploadResponse,
     DatasetVersion, DatasetVersionCreate, File, FileCreate,
@@ -17,6 +19,7 @@ logger = logging.getLogger(__name__)
 class DatasetsService:
     def __init__(self, repository: DatasetsRepository):
         self.repository = repository
+        self.storage = LocalFileStorage()
 
     async def upload_dataset(
         self, 
@@ -46,49 +49,36 @@ class DatasetsService:
         
         dataset_id = await self.repository.upsert_dataset(request.dataset_id, dataset_create)
         
-        # Step 1: Check file size before processing
-        # Read file content once to get size and data
-        contents = await file.read()
-        file_size = len(contents)
+        # Step 1: Get the original file type
+        file_type = os.path.splitext(file.filename)[1].lower()[1:]  # Original file type
         
-        # Reset file position for potential re-reading
-        await file.seek(0)
-        
-        # Define size limits
-        MAX_MEMORY_SIZE = 100 * 1024 * 1024  # 100MB for in-memory storage
-        MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024  # 10GB max file size
-        
-        if file_size > MAX_FILE_SIZE:
-            raise HTTPException(
-                status_code=413,
-                detail=f"File size {file_size / (1024**3):.2f}GB exceeds maximum allowed size of {MAX_FILE_SIZE / (1024**3):.2f}GB"
+        # Step 2: Save file to local storage as Parquet
+        try:
+            # Save file as Parquet
+            file_path, file_size = await self.storage.save_dataset_file(
+                file=file,
+                dataset_id=dataset_id,
+                version_id=0  # We'll update this after creating the version
             )
-        
-        file_type = os.path.splitext(file.filename)[1].lower()[1:]  # Remove the dot
-        
-        # For large files, use file system storage
-        if file_size > MAX_MEMORY_SIZE:
-            # Use filesystem storage for large files
-            file_id = await self._save_large_file(file, contents, file_type, file_size)
-        else:
-            # Use database storage for smaller files
-            logger.info(f"Saving file to database - Size: {file_size} bytes, Type: {file_type}")
             
-            if len(contents) == 0:
-                raise HTTPException(
-                    status_code=400,
-                    detail="File is empty or could not be read"
-                )
-            
+            # Create file record in database with path reference
             file_create = FileCreate(
-                storage_type="database",
-                file_type=file_type,
-                mime_type=file.content_type,
-                file_data=contents,
-                file_size=file_size
+                storage_type="filesystem",
+                file_type="parquet",  # Always store as parquet
+                mime_type="application/parquet",
+                file_data=None,  # No data in DB
+                file_size=file_size,
+                file_path=file_path  # Store path reference
             )
             file_id = await self.repository.create_file(file_create)
-            logger.info(f"File saved to database with ID: {file_id}")
+            logger.info(f"File saved to local storage: {file_path}, size: {file_size} bytes")
+            
+        except Exception as e:
+            logger.error(f"Error saving file: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error saving file: {str(e)}"
+            )
         
         # Step 2: Get next version number
         version_number = await self.repository.get_next_version_number(dataset_id)
@@ -112,22 +102,26 @@ class DatasetsService:
                 tag_id = await self.repository.upsert_tag(tag_name)
                 await self.repository.create_dataset_tag(dataset_id, tag_id)
         
-        # Step 6: Parse file into sheets
-        # For large files, we need to get the file info from storage
-        file_info = await self.repository.get_file(file_id)
+        # Step 6: Update file path with version ID
+        if file_path:
+            # Move file to correct location with version ID
+            import shutil
+            new_path = file_path.replace("/temp/", f"/{version_id}/").replace("_temp_", f"_{version_id}_")
+            os.makedirs(os.path.dirname(new_path), exist_ok=True)
+            shutil.move(file_path, new_path)
+            # Update file record with new path
+            await self.repository.update_file_path(file_id, new_path)
+            file_path = new_path
         
-        # Debug logging
-        logger.info(f"File info retrieved - ID: {file_info.id if file_info else 'None'}, "
-                   f"Storage type: {file_info.storage_type if file_info else 'None'}, "
-                   f"File type: {file_info.file_type if file_info else 'None'}, "
-                   f"Has file_data: {file_info.file_data is not None if file_info else False}")
-        
-        sheet_infos = await self._parse_file_into_sheets(
-            file=file, 
-            file_info=file_info, 
-            file_type=file_type, 
+        # Step 7: Parse file into sheets
+        # For Parquet files, we'll create sheet metadata
+        logger.info(f"Parsing parquet file at: {file_path}")
+        sheet_infos = await self._parse_parquet_file_into_sheets(
+            file_path=file_path,
+            original_filename=file.filename,
             version_id=version_id
         )
+        logger.info(f"Created {len(sheet_infos)} sheets for version {version_id}")
         
         # Step 8: Return response with dataset info
         return DatasetUploadResponse(
@@ -136,58 +130,68 @@ class DatasetsService:
             sheets=sheet_infos
         )
 
-    async def _save_large_file(self, file: UploadFile, contents: bytes, file_type: str, file_size: int) -> int:
-        """Save large file to filesystem and create a reference in database"""
-        import uuid
-        
-        # Create a unique filename
-        file_uuid = str(uuid.uuid4())
-        storage_path = f"/tmp/dsa_files/{file_uuid}.{file_type}"
-        
-        # Ensure directory exists
-        os.makedirs(os.path.dirname(storage_path), exist_ok=True)
-        
-        # Write contents to disk
-        try:
-            with open(storage_path, 'wb') as buffer:
-                buffer.write(contents)
-            
-            # Create file record with filesystem reference
-            file_create = FileCreate(
-                storage_type="filesystem",
-                file_type=file_type,
-                mime_type=file.content_type,
-                file_data=None,  # No data in DB
-                file_size=file_size,
-                file_path=storage_path  # Store path reference
-            )
-            
-            return await self.repository.create_file(file_create)
-        except Exception as e:
-            # Clean up on error
-            if os.path.exists(storage_path):
-                os.unlink(storage_path)
-            raise e
     
-    async def _parse_file_into_sheets(
+    async def _parse_parquet_file_into_sheets(
         self,
-        file: UploadFile,
-        file_info: Any,
-        file_type: str,
+        file_path: str,
+        original_filename: str,
         version_id: int
     ) -> List[SheetInfo]:
-        """Parse file contents into sheets based on file type"""
+        """Parse Parquet file and create sheet metadata"""
         sheet_infos = []
         
         try:
-            filename = os.path.basename(file.filename)
-            parser = self._get_file_parser(file_type)
-            sheet_infos = await parser(file_info, filename, version_id)
+            # Use DuckDB to read Parquet metadata
+            conn = duckdb.connect(':memory:')
+            try:
+                # Create view from Parquet file
+                conn.execute(f"CREATE VIEW parquet_data AS SELECT * FROM read_parquet('{file_path}')")
+                
+                # Get metadata
+                columns_info = conn.execute("PRAGMA table_info('parquet_data')").fetchall()
+                column_names = [col[1] for col in columns_info]
+                num_columns = len(column_names)
+                
+                # Get row count
+                num_rows = conn.execute("SELECT COUNT(*) FROM parquet_data").fetchone()[0]
+                
+                # Create sheet entry
+                sheet_name = os.path.splitext(original_filename)[0]
+                sheet_create = SheetCreate(
+                    dataset_version_id=version_id,
+                    name=sheet_name,
+                    sheet_index=0,
+                    description=None
+                )
+                
+                sheet_id = await self.repository.create_sheet(sheet_create)
+                
+                # Create sheet metadata
+                sheet_metadata = {
+                    "columns": num_columns,
+                    "rows": num_rows,
+                    "column_names": column_names,
+                    "file_format": "parquet",
+                    "original_format": os.path.splitext(original_filename)[1].lower()[1:]
+                }
+                
+                await self.repository.create_sheet_metadata(sheet_id, sheet_metadata)
+                
+                sheet_infos.append(SheetInfo(
+                    id=sheet_id,
+                    name=sheet_name,
+                    index=0,
+                    description=None
+                ))
+            finally:
+                conn.close()
+            
         except Exception as e:
-            # Log the error and create an error sheet
-            error_msg = f"Error parsing file: {str(e)}"
-            logger.error(f"Failed to parse {file.filename} (type: {file_type}, version_id: {version_id})", exc_info=True)
-            sheet_infos = await self._create_error_sheet(file, version_id, file_type, error_msg)
+            logger.error(f"Error parsing Parquet file: {str(e)}")
+            # Create error sheet
+            sheet_infos = await self._create_error_sheet_from_path(
+                file_path, version_id, "parquet", str(e)
+            )
             
         return sheet_infos
     
@@ -288,6 +292,33 @@ class DatasetsService:
     async def _create_error_sheet(self, file: UploadFile, version_id: int, file_type: str, error_msg: str) -> List[SheetInfo]:
         """Create a sheet entry for a file parsing error"""
         filename = os.path.basename(file.filename)
+        sheet_create = SheetCreate(
+            dataset_version_id=version_id,
+            name=filename,
+            sheet_index=0,
+            description="Error parsing file"
+        )
+
+        sheet_id = await self.repository.create_sheet(sheet_create)
+
+        # Create error metadata
+        metadata = {
+            "error": error_msg,
+            "file_type": file_type
+        }
+
+        await self.repository.create_sheet_metadata(sheet_id, metadata)
+
+        return [SheetInfo(
+            id=sheet_id,
+            name=filename,
+            index=0,
+            description="Error parsing file"
+        )]
+    
+    async def _create_error_sheet_from_path(self, file_path: str, version_id: int, file_type: str, error_msg: str) -> List[SheetInfo]:
+        """Create a sheet entry for a file parsing error from path"""
+        filename = os.path.basename(file_path)
         sheet_create = SheetCreate(
             dataset_version_id=version_id,
             name=filename,
@@ -489,7 +520,7 @@ class DatasetsService:
         sheets = await self.repository.list_version_sheets(version_id) # Returns List[Sheet]
         return sheets
 
-    async def get_sheet_data(self, version_id: int, sheet_name: str, limit: int = 100, offset: int = 0) -> Tuple[List[str], List[Dict[str, Any]], bool]:
+    async def get_sheet_data(self, version_id: int, sheet_name: Optional[str], limit: int = 100, offset: int = 0) -> Tuple[List[str], List[Dict[str, Any]], bool]:
         """Get paginated data from a sheet"""
         # First check if version exists
         version = await self.get_dataset_version(version_id)
@@ -505,19 +536,60 @@ class DatasetsService:
         # Get sheets to validate sheet_name
         sheets = await self.repository.list_version_sheets(version_id)
         sheet_names = [sheet.name for sheet in sheets]
+        
+        logger.info(f"Version {version_id} has {len(sheets)} sheets: {sheet_names}")
+        logger.info(f"Requested sheet_name: {sheet_name}")
 
-        # For CSV, there should be just one sheet, use that
-        if file_info.file_type == "csv" and not sheet_name and sheets:
+        # For single sheet files, use the first sheet
+        if not sheet_name and sheets:
             sheet_name = sheets[0].name
+            logger.info(f"No sheet name provided, using first sheet: {sheet_name}")
 
         # Validate sheet name
-        if sheet_name not in sheet_names:
+        if sheet_name and sheet_name not in sheet_names:
+            logger.error(f"Sheet '{sheet_name}' not found in available sheets: {sheet_names}")
             return [], [], False
+        
+        # If no sheets at all, we can still try to read the parquet file directly
+        if not sheets:
+            logger.warning(f"No sheets found for version {version_id}, attempting direct read")
 
-        # Get the data based on file type and storage type
+        # Read data from Parquet file using DuckDB
         try:
-            duckdb_service = DuckDBService()
-            return await duckdb_service.get_sheet_data_from_file_info(file_info, sheet_name, limit, offset)
+            if file_info.file_path:
+                # Use DuckDB to read Parquet with pagination
+                conn = duckdb.connect(':memory:')
+                try:
+                    # Create view from Parquet file
+                    conn.execute(f"CREATE VIEW sheet_data AS SELECT * FROM read_parquet('{file_info.file_path}')")
+                    
+                    # Get headers
+                    columns_info = conn.execute("PRAGMA table_info('sheet_data')").fetchall()
+                    headers = [col[1] for col in columns_info]
+                    
+                    # Get total row count
+                    total_rows = conn.execute("SELECT COUNT(*) FROM sheet_data").fetchone()[0]
+                    
+                    # Get paginated data
+                    result = conn.execute(f"SELECT * FROM sheet_data LIMIT {limit} OFFSET {offset}").fetchall()
+                    
+                    # Convert to list of dicts
+                    rows = []
+                    for row in result:
+                        row_dict = {}
+                        for i, value in enumerate(row):
+                            row_dict[headers[i]] = value
+                        rows.append(row_dict)
+                    
+                    # Check if there's more data
+                    has_more = (offset + limit) < total_rows
+                    
+                    return headers, rows, has_more
+                finally:
+                    conn.close()
+            else:
+                logger.error(f"File path not found for file {file_info.id}")
+                return [], [], False
         except Exception as e:
             logger.error(f"Error reading file data: {str(e)}")
             return [], [], False

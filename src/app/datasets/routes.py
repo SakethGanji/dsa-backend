@@ -151,20 +151,13 @@ async def download_dataset_version(
     media_type = file_info.mime_type or "application/octet-stream"
     
     # Handle different storage types
-    if file_info.storage_type == "database" and file_info.file_data:
-        # For small files stored in database
-        def iter_file():
-            yield file_info.file_data
-        return StreamingResponse(
-            iter_file(),
-            media_type=media_type,
-            headers={
-                "Content-Disposition": f"attachment; filename={file_name}"
-            }
-        )
-    elif file_info.storage_type == "filesystem" and hasattr(file_info, 'file_path'):
-        # For large files stored on filesystem
+    if file_info.storage_type == "filesystem" and file_info.file_path:
+        # For files stored on filesystem (now all files are stored as Parquet)
         import aiofiles
+        
+        # Update file extension to .parquet since we store all files as Parquet
+        file_name = f"{version.dataset_id}_v{version.version_number}.parquet"
+        media_type = "application/parquet"
         
         async def iter_file():
             async with aiofiles.open(file_info.file_path, 'rb') as f:

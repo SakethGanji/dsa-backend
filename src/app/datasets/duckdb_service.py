@@ -94,13 +94,12 @@ class DuckDBService:
         try:
             with duckdb.connect(':memory:') as conn:
                 # Read CSV file with error handling
-                # First try with strict parsing to detect issues
-                try:
-                    conn.execute(f"CREATE TABLE csv_data AS SELECT * FROM read_csv_auto('{tmp_path}')")
-                except Exception as e:
-                    logger.warning(f"CSV parsing encountered errors, retrying with ignore_errors=true: {str(e)}")
-                    # Retry with error ignoring
-                    conn.execute(f"CREATE TABLE csv_data AS SELECT * FROM read_csv_auto('{tmp_path}', ignore_errors=true)")
+                # Read CSV with lenient parsing to handle edge cases
+                conn.execute(f"""CREATE TABLE csv_data AS SELECT * FROM read_csv_auto('{tmp_path}', 
+                    ignore_errors=true,
+                    quote='"',
+                    escape='"',
+                    header=true)""")
                 
                 # Get metadata
                 result = conn.execute("SELECT COUNT(*) as row_count FROM csv_data").fetchone()
@@ -166,8 +165,12 @@ class DuckDBService:
         """Parse CSV file directly from filesystem path using DuckDB"""
         try:
             with duckdb.connect(':memory:') as conn:
-                # Read CSV file directly from path with error handling
-                conn.execute(f"CREATE TABLE csv_data AS SELECT * FROM read_csv_auto('{file_path}', ignore_errors=true)")
+                # Read CSV file directly from path with lenient parsing
+                conn.execute(f"""CREATE TABLE csv_data AS SELECT * FROM read_csv_auto('{file_path}', 
+                    ignore_errors=true,
+                    quote='"',
+                    escape='"',
+                    header=true)""")
                 
                 # Get metadata
                 result = conn.execute("SELECT COUNT(*) as row_count FROM csv_data").fetchone()
@@ -229,8 +232,12 @@ class DuckDBService:
         """Get paginated CSV data directly from filesystem path"""
         try:
             with duckdb.connect(':memory:') as conn:
-                # Read CSV directly from path with error handling
-                conn.execute(f"CREATE TABLE csv_data AS SELECT * FROM read_csv_auto('{file_path}', ignore_errors=true)")
+                # Read CSV directly from path with lenient parsing
+                conn.execute(f"""CREATE TABLE csv_data AS SELECT * FROM read_csv_auto('{file_path}', 
+                    ignore_errors=true,
+                    quote='"',
+                    escape='"',
+                    header=true)""")
                 
                 # Get column names
                 columns_result = conn.execute("SELECT * FROM csv_data LIMIT 0").description
@@ -352,8 +359,12 @@ class DuckDBService:
         
         try:
             with duckdb.connect(':memory:') as conn:
-                # Read CSV with error handling
-                conn.execute(f"CREATE TABLE csv_data AS SELECT * FROM read_csv_auto('{tmp_path}', ignore_errors=true)")
+                # Read CSV with lenient parsing
+                conn.execute(f"""CREATE TABLE csv_data AS SELECT * FROM read_csv_auto('{tmp_path}', 
+                    ignore_errors=true,
+                    quote='"',
+                    escape='"',
+                    header=true)""")
                 
                 # Get column names
                 columns_result = conn.execute("SELECT * FROM csv_data LIMIT 0").description

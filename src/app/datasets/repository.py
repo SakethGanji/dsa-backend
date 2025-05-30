@@ -785,6 +785,13 @@ class DatasetsRepository:
         result = await self.session.execute(query)
         return [Tag.model_validate(row) for row in result.mappings()]
 
+    async def update_file_path(self, file_id: int, new_path: str) -> None:
+        """Update the file path for a file"""
+        query = sa.text("UPDATE files SET file_path = :file_path WHERE id = :file_id")
+        values = {"file_id": file_id, "file_path": new_path}
+        await self.session.execute(query, values)
+        await self.session.commit()
+
     async def get_file(self, file_id: int) -> Optional[File]:
         """Get file information by ID"""
         query = sa.text(self.GET_FILE_SQL)

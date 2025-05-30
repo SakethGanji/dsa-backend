@@ -6,6 +6,7 @@ import os
 from io import BytesIO
 from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime
+from app.storage.local_storage import LocalFileStorage
 from app.sampling.models import (
     SamplingMethod, JobStatus, SamplingRequest, 
     SamplingJob, RandomSamplingParams, StratifiedSamplingParams,
@@ -21,6 +22,7 @@ class SamplingService:
     def __init__(self, datasets_repository, sampling_repository):
         self.datasets_repository = datasets_repository
         self.sampling_repository = sampling_repository
+        self.storage = LocalFileStorage()
         
     async def create_sampling_job(
         self, 
@@ -90,45 +92,90 @@ class SamplingService:
                 
                 # Get file data
                 file_info = await datasets_repo.get_file(version.file_id)
-                if not file_info or not file_info.file_data:
-                    raise ValueError("File data not found")
+                if not file_info or not file_info.file_path:
+                    raise ValueError("File path not found")
                 
-                # Create DuckDB connection and load data
-                conn = duckdb.connect(':memory:')
-                temp_file_path = self._load_data_to_duckdb(conn, file_info)
-                
+                # Use DuckDB to get metadata with memory limit
+                conn = duckdb.connect(':memory:', config={'memory_limit': '2GB', 'max_memory': '2GB'})
                 try:
-                    # Get column information
-                    data_summary = self._get_data_summary(conn, 'main_data')
+                    # Create view from Parquet file - this doesn't load data into memory
+                    conn.execute(f"CREATE VIEW dataset AS SELECT * FROM read_parquet('{file_info.file_path}')")
                     
-                    # Get sample of unique values for each column (helpful for filters)
+                    # Get column information
+                    columns_info = conn.execute("PRAGMA table_info('dataset')").fetchall()
+                    column_types = {}
+                    columns = []
+                    for col_info in columns_info:
+                        col_name = col_info[1]
+                        col_type = col_info[2]
+                        columns.append(col_name)
+                        column_types[col_name] = col_type
+                    
+                    # Get row count - for large datasets, use Parquet metadata
+                    try:
+                        # First check file size to decide approach
+                        file_size_mb = os.path.getsize(file_info.file_path) / (1024 * 1024)
+                        
+                        if file_size_mb > 100:  # For files > 100MB, use metadata
+                            logger.info(f"Large file detected ({file_size_mb:.1f}MB), using Parquet metadata for row count")
+                            parquet_meta = conn.execute(f"SELECT num_rows FROM parquet_metadata('{file_info.file_path}')").fetchone()
+                            total_rows = parquet_meta[0] if parquet_meta else 0
+                        else:
+                            # For smaller files, get exact count
+                            total_rows = conn.execute("SELECT COUNT(*) FROM dataset").fetchone()[0]
+                    except Exception as e:
+                        logger.warning(f"Error getting row count: {str(e)}, defaulting to 0")
+                        total_rows = 0
+                    
+                    # Get null counts and sample values
+                    null_counts = {}
                     sample_values = {}
-                    for col_name in data_summary.column_types.keys():
+                    
+                    for col_name in columns:
+                        # Get null count
+                        null_count = conn.execute(f'SELECT COUNT(*) FROM dataset WHERE "{col_name}" IS NULL').fetchone()[0]
+                        null_counts[col_name] = null_count
+                        
+                        # Get sample unique values efficiently
                         try:
-                            # Get first 10 unique values for this column
-                            result = conn.execute(f'''
-                                SELECT DISTINCT "{col_name}" 
-                                FROM main_data 
-                                WHERE "{col_name}" IS NOT NULL 
-                                ORDER BY "{col_name}" 
-                                LIMIT 10
-                            ''').fetchall()
+                            # For large datasets, use sampling to get distinct values quickly
+                            if total_rows > 1000000:
+                                # Use TABLESAMPLE for efficient sampling on large datasets
+                                result = conn.execute(f'''
+                                    WITH sampled AS (
+                                        SELECT "{col_name}" 
+                                        FROM dataset TABLESAMPLE(10000 ROWS)
+                                        WHERE "{col_name}" IS NOT NULL
+                                    )
+                                    SELECT DISTINCT "{col_name}" 
+                                    FROM sampled 
+                                    LIMIT 10
+                                ''').fetchall()
+                            else:
+                                # For smaller datasets, get distinct values directly
+                                result = conn.execute(f'''
+                                    SELECT DISTINCT "{col_name}" 
+                                    FROM dataset 
+                                    WHERE "{col_name}" IS NOT NULL 
+                                    LIMIT 10
+                                ''').fetchall()
                             sample_values[col_name] = [row[0] for row in result]
-                        except Exception:
-                            # Skip columns that can't be sampled (e.g., complex types)
+                        except Exception as e:
+                            logger.warning(f"Could not get sample values for column {col_name}: {str(e)}")
                             sample_values[col_name] = []
                     
                     return {
-                        "columns": list(data_summary.column_types.keys()),
-                        "column_types": data_summary.column_types,
-                        "total_rows": data_summary.total_rows,
-                        "null_counts": data_summary.null_counts,
+                        "columns": columns,
+                        "column_types": column_types,
+                        "total_rows": total_rows,
+                        "null_counts": null_counts,
                         "sample_values": sample_values
                     }
+                except Exception as e:
+                    logger.error(f"Error reading dataset: {str(e)}")
+                    raise ValueError(f"Error reading dataset: {str(e)}")
                 finally:
-                    # Clean up temp file
-                    if temp_file_path and os.path.exists(temp_file_path):
-                        os.unlink(temp_file_path)
+                    conn.close()
                 
         except Exception as e:
             logger.error(f"Error getting dataset columns: {str(e)}", exc_info=True)
@@ -171,16 +218,22 @@ class SamplingService:
                 
                 # Get file data
                 file_info = await datasets_repo.get_file(version.file_id)
-                if not file_info or not file_info.file_data:
-                    raise ValueError("File data not found")
+                if not file_info or not file_info.file_path:
+                    raise ValueError("File path not found")
                 
-                # Create DuckDB connection
-                conn = duckdb.connect(':memory:')
-                temp_file_path = None
+                # Check file size to ensure we can handle it
+                if hasattr(file_info, 'file_size') and file_info.file_size:
+                    max_file_size_gb = 50  # Maximum file size in GB
+                    file_size_gb = file_info.file_size / (1024 * 1024 * 1024)
+                    if file_size_gb > max_file_size_gb:
+                        raise ValueError(f"File size ({file_size_gb:.2f} GB) exceeds maximum allowed size ({max_file_size_gb} GB)")
+                
+                # Create DuckDB connection with memory limit
+                conn = duckdb.connect(':memory:', config={'memory_limit': '4GB', 'max_memory': '4GB'})
                 
                 try:
-                    # Load file into DuckDB
-                    temp_file_path = self._load_data_to_duckdb(conn, file_info, job.request.sheet)
+                    # Create a view instead of table to avoid loading entire file into memory
+                    conn.execute(f"CREATE VIEW main_data AS SELECT * FROM read_parquet('{file_info.file_path}')")
                     
                     # Generate data summary
                     data_summary = self._get_data_summary(conn, 'main_data')
@@ -196,20 +249,25 @@ class SamplingService:
                     columns = [desc[0] for desc in conn.description]
                     job.output_preview = [dict(zip(columns, row)) for row in preview_result]
                     
+                    # Save sampled data as Parquet directly from DuckDB
+                    sample_path, sample_size = await self.storage.save_sample_data_from_query(
+                        conn=conn,
+                        query=sampled_data,
+                        dataset_id=job.dataset_id,
+                        version_id=job.version_id,
+                        job_id=job_id
+                    )
+                    
                     job.data_summary = data_summary
                     job.sample_summary = sample_summary
-                    
-                    # Use a local file path for the mock URI
-                    job.output_uri = f"file://outputs/samples/{job.dataset_id}/{job.version_id}/{job_id}.parquet"
+                    job.output_uri = f"file://{sample_path}"
 
                     # Update job status
                     job.status = JobStatus.COMPLETED
                     job.completed_at = datetime.now()
                     await self.sampling_repository.update_job(job)
                 finally:
-                    # Clean up temp file
-                    if temp_file_path and os.path.exists(temp_file_path):
-                        os.unlink(temp_file_path)
+                    conn.close()
             
         except Exception as e:
             # Handle job failure
@@ -280,20 +338,35 @@ class SamplingService:
     
     def _random_sampling_sql(self, conn: duckdb.DuckDBPyConnection, params: RandomSamplingParams) -> str:
         """Generate SQL for random sampling"""
-        # Get total count
+        # Get total count - use approximate count for large datasets
         total_count = conn.execute("SELECT COUNT(*) FROM filtered_data").fetchone()[0]
         
         if params.sample_size >= total_count:
             return "SELECT * FROM filtered_data"
         
-        # Use DuckDB's SAMPLE clause with seed if provided
+        # Use DuckDB's TABLESAMPLE for better performance on large datasets
         if params.seed is not None:
-            return f"SELECT * FROM filtered_data USING SAMPLE {params.sample_size} ROWS (SYSTEM, {params.seed})"
+            # For exact sample size with seed, use SAMPLE clause
+            return f"SELECT * FROM filtered_data USING SAMPLE {params.sample_size} ROWS (REPEATABLE ({params.seed}))"
         else:
-            return f"SELECT * FROM filtered_data USING SAMPLE {params.sample_size} ROWS"
+            # For approximate sampling without seed, use TABLESAMPLE for better performance
+            if params.sample_size < 10000:
+                return f"SELECT * FROM filtered_data USING SAMPLE {params.sample_size} ROWS"
+            else:
+                # For larger samples, use percentage-based sampling
+                sample_percent = min(100.0, (params.sample_size / max(1, total_count)) * 100 * 1.1)  # Add 10% buffer
+                return f"SELECT * FROM filtered_data TABLESAMPLE {sample_percent} PERCENT"
+    
+    def _escape_sql_string(self, value: Any) -> str:
+        """Escape a value for use in SQL string literal"""
+        if value is None:
+            return 'NULL'
+        # Convert to string and escape single quotes
+        str_value = str(value).replace("'", "''")
+        return str_value
     
     def _stratified_sampling_sql(self, conn: duckdb.DuckDBPyConnection, params: StratifiedSamplingParams) -> str:
-        """Generate SQL for stratified sampling"""
+        """Generate SQL for stratified sampling using window functions for better performance"""
         # Validate strata columns exist
         columns_result = conn.execute("PRAGMA table_info('filtered_data')").fetchall()
         available_columns = [col[1] for col in columns_result]
@@ -303,82 +376,98 @@ class SamplingService:
                 raise ValueError(f"Strata column '{col}' not found in dataset")
         
         # Build strata expression
-        strata_expr = " || '_' || ".join([f'CAST("{col}" AS VARCHAR)' for col in params.strata_columns])
+        strata_cols = ", ".join([f'"{col}"' for col in params.strata_columns])
         
-        # Get stratum counts
-        strata_query = f"""
-        SELECT {strata_expr} as stratum, COUNT(*) as cnt 
-        FROM filtered_data 
-        GROUP BY stratum
-        """
-        strata_counts = conn.execute(strata_query).fetchall()
-        total_rows = sum(count for _, count in strata_counts)
-        
-        # Build sampling queries per stratum
+        # Determine sampling approach based on parameters
         if params.sample_size is None and params.min_per_stratum is None:
-            # Default to 10% per stratum
-            fraction = 0.1
-            sample_queries = []
-            for stratum, count in strata_counts:
-                n_samples = max(1, int(count * fraction))
-                if params.seed:
-                    sample_queries.append(f"""
-                    SELECT * FROM filtered_data 
-                    WHERE {strata_expr} = '{stratum}' 
-                    USING SAMPLE {n_samples} ROWS (SYSTEM, {params.seed})
-                    """)
-                else:
-                    sample_queries.append(f"""
-                    SELECT * FROM filtered_data 
-                    WHERE {strata_expr} = '{stratum}' 
-                    USING SAMPLE {n_samples} ROWS
-                    """)
-        elif isinstance(params.sample_size, float):
-            # Sample by fraction
-            fraction = params.sample_size
-            sample_queries = []
-            for stratum, count in strata_counts:
-                n_samples = max(1, int(count * fraction))
-                if params.seed:
-                    sample_queries.append(f"""
-                    SELECT * FROM filtered_data 
-                    WHERE {strata_expr} = '{stratum}' 
-                    USING SAMPLE {n_samples} ROWS (SYSTEM, {params.seed})
-                    """)
-                else:
-                    sample_queries.append(f"""
-                    SELECT * FROM filtered_data 
-                    WHERE {strata_expr} = '{stratum}' 
-                    USING SAMPLE {n_samples} ROWS
-                    """)
-        else:
-            # Proportional allocation with minimum
-            total_samples = params.sample_size if params.sample_size else int(total_rows * 0.1)
-            sample_queries = []
-            
-            for stratum, count in strata_counts:
-                allocated = max(
-                    int(total_samples * (count / total_rows)),
-                    params.min_per_stratum or 0
-                )
-                n_samples = min(allocated, count)
-                
-                if n_samples > 0:
-                    if params.seed:
-                        sample_queries.append(f"""
-                        SELECT * FROM filtered_data 
-                        WHERE {strata_expr} = '{stratum}' 
-                        USING SAMPLE {n_samples} ROWS (SYSTEM, {params.seed})
-                        """)
-                    else:
-                        sample_queries.append(f"""
-                        SELECT * FROM filtered_data 
-                        WHERE {strata_expr} = '{stratum}' 
-                        USING SAMPLE {n_samples} ROWS
-                        """)
+            # Default to 10% per stratum using QUALIFY
+            if params.seed:
+                return f"""
+                SELECT * FROM (
+                    SELECT *, 
+                           ROW_NUMBER() OVER (PARTITION BY {strata_cols} ORDER BY RANDOM({params.seed})) as rn,
+                           COUNT(*) OVER (PARTITION BY {strata_cols}) as stratum_count
+                    FROM filtered_data
+                ) t
+                WHERE rn <= CEIL(stratum_count * 0.1)
+                """
+            else:
+                return f"""
+                SELECT * FROM (
+                    SELECT *, 
+                           ROW_NUMBER() OVER (PARTITION BY {strata_cols} ORDER BY RANDOM()) as rn,
+                           COUNT(*) OVER (PARTITION BY {strata_cols}) as stratum_count
+                    FROM filtered_data
+                ) t
+                WHERE rn <= CEIL(stratum_count * 0.1)
+                """
         
-        # Combine all queries with UNION ALL
-        return " UNION ALL ".join(f"({q})" for q in sample_queries)
+        elif isinstance(params.sample_size, float):
+            # Sample by fraction using window functions
+            fraction = params.sample_size
+            if params.seed:
+                return f"""
+                SELECT * FROM (
+                    SELECT *, 
+                           ROW_NUMBER() OVER (PARTITION BY {strata_cols} ORDER BY RANDOM({params.seed})) as rn,
+                           COUNT(*) OVER (PARTITION BY {strata_cols}) as stratum_count
+                    FROM filtered_data
+                ) t
+                WHERE rn <= CEIL(stratum_count * {fraction})
+                """
+            else:
+                return f"""
+                SELECT * FROM (
+                    SELECT *, 
+                           ROW_NUMBER() OVER (PARTITION BY {strata_cols} ORDER BY RANDOM()) as rn,
+                           COUNT(*) OVER (PARTITION BY {strata_cols}) as stratum_count
+                    FROM filtered_data
+                ) t
+                WHERE rn <= CEIL(stratum_count * {fraction})
+                """
+        
+        else:
+            # Proportional allocation with minimum - more complex but still single query
+            total_samples = params.sample_size if params.sample_size else 1000
+            min_per_stratum = params.min_per_stratum or 0
+            
+            # First get total count for proportion calculation
+            total_count = conn.execute("SELECT COUNT(*) FROM filtered_data").fetchone()[0]
+            
+            if params.seed:
+                return f"""
+                SELECT * FROM (
+                    SELECT *, 
+                           ROW_NUMBER() OVER (PARTITION BY {strata_cols} ORDER BY RANDOM({params.seed})) as rn,
+                           COUNT(*) OVER (PARTITION BY {strata_cols}) as stratum_count,
+                           COUNT(*) OVER () as total_count
+                    FROM filtered_data
+                ) t
+                WHERE rn <= GREATEST(
+                    {min_per_stratum},
+                    LEAST(
+                        stratum_count,
+                        CEIL(({total_samples} * CAST(stratum_count AS FLOAT) / {total_count}))
+                    )
+                )
+                """
+            else:
+                return f"""
+                SELECT * FROM (
+                    SELECT *, 
+                           ROW_NUMBER() OVER (PARTITION BY {strata_cols} ORDER BY RANDOM()) as rn,
+                           COUNT(*) OVER (PARTITION BY {strata_cols}) as stratum_count,
+                           COUNT(*) OVER () as total_count
+                    FROM filtered_data
+                ) t
+                WHERE rn <= GREATEST(
+                    {min_per_stratum},
+                    LEAST(
+                        stratum_count,
+                        CEIL(({total_samples} * CAST(stratum_count AS FLOAT) / {total_count}))
+                    )
+                )
+                """
     
     def _systematic_sampling_sql(self, conn: duckdb.DuckDBPyConnection, params: SystematicSamplingParams) -> str:
         """Generate SQL for systematic sampling"""
@@ -405,22 +494,26 @@ class SamplingService:
         if params.cluster_column not in available_columns:
             raise ValueError(f"Cluster column '{params.cluster_column}' not found in dataset")
         
-        # Get unique clusters
-        clusters_result = conn.execute(f'SELECT DISTINCT "{params.cluster_column}" FROM filtered_data').fetchall()
-        clusters = [row[0] for row in clusters_result]
+        # Get unique cluster count first
+        cluster_count_result = conn.execute(f'SELECT COUNT(DISTINCT "{params.cluster_column}") FROM filtered_data').fetchone()
+        total_clusters = cluster_count_result[0] if cluster_count_result else 0
         
-        if params.num_clusters >= len(clusters):
+        if params.num_clusters >= total_clusters:
             # If we want more clusters than exist, return all
             return "SELECT * FROM filtered_data"
         
-        # Sample clusters randomly
-        import random
-        sampled_clusters = random.sample(clusters, params.num_clusters)
-        
-        # Build IN clause with proper escaping
-        cluster_values = ", ".join([f"'{c}'" if isinstance(c, str) else str(c) for c in sampled_clusters])
-        
-        base_query = f'SELECT * FROM filtered_data WHERE "{params.cluster_column}" IN ({cluster_values})'
+        # Use DuckDB's window functions to efficiently sample clusters
+        # This avoids loading all clusters into memory
+        base_query = f"""
+        WITH cluster_sample AS (
+            SELECT DISTINCT "{params.cluster_column}",
+                   ROW_NUMBER() OVER (ORDER BY RANDOM()) as rn
+            FROM filtered_data
+        )
+        SELECT f.* FROM filtered_data f
+        INNER JOIN cluster_sample cs ON f."{params.cluster_column}" = cs."{params.cluster_column}"
+        WHERE cs.rn <= {params.num_clusters}
+        """
         
         # Optionally sample within clusters
         if params.sample_within_clusters:
@@ -443,66 +536,6 @@ class SamplingService:
         # We'll wrap it in a proper SQL query
         return f"SELECT * FROM filtered_data WHERE {params.query}"
     
-    def _load_data_to_duckdb(self, conn: duckdb.DuckDBPyConnection, file_info: Any, sheet_name: Optional[str] = None) -> str:
-        """Load file data into DuckDB table and return temp file path (if created)"""
-        file_data = file_info.file_data
-        file_type = file_info.file_type.lower()
-        temp_file_path = None
-        
-        try:
-            # Create a temporary file from the bytes data
-            temp_file_path = self._create_temp_file_from_bytes(file_data, file_type)
-            
-            if file_type == "csv":
-                # Use DuckDB's read_csv_auto for automatic CSV parsing
-                conn.execute(f"CREATE TABLE main_data AS SELECT * FROM read_csv_auto('{temp_file_path}')")
-            elif file_type == "parquet":
-                # Use DuckDB's read_parquet for Parquet files
-                conn.execute(f"CREATE TABLE main_data AS SELECT * FROM read_parquet('{temp_file_path}')")
-            elif file_type in ["xls", "xlsx", "xlsm"]:
-                # For Excel files, we need to convert to CSV first
-                # DuckDB doesn't have native Excel support
-                import openpyxl
-                import csv
-                
-                # Load the workbook
-                wb = openpyxl.load_workbook(temp_file_path, read_only=True)
-                
-                # Get the sheet
-                if sheet_name and sheet_name in wb.sheetnames:
-                    ws = wb[sheet_name]
-                else:
-                    ws = wb.active  # Use the first sheet
-                
-                # Create a temporary CSV file
-                csv_temp_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv', newline='')
-                csv_writer = csv.writer(csv_temp_file)
-                
-                try:
-                    # Write all rows to CSV
-                    for row in ws.iter_rows(values_only=True):
-                        csv_writer.writerow(row)
-                    csv_temp_file.close()
-                    
-                    # Now load the CSV into DuckDB
-                    conn.execute(f"CREATE TABLE main_data AS SELECT * FROM read_csv_auto('{csv_temp_file.name}')")
-                    
-                    # Clean up the CSV file
-                    os.unlink(csv_temp_file.name)
-                finally:
-                    wb.close()
-            else:
-                # Fall back to CSV for unknown types
-                conn.execute(f"CREATE TABLE main_data AS SELECT * FROM read_csv_auto('{temp_file_path}')")
-            
-            return temp_file_path
-            
-        except Exception as e:
-            # Clean up temp file on error
-            if temp_file_path and os.path.exists(temp_file_path):
-                os.unlink(temp_file_path)
-            logger.error(f"Error loading file to DuckDB: {str(e)}")
-            raise ValueError(f"Error loading file: {str(e)}")
     
     def _get_data_summary(self, conn: duckdb.DuckDBPyConnection, table_name: str) -> DataSummary:
         """Generate data summary statistics using DuckDB"""
@@ -571,34 +604,49 @@ class SamplingService:
 
                 # Get file data
                 file_info = await datasets_repo.get_file(version.file_id)
-                if not file_info or not file_info.file_data:
-                    raise ValueError("File data not found")
+                if not file_info or not file_info.file_path:
+                    raise ValueError("File path not found")
 
-                # Create DuckDB connection
-                conn = duckdb.connect(':memory:')
-                temp_file_path = None
+                # Check file size to ensure we can handle it
+                if hasattr(file_info, 'file_size') and file_info.file_size:
+                    max_file_size_gb = 50  # Maximum file size in GB
+                    file_size_gb = file_info.file_size / (1024 * 1024 * 1024)
+                    if file_size_gb > max_file_size_gb:
+                        raise ValueError(f"File size ({file_size_gb:.2f} GB) exceeds maximum allowed size ({max_file_size_gb} GB)")
+                
+                # Create DuckDB connection with memory limit
+                conn = duckdb.connect(':memory:', config={'memory_limit': '4GB', 'max_memory': '4GB'})
                 
                 try:
-                    # Load file into DuckDB
-                    temp_file_path = self._load_data_to_duckdb(conn, file_info, request.sheet)
+                    # Create a view instead of table to avoid loading entire file into memory
+                    conn.execute(f"CREATE VIEW main_data AS SELECT * FROM read_parquet('{file_info.file_path}')")
 
                     # Apply filtering and sampling
                     sampled_query = await self._apply_sampling_with_duckdb(conn, request)
                     
-                    # Create a temporary table with the sampled data
-                    conn.execute(f"CREATE OR REPLACE TEMPORARY TABLE sampled_result AS {sampled_query}")
+                    # For synchronous sampling, limit the result size to prevent memory issues
+                    max_sync_rows = 100000  # Maximum rows for synchronous response
                     
-                    # Fetch all data from the sampled result
-                    result = conn.execute("SELECT * FROM sampled_result").fetchall()
+                    # First check the count
+                    count_query = f"SELECT COUNT(*) FROM ({sampled_query}) t"
+                    row_count = conn.execute(count_query).fetchone()[0]
+                    
+                    if row_count > max_sync_rows:
+                        logger.warning(f"Sampled data has {row_count} rows, limiting to {max_sync_rows} for sync response")
+                        # Add LIMIT to the query
+                        limited_query = f"SELECT * FROM ({sampled_query}) t LIMIT {max_sync_rows}"
+                    else:
+                        limited_query = sampled_query
+                    
+                    # Fetch data directly without creating temporary table
+                    result = conn.execute(limited_query).fetchall()
                     columns = [desc[0] for desc in conn.description]
                     
-                    # Return as list of dictionaries (similar to DataFrame.to_dict('records'))
+                    # Return as list of dictionaries
                     return [dict(zip(columns, row)) for row in result]
                     
                 finally:
-                    # Clean up temp file
-                    if temp_file_path and os.path.exists(temp_file_path):
-                        os.unlink(temp_file_path)
+                    conn.close()
 
         except Exception as e:
             logger.error(f"Error executing sampling synchronously: {str(e)}", exc_info=True)
@@ -646,6 +694,52 @@ class SamplingService:
         except Exception as e:
             logger.error(f"Error getting sample summary: {str(e)}")
             raise ValueError(f"Error getting sample summary: {str(e)}")
+    
+    def _build_filter_query_embedded(self, filters: Optional[DataFilters]) -> str:
+        """Build SQL WHERE clause with values embedded directly (no parameters)"""
+        if not filters or not filters.conditions:
+            return ""
+
+        condition_strings = []
+        for condition in filters.conditions:
+            col = f'"{condition.column}"'  # Quote column names
+
+            if condition.operator in ['IS NULL', 'IS NOT NULL']:
+                condition_strings.append(f"{col} {condition.operator}")
+            elif condition.operator in ['IN', 'NOT IN']:
+                if isinstance(condition.value, list):
+                    if not condition.value:  # Empty list
+                        if condition.operator == 'IN':
+                            condition_strings.append("0=1")  # Always false for IN empty list
+                        else:  # NOT IN
+                            condition_strings.append("1=1")  # Always true for NOT IN empty list
+                    else:  # Non-empty list
+                        # Escape each value
+                        escaped_values = [f"'{self._escape_sql_string(v)}'" for v in condition.value]
+                        condition_strings.append(f"{col} {condition.operator} ({', '.join(escaped_values)})")
+                else:  # Single value, treat as = or !=
+                    actual_operator = '=' if condition.operator == 'IN' else '!='
+                    escaped_value = self._escape_sql_string(condition.value)
+                    condition_strings.append(f"{col} {actual_operator} '{escaped_value}'")
+            elif condition.operator in ['=', '!=', '>', '<', '>=', '<=']:
+                # For numeric comparisons, don't quote the value if it's a number
+                if isinstance(condition.value, (int, float)):
+                    condition_strings.append(f"{col} {condition.operator} {condition.value}")
+                else:
+                    escaped_value = self._escape_sql_string(condition.value)
+                    condition_strings.append(f"{col} {condition.operator} '{escaped_value}'")
+            elif condition.operator in ['LIKE', 'ILIKE']:
+                escaped_value = self._escape_sql_string(condition.value)
+                condition_strings.append(f"{col} {condition.operator} '{escaped_value}'")
+            else:
+                # Default case - treat as string
+                escaped_value = self._escape_sql_string(condition.value)
+                condition_strings.append(f"{col} {condition.operator} '{escaped_value}'")
+
+        if not condition_strings:
+            return ""
+
+        return f"WHERE {f' {filters.logic} '.join(condition_strings)}"
     
     def _build_filter_query(self, filters: Optional[DataFilters]) -> Tuple[str, List[Any]]:
         """Build SQL WHERE clause from filter conditions, returning clause and parameters."""
@@ -744,11 +838,17 @@ class SamplingService:
 
             logger.debug(f"Base DuckDB query: {base_query} with params: {filter_params}")
 
-            # Execute the filter params if any
-            if filter_params:
-                # Create a prepared statement for the base query
-                conn.execute(f"CREATE OR REPLACE TEMPORARY VIEW base_filtered AS {base_query}", filter_params)
-                base_query = "SELECT * FROM base_filtered"
+            # If we have filters, we need to embed them directly in the query
+            # DuckDB doesn't support parameters in CREATE VIEW statements
+            if filter_params and filter_clause_str:
+                # Build the filter clause with embedded values
+                embedded_filter_clause = self._build_filter_query_embedded(request.filters)
+                query_parts = [select_from_clause]
+                if embedded_filter_clause:
+                    query_parts.append(embedded_filter_clause)
+                if order_limit_offset_clause_str:
+                    query_parts.append(order_limit_offset_clause_str)
+                base_query = " ".join(query_parts).strip()
 
             # Now apply sampling method to get the final query
             return await self._apply_sampling_sql(conn, base_query, request)
