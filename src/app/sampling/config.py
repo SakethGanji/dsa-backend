@@ -30,12 +30,6 @@ class SamplingSettings(BaseSettings):
         description="Maximum number of rows to process in a single job"
     )
     
-    max_memory_usage_mb: float = Field(
-        default=512.0,
-        env="SAMPLING_MAX_MEMORY_MB",
-        description="Maximum memory usage per job in MB"
-    )
-    
     max_execution_time_seconds: int = Field(
         default=3600,
         env="SAMPLING_MAX_EXECUTION_TIME",

@@ -38,9 +38,13 @@ router = APIRouter(prefix="/api/sampling", tags=["Sampling"])
     The job will run asynchronously. A unique job ID is returned
     which can be used to poll for the job status and results.
     
-    ## Sampling Methods
+    ## Modes
     
-    Different sampling methods require different parameters:
+    This endpoint supports two modes:
+    
+    ### 1. Traditional Mode (single sampling method)
+    
+    Specify `method` and `parameters`:
     
     - **random**: sample_size (required), seed (optional)
     - **stratified**: strata_columns (required), sample_size (optional), min_per_stratum (optional), seed (optional)
@@ -48,21 +52,24 @@ router = APIRouter(prefix="/api/sampling", tags=["Sampling"])
     - **cluster**: cluster_column (required), num_clusters (required), sample_within_clusters (optional)
     - **custom**: query (required)
     
+    ### 2. Pipeline Mode (compose multiple steps)
+    
+    Specify `pipeline` with an array of steps:
+    
+    - **filter**: Apply conditional filtering
+    - **stratified_sample**: Sample proportionally across groups
+    - **cluster_sample**: Sample entire clusters
+    - **consecutive_sample**: Take every nth record
+    - **random_sample**: Random sampling
+    
     ## Filtering and Selection
     
     You can also specify:
     
-    - **filters**: Row filtering with conditions (column, operator, value)
-      - Operators: =, !=, >, <, >=, <=, LIKE, ILIKE, IN, NOT IN, IS NULL, IS NOT NULL
-      - Logic: AND/OR between conditions
-    - **selection**: Column selection and data ordering
-      - columns: List of columns to include (null = all)
-      - exclude_columns: List of columns to exclude
-      - order_by: Column to sort by
-      - order_desc: Use descending order
-      - limit/offset: Pagination before sampling
+    - **filters**: Row filtering with conditions (traditional mode only)
+    - **selection**: Column selection and data ordering (both modes)
     
-    ## Example Request
+    ## Example Request (Traditional)
     
     ```json
     {
@@ -71,16 +78,43 @@ router = APIRouter(prefix="/api/sampling", tags=["Sampling"])
       "output_name": "my_sample",
       "filters": {
         "conditions": [
-          {"column": "age", "operator": ">", "value": 18},
-          {"column": "status", "operator": "IN", "value": ["active", "pending"]}
+          {"column": "age", "operator": ">", "value": 18}
         ],
         "logic": "AND"
-      },
-      "selection": {
-        "columns": ["name", "age", "status"],
-        "order_by": "age",
-        "order_desc": false
       }
+    }
+    ```
+    
+    ## Example Request (Pipeline)
+    
+    ```json
+    {
+      "pipeline": [
+        {
+          "step": "filter",
+          "parameters": {
+            "conditions": [
+              {"column": "status", "operator": "=", "value": "active"}
+            ],
+            "logic": "AND"
+          }
+        },
+        {
+          "step": "stratified_sample",
+          "parameters": {
+            "strata_columns": ["region"],
+            "sample_size": 0.5
+          }
+        },
+        {
+          "step": "random_sample",
+          "parameters": {
+            "sample_size": 1000,
+            "seed": 42
+          }
+        }
+      ],
+      "output_name": "pipeline_sample"
     }
     ```
     """

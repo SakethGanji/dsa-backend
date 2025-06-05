@@ -12,6 +12,14 @@ class SamplingMethod(str, Enum):
     CLUSTER = "cluster"
     CUSTOM = "custom"
 
+class PipelineStep(str, Enum):
+    """Available pipeline steps"""
+    FILTER = "filter"
+    STRATIFIED_SAMPLE = "stratified_sample"
+    CLUSTER_SAMPLE = "cluster_sample"
+    CONSECUTIVE_SAMPLE = "consecutive_sample"
+    RANDOM_SAMPLE = "random_sample"
+
 class JobStatus(str, Enum):
     """Status of a sampling job"""
     PENDING = "pending"
@@ -87,6 +95,79 @@ class DataSelection(BaseModel):
     limit: Optional[int] = Field(None, description="Limit number of rows before sampling")
     offset: Optional[int] = Field(None, description="Skip number of rows before sampling")
 
+# Pipeline-specific parameter models
+class ConsecutiveSamplingParams(BaseModel):
+    """Parameters for consecutive/systematic sampling in pipeline"""
+    interval: int = Field(..., description="Take every nth record")
+    start: Optional[int] = Field(0, description="Starting index (default is 0)")
+
+class PipelineFilterParams(BaseModel):
+    """Parameters for filtering step in pipeline"""
+    conditions: List[FilterCondition] = Field(..., description="Filter conditions")
+    logic: str = Field("AND", description="Logic between conditions: AND or OR")
+    
+    @validator('logic')
+    def validate_logic(cls, v):
+        if v not in ['AND', 'OR']:
+            raise ValueError("Logic must be 'AND' or 'OR'")
+        return v
+
+class PipelineRandomParams(BaseModel):
+    """Parameters for random sampling in pipeline"""
+    sample_size: Optional[Union[int, float]] = Field(..., description="Number or fraction of samples")
+    seed: Optional[int] = Field(None, description="Random seed for reproducibility")
+    
+    @validator('sample_size')
+    def validate_sample_size(cls, v):
+        if v is not None and isinstance(v, float) and (v <= 0 or v >= 1):
+            raise ValueError("If sample_size is a fraction, it must be between 0 and 1")
+        return v
+
+class PipelineStepConfig(BaseModel):
+    """Configuration for a single pipeline step"""
+    step: PipelineStep = Field(..., description="Type of pipeline step")
+    parameters: Dict[str, Any] = Field(..., description="Parameters for the step")
+    
+    def get_typed_parameters(self):
+        """Convert parameters dict to the appropriate typed model"""
+        if self.step == PipelineStep.FILTER:
+            return PipelineFilterParams(**self.parameters)
+        elif self.step == PipelineStep.STRATIFIED_SAMPLE:
+            return StratifiedSamplingParams(**self.parameters)
+        elif self.step == PipelineStep.CLUSTER_SAMPLE:
+            return ClusterSamplingParams(**self.parameters)
+        elif self.step == PipelineStep.CONSECUTIVE_SAMPLE:
+            return ConsecutiveSamplingParams(**self.parameters)
+        elif self.step == PipelineStep.RANDOM_SAMPLE:
+            return PipelineRandomParams(**self.parameters)
+        else:
+            raise ValueError(f"Unknown pipeline step: {self.step}")
+
+# Pipeline request model
+class PipelineSamplingRequest(BaseModel):
+    """
+    Request model for pipeline-based sampling.
+    Allows composing multiple sampling steps in sequence.
+    """
+    pipeline: List[PipelineStepConfig] = Field(
+        ...,
+        description="List of pipeline steps to execute in order"
+    )
+    output_name: str = Field(
+        ...,
+        description="Name for the output sample dataset"
+    )
+    selection: Optional[DataSelection] = Field(
+        None,
+        description="Column selection and ordering options (applied at the end)"
+    )
+    
+    @validator('pipeline')
+    def validate_pipeline(cls, v):
+        if not v:
+            raise ValueError("Pipeline must contain at least one step")
+        return v
+
 # Main request model
 class SamplingRequest(BaseModel):
     """
@@ -97,13 +178,17 @@ class SamplingRequest(BaseModel):
         None, 
         description="Optional sheet name for Excel files"
     )
-    method: SamplingMethod = Field(
-        ...,
-        description="Sampling method to use"
+    method: Optional[SamplingMethod] = Field(
+        None,
+        description="Sampling method to use (for non-pipeline mode)"
     )
-    parameters: Dict[str, Any] = Field(
-        ...,
-        description="Parameters specific to the sampling method"
+    parameters: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Parameters specific to the sampling method (for non-pipeline mode)"
+    )
+    pipeline: Optional[List[PipelineStepConfig]] = Field(
+        None,
+        description="List of pipeline steps (for pipeline mode)"
     )
     output_name: str = Field(
         ...,
@@ -112,15 +197,36 @@ class SamplingRequest(BaseModel):
     # New filtering and selection options
     filters: Optional[DataFilters] = Field(
         None,
-        description="Row filtering options"
+        description="Row filtering options (for non-pipeline mode)"
     )
     selection: Optional[DataSelection] = Field(
         None,
         description="Column selection and ordering options"
     )
+    
+    @validator('pipeline')
+    def validate_mode(cls, v, values):
+        # Either use method+parameters OR pipeline, not both
+        if v is not None and values.get('method') is not None:
+            raise ValueError("Cannot specify both 'method' and 'pipeline'. Use either traditional mode or pipeline mode.")
+        
+        return v
+    
+    @validator('parameters')
+    def validate_parameters_with_method(cls, v, values):
+        if v is not None and values.get('method') is None:
+            raise ValueError("'parameters' requires 'method' to be specified")
+        return v
 
+    def is_pipeline_mode(self) -> bool:
+        """Check if request is in pipeline mode"""
+        return self.pipeline is not None and len(self.pipeline) > 0
+    
     def get_typed_parameters(self):
         """Convert parameters dict to the appropriate typed model"""
+        if self.is_pipeline_mode():
+            raise ValueError("get_typed_parameters() should not be called in pipeline mode")
+        
         if self.method == SamplingMethod.RANDOM:
             return RandomSamplingParams(**self.parameters)
         elif self.method == SamplingMethod.STRATIFIED:

@@ -11,7 +11,9 @@ from app.sampling.models import (
     SamplingMethod, JobStatus, SamplingRequest, 
     SamplingJob, RandomSamplingParams, StratifiedSamplingParams,
     SystematicSamplingParams, ClusterSamplingParams, CustomSamplingParams,
-    DataFilters, DataSelection, FilterCondition, DataSummary
+    DataFilters, DataSelection, FilterCondition, DataSummary,
+    PipelineStep, PipelineStepConfig, PipelineFilterParams,
+    ConsecutiveSamplingParams, PipelineRandomParams
 )
 
 # Configure logging
@@ -95,8 +97,8 @@ class SamplingService:
                 if not file_info or not file_info.file_path:
                     raise ValueError("File path not found")
                 
-                # Use DuckDB to get metadata with memory limit
-                conn = duckdb.connect(':memory:', config={'memory_limit': '2GB', 'max_memory': '2GB'})
+                # Use DuckDB to get metadata
+                conn = duckdb.connect(':memory:')
                 try:
                     # Create view from Parquet file - this doesn't load data into memory
                     conn.execute(f"CREATE VIEW dataset AS SELECT * FROM read_parquet('{file_info.file_path}')")
@@ -228,8 +230,8 @@ class SamplingService:
                     if file_size_gb > max_file_size_gb:
                         raise ValueError(f"File size ({file_size_gb:.2f} GB) exceeds maximum allowed size ({max_file_size_gb} GB)")
                 
-                # Create DuckDB connection with memory limit
-                conn = duckdb.connect(':memory:', config={'memory_limit': '4GB', 'max_memory': '4GB'})
+                # Create DuckDB connection
+                conn = duckdb.connect(':memory:')
                 
                 try:
                     # Create a view instead of table to avoid loading entire file into memory
@@ -344,18 +346,18 @@ class SamplingService:
         if params.sample_size >= total_count:
             return "SELECT * FROM filtered_data"
         
-        # Use DuckDB's TABLESAMPLE for better performance on large datasets
+        # Set seed if provided
         if params.seed is not None:
-            # For exact sample size with seed, use SAMPLE clause
-            return f"SELECT * FROM filtered_data USING SAMPLE {params.sample_size} ROWS (REPEATABLE ({params.seed}))"
+            seed_value = (params.seed % 1000000) / 1000000.0
+            conn.execute(f"SELECT setseed({seed_value})")
+        
+        # Use DuckDB's SAMPLE for sampling
+        if params.sample_size < 10000:
+            return f"SELECT * FROM filtered_data USING SAMPLE {params.sample_size}"
         else:
-            # For approximate sampling without seed, use TABLESAMPLE for better performance
-            if params.sample_size < 10000:
-                return f"SELECT * FROM filtered_data USING SAMPLE {params.sample_size} ROWS"
-            else:
-                # For larger samples, use percentage-based sampling
-                sample_percent = min(100.0, (params.sample_size / max(1, total_count)) * 100 * 1.1)  # Add 10% buffer
-                return f"SELECT * FROM filtered_data TABLESAMPLE {sample_percent} PERCENT"
+            # For larger samples, use percentage-based sampling
+            sample_percent = min(100.0, (params.sample_size / max(1, total_count)) * 100 * 1.1)  # Add 10% buffer
+            return f"SELECT * FROM filtered_data TABLESAMPLE {sample_percent} PERCENT"
     
     def _escape_sql_string(self, value: Any) -> str:
         """Escape a value for use in SQL string literal"""
@@ -378,53 +380,37 @@ class SamplingService:
         # Build strata expression
         strata_cols = ", ".join([f'"{col}"' for col in params.strata_columns])
         
+        # Set random seed if provided
+        if params.seed:
+            # DuckDB uses setseed with a value between -1 and 1
+            seed_value = (params.seed % 1000000) / 1000000.0
+            conn.execute(f"SELECT setseed({seed_value})")
+        
         # Determine sampling approach based on parameters
         if params.sample_size is None and params.min_per_stratum is None:
-            # Default to 10% per stratum using QUALIFY
-            if params.seed:
-                return f"""
-                SELECT * FROM (
-                    SELECT *, 
-                           ROW_NUMBER() OVER (PARTITION BY {strata_cols} ORDER BY RANDOM({params.seed})) as rn,
-                           COUNT(*) OVER (PARTITION BY {strata_cols}) as stratum_count
-                    FROM filtered_data
-                ) t
-                WHERE rn <= CEIL(stratum_count * 0.1)
-                """
-            else:
-                return f"""
-                SELECT * FROM (
-                    SELECT *, 
-                           ROW_NUMBER() OVER (PARTITION BY {strata_cols} ORDER BY RANDOM()) as rn,
-                           COUNT(*) OVER (PARTITION BY {strata_cols}) as stratum_count
-                    FROM filtered_data
-                ) t
-                WHERE rn <= CEIL(stratum_count * 0.1)
-                """
+            # Default to 10% per stratum
+            return f"""
+            SELECT * FROM (
+                SELECT *, 
+                       ROW_NUMBER() OVER (PARTITION BY {strata_cols} ORDER BY RANDOM()) as rn,
+                       COUNT(*) OVER (PARTITION BY {strata_cols}) as stratum_count
+                FROM filtered_data
+            ) t
+            WHERE rn <= CEIL(stratum_count * 0.1)
+            """
         
         elif isinstance(params.sample_size, float):
             # Sample by fraction using window functions
             fraction = params.sample_size
-            if params.seed:
-                return f"""
-                SELECT * FROM (
-                    SELECT *, 
-                           ROW_NUMBER() OVER (PARTITION BY {strata_cols} ORDER BY RANDOM({params.seed})) as rn,
-                           COUNT(*) OVER (PARTITION BY {strata_cols}) as stratum_count
-                    FROM filtered_data
-                ) t
-                WHERE rn <= CEIL(stratum_count * {fraction})
-                """
-            else:
-                return f"""
-                SELECT * FROM (
-                    SELECT *, 
-                           ROW_NUMBER() OVER (PARTITION BY {strata_cols} ORDER BY RANDOM()) as rn,
-                           COUNT(*) OVER (PARTITION BY {strata_cols}) as stratum_count
-                    FROM filtered_data
-                ) t
-                WHERE rn <= CEIL(stratum_count * {fraction})
-                """
+            return f"""
+            SELECT * FROM (
+                SELECT *, 
+                       ROW_NUMBER() OVER (PARTITION BY {strata_cols} ORDER BY RANDOM()) as rn,
+                       COUNT(*) OVER (PARTITION BY {strata_cols}) as stratum_count
+                FROM filtered_data
+            ) t
+            WHERE rn <= CEIL(stratum_count * {fraction})
+            """
         
         else:
             # Proportional allocation with minimum - more complex but still single query
@@ -434,40 +420,22 @@ class SamplingService:
             # First get total count for proportion calculation
             total_count = conn.execute("SELECT COUNT(*) FROM filtered_data").fetchone()[0]
             
-            if params.seed:
-                return f"""
-                SELECT * FROM (
-                    SELECT *, 
-                           ROW_NUMBER() OVER (PARTITION BY {strata_cols} ORDER BY RANDOM({params.seed})) as rn,
-                           COUNT(*) OVER (PARTITION BY {strata_cols}) as stratum_count,
-                           COUNT(*) OVER () as total_count
-                    FROM filtered_data
-                ) t
-                WHERE rn <= GREATEST(
-                    {min_per_stratum},
-                    LEAST(
-                        stratum_count,
-                        CEIL(({total_samples} * CAST(stratum_count AS FLOAT) / {total_count}))
-                    )
+            return f"""
+            SELECT * FROM (
+                SELECT *, 
+                       ROW_NUMBER() OVER (PARTITION BY {strata_cols} ORDER BY RANDOM()) as rn,
+                       COUNT(*) OVER (PARTITION BY {strata_cols}) as stratum_count,
+                       COUNT(*) OVER () as total_count
+                FROM filtered_data
+            ) t
+            WHERE rn <= GREATEST(
+                {min_per_stratum},
+                LEAST(
+                    stratum_count,
+                    CEIL(({total_samples} * CAST(stratum_count AS FLOAT) / {total_count}))
                 )
-                """
-            else:
-                return f"""
-                SELECT * FROM (
-                    SELECT *, 
-                           ROW_NUMBER() OVER (PARTITION BY {strata_cols} ORDER BY RANDOM()) as rn,
-                           COUNT(*) OVER (PARTITION BY {strata_cols}) as stratum_count,
-                           COUNT(*) OVER () as total_count
-                    FROM filtered_data
-                ) t
-                WHERE rn <= GREATEST(
-                    {min_per_stratum},
-                    LEAST(
-                        stratum_count,
-                        CEIL(({total_samples} * CAST(stratum_count AS FLOAT) / {total_count}))
-                    )
-                )
-                """
+            )
+            """
     
     def _systematic_sampling_sql(self, conn: duckdb.DuckDBPyConnection, params: SystematicSamplingParams) -> str:
         """Generate SQL for systematic sampling"""
@@ -614,8 +582,8 @@ class SamplingService:
                     if file_size_gb > max_file_size_gb:
                         raise ValueError(f"File size ({file_size_gb:.2f} GB) exceeds maximum allowed size ({max_file_size_gb} GB)")
                 
-                # Create DuckDB connection with memory limit
-                conn = duckdb.connect(':memory:', config={'memory_limit': '4GB', 'max_memory': '4GB'})
+                # Create DuckDB connection
+                conn = duckdb.connect(':memory:')
                 
                 try:
                     # Create a view instead of table to avoid loading entire file into memory
@@ -814,9 +782,185 @@ class SamplingService:
                     parts.append(f"OFFSET {selection.offset}")
         return " ".join(parts)
 
+    # Pipeline step implementations
+    def _pipeline_filter_step(self, conn: duckdb.DuckDBPyConnection, base_view: str, params: PipelineFilterParams) -> str:
+        """Apply filtering step in pipeline"""
+        # Build filter conditions
+        filter_conditions = DataFilters(conditions=params.conditions, logic=params.logic)
+        filter_clause = self._build_filter_query_embedded(filter_conditions)
+        
+        if filter_clause:
+            return f"SELECT * FROM {base_view} {filter_clause}"
+        else:
+            return f"SELECT * FROM {base_view}"
+    
+    def _pipeline_random_step(self, conn: duckdb.DuckDBPyConnection, base_view: str, params: PipelineRandomParams) -> str:
+        """Apply random sampling step in pipeline"""
+        # Get total count from the view
+        total_count = conn.execute(f"SELECT COUNT(*) FROM {base_view}").fetchone()[0]
+        
+        if params.sample_size is None:
+            # Default to 10% if not specified
+            sample_size = max(1, int(total_count * 0.1))
+        elif isinstance(params.sample_size, float):
+            # Fraction-based sampling
+            sample_size = max(1, int(total_count * params.sample_size))
+        else:
+            # Absolute number
+            sample_size = min(params.sample_size, total_count)
+        
+        if sample_size >= total_count:
+            return f"SELECT * FROM {base_view}"
+        
+        # Set seed if provided
+        if params.seed is not None:
+            seed_value = (params.seed % 1000000) / 1000000.0
+            conn.execute(f"SELECT setseed({seed_value})")
+        
+        # Use DuckDB's sampling
+        return f"SELECT * FROM {base_view} USING SAMPLE {sample_size}"
+    
+    def _pipeline_stratified_step(self, conn: duckdb.DuckDBPyConnection, base_view: str, params: StratifiedSamplingParams) -> str:
+        """Apply stratified sampling step in pipeline"""
+        # Similar to existing stratified sampling but works on a view
+        strata_cols = ", ".join([f'"{col}"' for col in params.strata_columns])
+        
+        if params.sample_size is None and params.min_per_stratum is None:
+            # Default to 10% per stratum
+            fraction = 0.1
+        elif isinstance(params.sample_size, float):
+            fraction = params.sample_size
+        else:
+            # Need to calculate fraction based on total count
+            total_count = conn.execute(f"SELECT COUNT(*) FROM {base_view}").fetchone()[0]
+            fraction = params.sample_size / max(1, total_count) if params.sample_size else 0.1
+        
+        if params.seed:
+            # Set the random seed for deterministic results
+            # DuckDB uses setseed with a value between -1 and 1
+            seed_value = (params.seed % 1000000) / 1000000.0
+            conn.execute(f"SELECT setseed({seed_value})")
+        
+        return f"""
+        SELECT * FROM (
+            SELECT *, 
+                   ROW_NUMBER() OVER (PARTITION BY {strata_cols} ORDER BY RANDOM()) as rn,
+                   COUNT(*) OVER (PARTITION BY {strata_cols}) as stratum_count
+            FROM {base_view}
+        ) t
+        WHERE rn <= CEIL(stratum_count * {fraction})
+        """
+    
+    def _pipeline_cluster_step(self, conn: duckdb.DuckDBPyConnection, base_view: str, params: ClusterSamplingParams) -> str:
+        """Apply cluster sampling step in pipeline"""
+        # Get unique cluster count
+        cluster_count_result = conn.execute(f'SELECT COUNT(DISTINCT "{params.cluster_column}") FROM {base_view}').fetchone()
+        total_clusters = cluster_count_result[0] if cluster_count_result else 0
+        
+        if params.num_clusters >= total_clusters:
+            return f"SELECT * FROM {base_view}"
+        
+        base_query = f"""
+        WITH cluster_sample AS (
+            SELECT DISTINCT "{params.cluster_column}",
+                   ROW_NUMBER() OVER (ORDER BY RANDOM()) as rn
+            FROM {base_view}
+        )
+        SELECT f.* FROM {base_view} f
+        INNER JOIN cluster_sample cs ON f."{params.cluster_column}" = cs."{params.cluster_column}"
+        WHERE cs.rn <= {params.num_clusters}
+        """
+        
+        if params.sample_within_clusters:
+            # Sample 50% within each cluster
+            return f"""
+            WITH ranked AS (
+                SELECT *, 
+                       ROW_NUMBER() OVER (PARTITION BY "{params.cluster_column}" ORDER BY RANDOM()) as rn,
+                       COUNT(*) OVER (PARTITION BY "{params.cluster_column}") as cluster_size
+                FROM ({base_query}) t
+            )
+            SELECT * FROM ranked WHERE rn <= cluster_size / 2
+            """
+        
+        return base_query
+    
+    def _pipeline_consecutive_step(self, conn: duckdb.DuckDBPyConnection, base_view: str, params: ConsecutiveSamplingParams) -> str:
+        """Apply consecutive/systematic sampling step in pipeline"""
+        if params.interval <= 0:
+            raise ValueError("Interval must be greater than 0")
+        
+        start = params.start if params.start is not None else 0
+        
+        return f"""
+        SELECT * FROM (
+            SELECT *, ROW_NUMBER() OVER () - 1 as rn 
+            FROM {base_view}
+        ) t 
+        WHERE (rn - {start}) % {params.interval} = 0
+        """
+    
+    async def _apply_pipeline_sampling(self, conn: duckdb.DuckDBPyConnection, request: SamplingRequest) -> str:
+        """Apply pipeline-based sampling"""
+        if not request.pipeline:
+            raise ValueError("Pipeline is empty")
+        
+        # Start with the main data view
+        current_view = "main_data"
+        view_counter = 0
+        
+        # Process each pipeline step
+        for i, step_config in enumerate(request.pipeline):
+            view_counter += 1
+            next_view = f"pipeline_step_{view_counter}"
+            
+            # Get typed parameters for the step
+            params = step_config.get_typed_parameters()
+            
+            # Apply the appropriate step
+            if step_config.step == PipelineStep.FILTER:
+                query = self._pipeline_filter_step(conn, current_view, params)
+            elif step_config.step == PipelineStep.RANDOM_SAMPLE:
+                query = self._pipeline_random_step(conn, current_view, params)
+            elif step_config.step == PipelineStep.STRATIFIED_SAMPLE:
+                query = self._pipeline_stratified_step(conn, current_view, params)
+            elif step_config.step == PipelineStep.CLUSTER_SAMPLE:
+                query = self._pipeline_cluster_step(conn, current_view, params)
+            elif step_config.step == PipelineStep.CONSECUTIVE_SAMPLE:
+                query = self._pipeline_consecutive_step(conn, current_view, params)
+            else:
+                raise ValueError(f"Unknown pipeline step: {step_config.step}")
+            
+            # Create a view for this step's output
+            conn.execute(f"CREATE OR REPLACE TEMPORARY VIEW {next_view} AS {query}")
+            
+            # Log step completion
+            logger.info(f"Pipeline step {i+1}/{len(request.pipeline)} completed: {step_config.step}")
+            
+            # Update current view for next step
+            current_view = next_view
+        
+        # Apply final selection if specified
+        if request.selection:
+            self._validate_selection(conn, request.selection)
+            select_clause = self._build_select_from_clause(conn, request.selection, current_view)
+            order_limit_clause = self._build_order_limit_offset_clause(request.selection)
+            
+            if order_limit_clause:
+                return f"{select_clause} {order_limit_clause}"
+            else:
+                return select_clause
+        else:
+            return f"SELECT * FROM {current_view}"
+    
     async def _apply_sampling_with_duckdb(self, conn: duckdb.DuckDBPyConnection, request: SamplingRequest) -> str:
         """Apply filtering, selection, and sampling using DuckDB and return the final SQL query."""
         try:
+            # Check if we're in pipeline mode
+            if request.is_pipeline_mode():
+                return await self._apply_pipeline_sampling(conn, request)
+            
+            # Traditional sampling mode
             # Validate filters and selection (checks if columns exist, etc.)
             if request.filters:
                 self._validate_filters(conn, request.filters)
