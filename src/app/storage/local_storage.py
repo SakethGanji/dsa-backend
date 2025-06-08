@@ -1,3 +1,13 @@
+"""
+DEPRECATED: This module is deprecated and will be removed in a future version.
+Please use LocalStorageBackend from app.storage.backend instead.
+
+Migration guide:
+- Replace LocalFileStorage with LocalStorageBackend
+- Use StorageFactory.get_instance() to get a storage backend instance
+- The new backend provides the same functionality with a cleaner interface
+"""
+
 import os
 import uuid
 import logging
@@ -6,8 +16,16 @@ from typing import Optional, Tuple
 import duckdb
 import tempfile
 from fastapi import UploadFile
+import warnings
 
 logger = logging.getLogger(__name__)
+
+# Issue deprecation warning when module is imported
+warnings.warn(
+    "LocalFileStorage is deprecated. Use LocalStorageBackend from app.storage.backend instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 class LocalFileStorage:
     """Service for managing local file storage with Parquet conversion"""

@@ -7,7 +7,7 @@ import duckdb
 from fastapi import UploadFile, HTTPException
 from app.datasets.repository import DatasetsRepository
 from app.datasets.duckdb_service import DuckDBService
-from app.storage.local_storage import LocalFileStorage
+from app.storage.backend import StorageBackend
 from app.datasets.models import (
     Dataset, DatasetCreate, DatasetUpdate, DatasetUploadRequest, DatasetUploadResponse,
     DatasetVersion, DatasetVersionCreate, File, FileCreate,
@@ -17,9 +17,9 @@ from app.datasets.models import (
 logger = logging.getLogger(__name__)
 
 class DatasetsService:
-    def __init__(self, repository: DatasetsRepository):
+    def __init__(self, repository: DatasetsRepository, storage_backend: StorageBackend):
         self.repository = repository
-        self.storage = LocalFileStorage()
+        self.storage = storage_backend
 
     async def upload_dataset(
         self, 
@@ -54,12 +54,20 @@ class DatasetsService:
         
         # Step 2: Save file to local storage as Parquet
         try:
-            # Save file as Parquet
-            file_path, file_size = await self.storage.save_dataset_file(
-                file=file,
+            # Read file content
+            file_content = await file.read()
+            await file.seek(0)  # Reset file pointer
+            
+            # Save file as Parquet using storage backend
+            result = await self.storage.save_dataset_file(
+                file_content=file_content,
                 dataset_id=dataset_id,
-                version_id=0  # We'll update this after creating the version
+                version_id=0,  # We'll update this after creating the version
+                file_name=file.filename
             )
+            
+            file_path = result["path"]
+            file_size = result["size"]
             
             # Create file record in database with path reference
             file_create = FileCreate(

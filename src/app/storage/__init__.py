@@ -1,4 +1,11 @@
-from .local_storage import LocalFileStorage
-from .file_service import FileService
+from .backend import StorageBackend, DatasetReader
+from .local_backend import LocalStorageBackend, LocalDatasetReader
+from .factory import StorageFactory
 
-__all__ = ["LocalFileStorage", "FileService"]
+__all__ = [
+    "StorageBackend",
+    "DatasetReader", 
+    "LocalStorageBackend",
+    "LocalDatasetReader",
+    "StorageFactory"
+]

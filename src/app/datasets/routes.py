@@ -12,6 +12,7 @@ from app.datasets.models import (
 )
 from app.users.models import UserOut as User
 from app.db.connection import get_session
+from app.storage.factory import StorageFactory
 import io
 
 
@@ -24,7 +25,8 @@ router = APIRouter(prefix="/api/datasets", tags=["Datasets"])
 
 def get_datasets_controller(session: AsyncSession = Depends(get_session)):
     repository = DatasetsRepository(session)
-    service = DatasetsService(repository)
+    storage_backend = StorageFactory.get_instance()
+    service = DatasetsService(repository, storage_backend)
     controller = DatasetsController(service)
     return controller
 

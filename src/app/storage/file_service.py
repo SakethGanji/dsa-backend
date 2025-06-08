@@ -1,4 +1,14 @@
 """
+DEPRECATED: This module is deprecated and will be removed in a future version.
+Please use LocalStorageBackend from app.storage.backend instead.
+
+Migration guide:
+- Replace FileService with LocalStorageBackend
+- Use StorageFactory.get_instance() to get a storage backend instance
+- read_dataset_file -> use LocalDatasetReader.read_with_selection()
+- get_file_metadata -> use LocalStorageBackend.get_file_metadata()
+- All path management methods are available in LocalStorageBackend
+
 File Service - Abstraction layer for file operations across the application
 """
 import os
@@ -6,8 +16,16 @@ from typing import Optional, Dict, Any, List, Tuple
 import duckdb
 from pathlib import Path
 import logging
+import warnings
 
 logger = logging.getLogger(__name__)
+
+# Issue deprecation warning when module is imported
+warnings.warn(
+    "FileService is deprecated. Use LocalStorageBackend from app.storage.backend instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 class FileService:
     """

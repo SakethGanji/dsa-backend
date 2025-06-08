@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 # Import the sampling repository
 from app.sampling.repository import SamplingRepository
+from app.storage.factory import StorageFactory
 
 # Create a singleton instance of the sampling repository
 # This ensures we have a single instance across all requests
@@ -20,7 +21,8 @@ sampling_repo = SamplingRepository()
 # Create dependency for the controller
 def get_sampling_controller(session: AsyncSession = Depends(get_session)):
     datasets_repository = DatasetsRepository(session)
-    service = SamplingService(datasets_repository, sampling_repo)
+    storage_backend = StorageFactory.get_instance()
+    service = SamplingService(datasets_repository, sampling_repo, storage_backend)
     controller = SamplingController(service)
     return controller
 
