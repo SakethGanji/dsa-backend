@@ -75,15 +75,26 @@ class FilterCondition(BaseModel):
         return v
 
 class DataFilters(BaseModel):
-    """Data filtering options"""
+    """Data filtering options - supports nested filter groups"""
     conditions: Optional[List[FilterCondition]] = Field(None, description="Filter conditions")
-    logic: str = Field("AND", description="Logic between conditions: AND or OR")
+    groups: Optional[List['DataFilters']] = Field(None, description="Nested filter groups")
+    logic: str = Field("AND", description="Logic between conditions and groups: AND or OR")
     
     @validator('logic')
     def validate_logic(cls, v):
         if v not in ['AND', 'OR']:
             raise ValueError("Logic must be 'AND' or 'OR'")
         return v
+    
+    @validator('groups')
+    def validate_has_content(cls, v, values):
+        conditions = values.get('conditions')
+        if not conditions and not v:
+            raise ValueError("DataFilters must have either conditions or groups")
+        return v
+
+# Enable forward reference for recursive model
+DataFilters.model_rebuild()
 
 class DataSelection(BaseModel):
     """Data selection and ordering options"""

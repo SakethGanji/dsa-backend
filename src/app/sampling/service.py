@@ -9,10 +9,10 @@ from datetime import datetime
 from app.storage.backend import StorageBackend
 from app.sampling.models import (
     SamplingMethod, JobStatus, SamplingRequest, 
-    SamplingJob, RandomSamplingParams, StratifiedSamplingParams,
+    RandomSamplingParams, StratifiedSamplingParams,
     SystematicSamplingParams, ClusterSamplingParams, CustomSamplingParams,
     WeightedSamplingParams, DataFilters, DataSelection, FilterCondition, DataSummary,
-    MultiRoundSamplingRequest, MultiRoundSamplingJob, MultiRoundSamplingJobResponse,
+    MultiRoundSamplingRequest, MultiRoundSamplingJob,
     SamplingRoundConfig, RoundResult
 )
 
@@ -27,52 +27,6 @@ class SamplingService:
         self.sampling_repository = sampling_repository
         self.storage = storage_backend
         
-    async def create_sampling_job(
-        self, 
-        dataset_id: int,
-        version_id: int,
-        request: SamplingRequest,
-        user_id: int
-    ) -> SamplingJob:
-        """
-        Create and enqueue a new sampling job
-        
-        Args:
-            dataset_id: ID of the dataset to sample
-            version_id: Version of the dataset to sample
-            request: Sampling request with method and parameters
-            user_id: ID of the user creating the job
-            
-        Returns:
-            A SamplingJob object with a unique ID
-        """
-        # Create a new job
-        job = SamplingJob(
-            dataset_id=dataset_id,
-            version_id=version_id,
-            user_id=user_id,
-            request=request
-        )
-        
-        # Store the job
-        await self.sampling_repository.create_job(job)
-        
-        # Start the job in the background
-        asyncio.create_task(self._process_job(job.id))
-        
-        return job
-    
-    async def get_job(self, job_id: str) -> Optional[SamplingJob]:
-        """Get job details by ID"""
-        return await self.sampling_repository.get_job(job_id)
-    
-    async def get_job_preview(self, job_id: str) -> List[Dict[str, Any]]:
-        """Get preview data for a job"""
-        job = await self.sampling_repository.get_job(job_id)
-        if not job:
-            return []
-        
-        return job.output_preview or []
     
     async def get_dataset_columns(self, dataset_id: int, version_id: int) -> Dict[str, Any]:
         """Get column information for a dataset version"""
@@ -172,108 +126,6 @@ class SamplingService:
             logger.error(f"Error getting dataset columns: {str(e)}", exc_info=True)
             raise ValueError(f"Error getting dataset columns: {str(e)}")
     
-    async def _process_job(self, job_id: str) -> None:
-        """
-        Process a sampling job in the background
-        
-        This method loads the dataset, applies the sampling method,
-        and updates the job status.
-        """
-        job = await self.sampling_repository.get_job(job_id)
-        if not job:
-            logger.error(f"Job {job_id} not found")
-            return
-        
-        try:
-            # Update job status
-            job.status = JobStatus.RUNNING
-            job.started_at = datetime.now()
-            await self.sampling_repository.update_job(job)
-            
-            # Validate dataset and version
-            # Create a new connection for this background task
-            from app.db.connection import AsyncSessionLocal
-            
-            async with AsyncSessionLocal() as session:
-                from app.datasets.repository import DatasetsRepository
-                datasets_repo = DatasetsRepository(session)
-                
-                # Get dataset version
-                version = await datasets_repo.get_dataset_version(job.version_id)
-                if not version:
-                    raise ValueError(f"Dataset version with ID {job.version_id} not found")
-                
-                # Verify dataset ID matches
-                if version.dataset_id != job.dataset_id:
-                    raise ValueError(f"Version {job.version_id} does not belong to dataset {job.dataset_id}")
-                
-                # Get file data
-                file_info = await datasets_repo.get_file(version.file_id)
-                if not file_info or not file_info.file_path:
-                    raise ValueError("File path not found")
-                
-                # Check file size to ensure we can handle it
-                if hasattr(file_info, 'file_size') and file_info.file_size:
-                    max_file_size_gb = 50  # Maximum file size in GB
-                    file_size_gb = file_info.file_size / (1024 * 1024 * 1024)
-                    if file_size_gb > max_file_size_gb:
-                        raise ValueError(f"File size ({file_size_gb:.2f} GB) exceeds maximum allowed size ({max_file_size_gb} GB)")
-                
-                # Create DuckDB connection - no memory limits for optimal performance
-                conn = duckdb.connect(':memory:')
-                
-                try:
-                    # Create a view instead of table to avoid loading entire file into memory
-                    conn.execute(f"CREATE VIEW main_data AS SELECT * FROM read_parquet('{file_info.file_path}')")
-                    
-                    # Generate data summary
-                    data_summary = self._get_data_summary(conn, 'main_data')
-                    
-                    # Apply filtering and sampling
-                    sampled_data = await self._apply_sampling_with_duckdb(conn, job.request)
-                    
-                    # Generate sample summary
-                    sample_summary = self._get_sample_summary_from_duckdb(conn, sampled_data)
-                    
-                    # Get preview data
-                    preview_result = conn.execute(f"SELECT * FROM ({sampled_data}) LIMIT 10").fetchall()
-                    columns = [desc[0] for desc in conn.description]
-                    job.output_preview = [dict(zip(columns, row)) for row in preview_result]
-                    
-                    # Save sampled data as Parquet directly from DuckDB
-                    sample_path = self.storage.get_sample_save_path(
-                        dataset_id=job.dataset_id,
-                        version_id=job.version_id,
-                        job_id=job_id
-                    )
-                    
-                    # Save the sample using DuckDB's COPY TO command
-                    conn.execute(f"COPY ({sampled_data}) TO '{sample_path}' (FORMAT PARQUET)")
-                    
-                    # Get file size
-                    import os
-                    sample_size = os.path.getsize(sample_path)
-                    
-                    job.data_summary = data_summary
-                    job.sample_summary = sample_summary
-                    job.output_uri = f"file://{sample_path}"
-
-                    # Update job status
-                    job.status = JobStatus.COMPLETED
-                    job.completed_at = datetime.now()
-                    await self.sampling_repository.update_job(job)
-                finally:
-                    conn.close()
-            
-        except Exception as e:
-            # Handle job failure
-            logger.error(f"Error processing job {job_id}: {str(e)}", exc_info=True)
-            job.status = JobStatus.FAILED
-            job.error_message = str(e)
-            if not job.started_at:
-                job.started_at = datetime.now()
-            job.completed_at = datetime.now()
-            await self.sampling_repository.update_job(job)
     
     def _create_temp_file_from_bytes(self, file_data: bytes, file_type: str) -> str:
         """Create a temporary file from bytes data and return the path"""
@@ -366,6 +218,10 @@ class SamplingService:
     
     def _stratified_sampling_sql(self, conn: duckdb.DuckDBPyConnection, params: StratifiedSamplingParams) -> str:
         """Generate SQL for stratified sampling using window functions for better performance"""
+        # Validate that strata columns are provided
+        if not params.strata_columns:
+            raise ValueError("Stratified sampling requires at least one strata column")
+        
         # Validate strata columns exist
         columns_result = conn.execute("PRAGMA table_info('filtered_data')").fetchall()
         available_columns = [col[1] for col in columns_result]
@@ -398,23 +254,109 @@ class SamplingService:
                 """
         
         else:
-            # Proportional allocation with minimum - more complex but still single query
+            # Proportional allocation - ensure exact sample size
             total_samples = params.sample_size if params.sample_size else 1000
             min_per_stratum = params.min_per_stratum or 0
             
-            # Use window functions to calculate proportional allocation inline
+            # First, calculate the number of strata and their sizes
+            strata_info = conn.execute(f"""
+                SELECT {strata_cols}, COUNT(*) as stratum_size
+                FROM filtered_data
+                GROUP BY {strata_cols}
+            """).fetchall()
+            
+            if not strata_info:
+                raise ValueError("No data found in filtered dataset")
+            
+            # Calculate proportional allocation
+            total_rows = sum(row[-1] for row in strata_info)
+            allocations = []
+            allocated_samples = 0
+            
+            for stratum_row in strata_info:
+                stratum_size = stratum_row[-1]
+                # Proportional allocation
+                proportion = stratum_size / total_rows
+                ideal_allocation = total_samples * proportion
+                
+                # Apply minimum constraint if specified
+                if min_per_stratum > 0:
+                    allocation = max(min_per_stratum, int(ideal_allocation))
+                else:
+                    allocation = int(ideal_allocation)
+                
+                # Don't allocate more than available in stratum
+                allocation = min(allocation, stratum_size)
+                allocations.append((stratum_row[:-1], allocation))
+                allocated_samples += allocation
+            
+            # Adjust allocations to match exact sample size
+            if allocated_samples != total_samples:
+                # Sort by remainder (fractional part) descending
+                remainders = []
+                for i, (stratum_row, _) in enumerate(allocations):
+                    stratum_size = strata_info[i][-1]
+                    proportion = stratum_size / total_rows
+                    ideal = total_samples * proportion
+                    remainder = ideal - int(ideal)
+                    remainders.append((i, remainder, stratum_size))
+                
+                remainders.sort(key=lambda x: x[1], reverse=True)
+                
+                # Adjust allocations
+                diff = total_samples - allocated_samples
+                if diff > 0:
+                    # Need to add more samples
+                    for i, _, stratum_size in remainders:
+                        if diff == 0:
+                            break
+                        stratum_values, current_alloc = allocations[i]
+                        if current_alloc < stratum_size:
+                            add = min(diff, stratum_size - current_alloc)
+                            allocations[i] = (stratum_values, current_alloc + add)
+                            diff -= add
+                else:
+                    # Need to remove samples (diff is negative)
+                    for i, _, _ in reversed(remainders):
+                        if diff == 0:
+                            break
+                        stratum_values, current_alloc = allocations[i]
+                        if current_alloc > min_per_stratum:
+                            remove = min(-diff, current_alloc - min_per_stratum)
+                            allocations[i] = (stratum_values, current_alloc - remove)
+                            diff += remove
+            
+            # Build the sampling query with exact allocations
             seed_expr = f"RANDOM({params.seed})" if params.seed else "RANDOM()"
-            return f"""
-                SELECT * FROM filtered_data
-                QUALIFY ROW_NUMBER() OVER (PARTITION BY {strata_cols} ORDER BY {seed_expr}) 
-                        <= GREATEST(
-                            {min_per_stratum},
-                            LEAST(
-                                COUNT(*) OVER (PARTITION BY {strata_cols}),
-                                CEIL({total_samples} * CAST(COUNT(*) OVER (PARTITION BY {strata_cols}) AS FLOAT) / COUNT(*) OVER())
-                            )
-                        )
-                """
+            
+            # Create UNION ALL query for each stratum
+            union_parts = []
+            for stratum_values, allocation in allocations:
+                if allocation > 0:
+                    # Build WHERE clause for this stratum
+                    conditions = []
+                    for i, col in enumerate(params.strata_columns):
+                        val = stratum_values[i] if isinstance(stratum_values, tuple) else stratum_values
+                        if val is None:
+                            conditions.append(f'"{col}" IS NULL')
+                        else:
+                            # Escape value properly
+                            escaped_val = str(val).replace("'", "''")
+                            conditions.append(f'"{col}" = \'{escaped_val}\'')
+                    
+                    where_clause = " AND ".join(conditions)
+                    
+                    union_parts.append(f"""
+                        (SELECT * FROM filtered_data
+                         WHERE {where_clause}
+                         ORDER BY {seed_expr}
+                         LIMIT {allocation})
+                    """)
+            
+            if not union_parts:
+                return "SELECT * FROM filtered_data WHERE 1=0"  # Empty result
+            
+            return " UNION ALL ".join(union_parts)
     
     def _systematic_sampling_sql(self, conn: duckdb.DuckDBPyConnection, params: SystematicSamplingParams) -> str:
         """Generate SQL for systematic sampling"""
@@ -552,82 +494,6 @@ class SamplingService:
             logger.error(f"Error getting data summary: {str(e)}")
             raise ValueError(f"Error getting data summary: {str(e)}")
     
-    async def execute_sampling_synchronously(
-        self,
-        dataset_id: int,
-        version_id: int,
-        request: SamplingRequest
-    ) -> List[Dict[str, Any]]:
-        """
-        Execute sampling synchronously and return the result as a list of dictionaries.
-        """
-        try:
-            # Create a new connection for this operation
-            from app.db.connection import AsyncSessionLocal
-
-            async with AsyncSessionLocal() as session:
-                from app.datasets.repository import DatasetsRepository
-                datasets_repo = DatasetsRepository(session)
-
-                # Get dataset version
-                version = await datasets_repo.get_dataset_version(version_id)
-                if not version:
-                    raise ValueError(f"Dataset version with ID {version_id} not found")
-
-                # Verify dataset ID matches
-                if version.dataset_id != dataset_id:
-                    raise ValueError(f"Version {version_id} does not belong to dataset {dataset_id}")
-
-                # Get file data
-                file_info = await datasets_repo.get_file(version.file_id)
-                if not file_info or not file_info.file_path:
-                    raise ValueError("File path not found")
-
-                # Check file size to ensure we can handle it
-                if hasattr(file_info, 'file_size') and file_info.file_size:
-                    max_file_size_gb = 50  # Maximum file size in GB
-                    file_size_gb = file_info.file_size / (1024 * 1024 * 1024)
-                    if file_size_gb > max_file_size_gb:
-                        raise ValueError(f"File size ({file_size_gb:.2f} GB) exceeds maximum allowed size ({max_file_size_gb} GB)")
-                
-                # Create DuckDB connection - no memory limits for optimal performance
-                conn = duckdb.connect(':memory:')
-                
-                try:
-                    # Create a view instead of table to avoid loading entire file into memory
-                    conn.execute(f"CREATE VIEW main_data AS SELECT * FROM read_parquet('{file_info.file_path}')")
-
-                    # Apply filtering and sampling
-                    sampled_query = await self._apply_sampling_with_duckdb(conn, request)
-                    
-                    # For synchronous sampling, limit the result size to prevent memory issues
-                    max_sync_rows = 100000  # Maximum rows for synchronous response
-                    
-                    # First check the count
-                    count_query = f"SELECT COUNT(*) FROM ({sampled_query}) t"
-                    row_count = conn.execute(count_query).fetchone()[0]
-                    
-                    if row_count > max_sync_rows:
-                        logger.warning(f"Sampled data has {row_count} rows, limiting to {max_sync_rows} for sync response")
-                        # Add LIMIT to the query
-                        limited_query = f"SELECT * FROM ({sampled_query}) t LIMIT {max_sync_rows}"
-                    else:
-                        limited_query = sampled_query
-                    
-                    # Fetch data directly without creating temporary table
-                    result = conn.execute(limited_query).fetchall()
-                    columns = [desc[0] for desc in conn.description]
-                    
-                    # Return as list of dictionaries
-                    return [dict(zip(columns, row)) for row in result]
-                    
-                finally:
-                    conn.close()
-
-        except Exception as e:
-            logger.error(f"Error executing sampling synchronously: {str(e)}", exc_info=True)
-            # Re-raise as ValueError to be handled by the controller
-            raise ValueError(f"Error executing sampling synchronously: {str(e)}")
 
     def _get_sample_summary_from_duckdb(self, conn: duckdb.DuckDBPyConnection, sample_query: str) -> DataSummary:
         """Generate summary statistics for the sampled data using DuckDB"""
@@ -666,85 +532,126 @@ class SamplingService:
     
     def _build_filter_query_embedded(self, filters: Optional[DataFilters]) -> str:
         """Build SQL WHERE clause with values embedded directly (no parameters)"""
-        if not filters or not filters.conditions:
+        if not filters:
             return ""
+        
+        # Build the WHERE clause from nested filter structure
+        filter_expr = self._build_filter_expression_embedded(filters)
+        if filter_expr:
+            return f"WHERE {filter_expr}"
+        return ""
+    
+    def _build_filter_expression_embedded(self, filters: DataFilters) -> str:
+        """Build filter expression recursively for nested groups"""
+        parts = []
+        
+        # Process direct conditions
+        if filters.conditions:
+            for condition in filters.conditions:
+                col = f'"{condition.column}"'  # Quote column names
 
-        condition_strings = []
-        for condition in filters.conditions:
-            col = f'"{condition.column}"'  # Quote column names
-
-            if condition.operator in ['IS NULL', 'IS NOT NULL']:
-                condition_strings.append(f"{col} {condition.operator}")
-            elif condition.operator in ['IN', 'NOT IN']:
-                if isinstance(condition.value, list):
-                    if not condition.value:  # Empty list
-                        if condition.operator == 'IN':
-                            condition_strings.append("0=1")  # Always false for IN empty list
-                        else:  # NOT IN
-                            condition_strings.append("1=1")  # Always true for NOT IN empty list
-                    else:  # Non-empty list
-                        # Escape each value
-                        escaped_values = [f"'{self._escape_sql_string(v)}'" for v in condition.value]
-                        condition_strings.append(f"{col} {condition.operator} ({', '.join(escaped_values)})")
-                else:  # Single value, treat as = or !=
-                    actual_operator = '=' if condition.operator == 'IN' else '!='
+                if condition.operator in ['IS NULL', 'IS NOT NULL']:
+                    parts.append(f"{col} {condition.operator}")
+                elif condition.operator in ['IN', 'NOT IN']:
+                    if isinstance(condition.value, list):
+                        if not condition.value:  # Empty list
+                            if condition.operator == 'IN':
+                                parts.append("0=1")  # Always false for IN empty list
+                            else:  # NOT IN
+                                parts.append("1=1")  # Always true for NOT IN empty list
+                        else:  # Non-empty list
+                            # Escape each value
+                            escaped_values = [f"'{self._escape_sql_string(v)}'" for v in condition.value]
+                            parts.append(f"{col} {condition.operator} ({', '.join(escaped_values)})")
+                    else:  # Single value, treat as = or !=
+                        actual_operator = '=' if condition.operator == 'IN' else '!='
+                        escaped_value = self._escape_sql_string(condition.value)
+                        parts.append(f"{col} {actual_operator} '{escaped_value}'")
+                elif condition.operator in ['=', '!=', '>', '<', '>=', '<=']:
+                    # For numeric comparisons, don't quote the value if it's a number
+                    if isinstance(condition.value, (int, float)):
+                        parts.append(f"{col} {condition.operator} {condition.value}")
+                    else:
+                        escaped_value = self._escape_sql_string(condition.value)
+                        parts.append(f"{col} {condition.operator} '{escaped_value}'")
+                elif condition.operator in ['LIKE', 'ILIKE']:
                     escaped_value = self._escape_sql_string(condition.value)
-                    condition_strings.append(f"{col} {actual_operator} '{escaped_value}'")
-            elif condition.operator in ['=', '!=', '>', '<', '>=', '<=']:
-                # For numeric comparisons, don't quote the value if it's a number
-                if isinstance(condition.value, (int, float)):
-                    condition_strings.append(f"{col} {condition.operator} {condition.value}")
+                    parts.append(f"{col} {condition.operator} '{escaped_value}'")
                 else:
+                    # Default case - treat as string
                     escaped_value = self._escape_sql_string(condition.value)
-                    condition_strings.append(f"{col} {condition.operator} '{escaped_value}'")
-            elif condition.operator in ['LIKE', 'ILIKE']:
-                escaped_value = self._escape_sql_string(condition.value)
-                condition_strings.append(f"{col} {condition.operator} '{escaped_value}'")
-            else:
-                # Default case - treat as string
-                escaped_value = self._escape_sql_string(condition.value)
-                condition_strings.append(f"{col} {condition.operator} '{escaped_value}'")
-
-        if not condition_strings:
+                    parts.append(f"{col} {condition.operator} '{escaped_value}'")
+        
+        # Process nested groups recursively
+        if filters.groups:
+            for group in filters.groups:
+                group_expr = self._build_filter_expression_embedded(group)
+                if group_expr:
+                    # Wrap nested groups in parentheses
+                    parts.append(f"({group_expr})")
+        
+        if not parts:
             return ""
-
-        return f"WHERE {f' {filters.logic} '.join(condition_strings)}"
+        
+        # Join all parts with the specified logic
+        return f' {filters.logic} '.join(parts)
     
     def _build_filter_query(self, filters: Optional[DataFilters]) -> Tuple[str, List[Any]]:
         """Build SQL WHERE clause from filter conditions, returning clause and parameters."""
-        if not filters or not filters.conditions:
+        if not filters:
             return "", []
-
-        condition_strings = []
+        
+        # Build the WHERE clause from nested filter structure
+        filter_expr, params = self._build_filter_expression(filters)
+        if filter_expr:
+            return f"WHERE {filter_expr}", params
+        return "", []
+    
+    def _build_filter_expression(self, filters: DataFilters) -> Tuple[str, List[Any]]:
+        """Build filter expression recursively for nested groups with parameters"""
+        parts = []
         params: List[Any] = []
-        for condition in filters.conditions:
-            col = f'"{condition.column}"'  # Quote column names
+        
+        # Process direct conditions
+        if filters.conditions:
+            for condition in filters.conditions:
+                col = f'"{condition.column}"'  # Quote column names
 
-            if condition.operator in ['IS NULL', 'IS NOT NULL']:
-                condition_strings.append(f"{col} {condition.operator}")
-            elif condition.operator in ['IN', 'NOT IN']:
-                if isinstance(condition.value, list):
-                    if not condition.value:  # Empty list
-                        if condition.operator == 'IN':
-                            condition_strings.append("0=1")  # Always false for IN empty list
-                        else:  # NOT IN
-                            condition_strings.append("1=1")  # Always true for NOT IN empty list
-                    else:  # Non-empty list
-                        placeholders = ', '.join(['?'] * len(condition.value))
-                        condition_strings.append(f"{col} {condition.operator} ({placeholders})")
-                        params.extend(condition.value)
-                else:  # Single value, treat as = or !=
-                    actual_operator = '=' if condition.operator == 'IN' else '!='
-                    condition_strings.append(f"{col} {actual_operator} ?")
+                if condition.operator in ['IS NULL', 'IS NOT NULL']:
+                    parts.append(f"{col} {condition.operator}")
+                elif condition.operator in ['IN', 'NOT IN']:
+                    if isinstance(condition.value, list):
+                        if not condition.value:  # Empty list
+                            if condition.operator == 'IN':
+                                parts.append("0=1")  # Always false for IN empty list
+                            else:  # NOT IN
+                                parts.append("1=1")  # Always true for NOT IN empty list
+                        else:  # Non-empty list
+                            placeholders = ', '.join(['?'] * len(condition.value))
+                            parts.append(f"{col} {condition.operator} ({placeholders})")
+                            params.extend(condition.value)
+                    else:  # Single value, treat as = or !=
+                        actual_operator = '=' if condition.operator == 'IN' else '!='
+                        parts.append(f"{col} {actual_operator} ?")
+                        params.append(condition.value)
+                else:  # For other operators like =, !=, >, <, LIKE, ILIKE
+                    parts.append(f"{col} {condition.operator} ?")
                     params.append(condition.value)
-            else:  # For other operators like =, !=, >, <, LIKE, ILIKE
-                condition_strings.append(f"{col} {condition.operator} ?")
-                params.append(condition.value)
-
-        if not condition_strings:
+        
+        # Process nested groups recursively
+        if filters.groups:
+            for group in filters.groups:
+                group_expr, group_params = self._build_filter_expression(group)
+                if group_expr:
+                    # Wrap nested groups in parentheses
+                    parts.append(f"({group_expr})")
+                    params.extend(group_params)
+        
+        if not parts:
             return "", []
-
-        return f"WHERE {f' {filters.logic} '.join(condition_strings)}", params
+        
+        # Join all parts with the specified logic
+        return f' {filters.logic} '.join(parts), params
 
     def _build_select_from_clause(self, conn: duckdb.DuckDBPyConnection, selection: Optional[DataSelection], table_name: str = 'main_data') -> str:
         """Build SQL SELECT ... FROM ... clause, handling column selection and exclusion."""
@@ -828,22 +735,30 @@ class SamplingService:
 
     def _validate_filters(self, conn: duckdb.DuckDBPyConnection, filters: DataFilters) -> None:
         """Validate that filter columns exist and have appropriate types"""
-        if not filters.conditions:
-            return
-        
         # Get available columns
         columns_result = conn.execute("PRAGMA table_info('main_data')").fetchall()
         available_columns = {col[1]: col[2] for col in columns_result}  # name: type
         
-        for condition in filters.conditions:
-            # Check if column exists
-            if condition.column not in available_columns:
-                raise ValueError(f"Filter column '{condition.column}' does not exist")
-            
-            # Basic type validation for certain operators
-            col_type = available_columns[condition.column].lower()
-            if condition.operator in ['>', '<', '>=', '<='] and 'text' in col_type:
-                logger.warning(f"Using numeric comparison operator on text column '{condition.column}'")
+        self._validate_filter_group(filters, available_columns)
+    
+    def _validate_filter_group(self, filters: DataFilters, available_columns: Dict[str, str]) -> None:
+        """Recursively validate filter groups"""
+        # Validate direct conditions
+        if filters.conditions:
+            for condition in filters.conditions:
+                # Check if column exists
+                if condition.column not in available_columns:
+                    raise ValueError(f"Filter column '{condition.column}' does not exist")
+                
+                # Basic type validation for certain operators
+                col_type = available_columns[condition.column].lower()
+                if condition.operator in ['>', '<', '>=', '<='] and 'text' in col_type:
+                    logger.warning(f"Using numeric comparison operator on text column '{condition.column}'")
+        
+        # Validate nested groups
+        if filters.groups:
+            for group in filters.groups:
+                self._validate_filter_group(group, available_columns)
     
     def _validate_selection(self, conn: duckdb.DuckDBPyConnection, selection: DataSelection) -> None:
         """Validate that selection columns exist"""
@@ -867,28 +782,7 @@ class SamplingService:
         if selection.order_by and selection.order_by not in available_columns:
             raise ValueError(f"Order by column '{selection.order_by}' does not exist")
     
-    def get_export_formats(self) -> List[str]:
-        """Get supported export formats"""
-        # Return hardcoded list for now since config is not available
-        return ["csv", "parquet", "json"]
     
-    async def export_sample(self, job_id: str, format: str) -> bytes:
-        """Export sample data in the specified format"""
-        # This is a placeholder for export functionality
-        # In a real implementation, you would:
-        # 1. Get the job and its sampled data
-        # 2. Convert to the requested format
-        # 3. Return the bytes
-        
-        job = await self.sampling_repository.get_job(job_id)
-        if not job or job.status != JobStatus.COMPLETED:
-            raise ValueError("Job not found or not completed")
-        
-        if format not in self.get_export_formats():
-            raise ValueError(f"Unsupported export format: {format}")
-        
-        # For now, just return a placeholder
-        return b"Export functionality not yet implemented"
     
     # Multi-round sampling methods
     async def create_multi_round_sampling_job(
