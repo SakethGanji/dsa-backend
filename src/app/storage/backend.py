@@ -124,6 +124,46 @@ class StorageBackend(ABC):
         pass
     
     @abstractmethod
+    def get_multi_round_sample_path(
+        self, 
+        dataset_id: int, 
+        version_id: int, 
+        job_id: str, 
+        round_number: int
+    ) -> str:
+        """Get the path where a multi-round sample should be saved.
+        
+        Args:
+            dataset_id: The dataset identifier
+            version_id: The version identifier
+            job_id: The multi-round sampling job identifier
+            round_number: The round number
+            
+        Returns:
+            Path where the round sample should be saved
+        """
+        pass
+    
+    @abstractmethod
+    def get_multi_round_residual_path(
+        self,
+        dataset_id: int,
+        version_id: int,
+        job_id: str
+    ) -> str:
+        """Get the path where the residual dataset should be saved.
+        
+        Args:
+            dataset_id: The dataset identifier
+            version_id: The version identifier
+            job_id: The multi-round sampling job identifier
+            
+        Returns:
+            Path where the residual should be saved
+        """
+        pass
+    
+    @abstractmethod
     def ensure_directories(self) -> None:
         """Ensure required directories exist."""
         pass

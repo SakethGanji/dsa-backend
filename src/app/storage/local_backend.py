@@ -208,6 +208,50 @@ class LocalStorageBackend(StorageBackend):
         sample_dir.mkdir(parents=True, exist_ok=True)
         return str(sample_dir / f"{job_id}.parquet")
     
+    def get_multi_round_sample_path(
+        self, 
+        dataset_id: int, 
+        version_id: int, 
+        job_id: str, 
+        round_number: int
+    ) -> str:
+        """Get the path where a multi-round sample should be saved.
+        
+        Args:
+            dataset_id: The dataset identifier
+            version_id: The version identifier
+            job_id: The multi-round sampling job identifier
+            round_number: The round number
+            
+        Returns:
+            Path where the round sample should be saved
+        """
+        # Create directory structure for multi-round samples
+        sample_dir = self.samples_dir / str(dataset_id) / str(version_id) / "multi_round" / job_id
+        sample_dir.mkdir(parents=True, exist_ok=True)
+        return str(sample_dir / f"round_{round_number}.parquet")
+    
+    def get_multi_round_residual_path(
+        self,
+        dataset_id: int,
+        version_id: int,
+        job_id: str
+    ) -> str:
+        """Get the path where the residual dataset should be saved.
+        
+        Args:
+            dataset_id: The dataset identifier
+            version_id: The version identifier
+            job_id: The multi-round sampling job identifier
+            
+        Returns:
+            Path where the residual should be saved
+        """
+        # Create directory structure for residuals
+        residual_dir = self.samples_dir / str(dataset_id) / str(version_id) / "multi_round" / job_id
+        residual_dir.mkdir(parents=True, exist_ok=True)
+        return str(residual_dir / "residual.parquet")
+    
     async def save_dataset_file(
         self,
         file_content: bytes,
