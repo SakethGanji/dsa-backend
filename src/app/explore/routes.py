@@ -12,11 +12,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 # Import the auth dependencies from users module
 from app.users.auth import get_current_user_info, CurrentUser
+from app.storage.factory import StorageFactory
 
 # Create dependency for the controller
 def get_explore_controller(session: AsyncSession = Depends(get_session)):
     repository = DatasetsRepository(session)
-    service = ExploreService(repository)
+    storage_backend = StorageFactory.get_instance()
+    service = ExploreService(repository, storage_backend)
     controller = ExploreController(service)
     return controller
 

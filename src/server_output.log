@@ -1,0 +1,1603 @@
+INFO:     Will watch for changes in these directories: ['/home/saketh/Projects/dsa/src']
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [75658] using WatchFiles
+2025-05-30 09:46:17,489 - visions.backends - INFO - Pandas backend loaded 2.2.3
+2025-05-30 09:46:17,494 - visions.backends - INFO - Numpy backend loaded 2.1.3
+2025-05-30 09:46:17,494 - visions.backends - INFO - Pyspark backend NOT loaded
+2025-05-30 09:46:17,494 - visions.backends - INFO - Python backend loaded
+2025-05-30 09:46:17,821 - matplotlib - DEBUG - matplotlib data path: /home/saketh/Projects/dsa/venv/lib/python3.10/site-packages/matplotlib/mpl-data
+2025-05-30 09:46:17,825 - matplotlib - DEBUG - CONFIGDIR=/home/saketh/.config/matplotlib
+2025-05-30 09:46:17,825 - matplotlib - DEBUG - interactive is False
+2025-05-30 09:46:17,825 - matplotlib - DEBUG - platform is linux
+2025-05-30 09:46:17,904 - matplotlib - DEBUG - CACHEDIR=/home/saketh/.cache/matplotlib
+2025-05-30 09:46:17,906 - matplotlib.font_manager - DEBUG - Using fontManager instance from /home/saketh/.cache/matplotlib/fontlist-v390.json
+[1;34mUpgrade to ydata-sdk[0m
+Improve your data and profiling with ydata-sdk, featuring data quality scoring, redundancy detection, outlier identification, text validation, and synthetic data generation.
+Register at https://ydata.ai/register
+2025-05-30 09:46:18,315 - matplotlib.pyplot - DEBUG - Loaded backend Agg version v2.2.
+INFO:     Started server process [75672]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     127.0.0.1:44016 - "OPTIONS /api/datasets?limit=10&offset=0 HTTP/1.1" 200 OK
+2025-05-30 09:46:24,745 INFO sqlalchemy.engine.Engine select pg_catalog.version()
+2025-05-30 09:46:24,745 - sqlalchemy.engine.Engine - INFO - select pg_catalog.version()
+2025-05-30 09:46:24,745 INFO sqlalchemy.engine.Engine [raw sql] ()
+2025-05-30 09:46:24,745 - sqlalchemy.engine.Engine - INFO - [raw sql] ()
+2025-05-30 09:46:24,746 INFO sqlalchemy.engine.Engine select current_schema()
+2025-05-30 09:46:24,746 - sqlalchemy.engine.Engine - INFO - select current_schema()
+2025-05-30 09:46:24,746 INFO sqlalchemy.engine.Engine [raw sql] ()
+2025-05-30 09:46:24,746 - sqlalchemy.engine.Engine - INFO - [raw sql] ()
+2025-05-30 09:46:24,746 INFO sqlalchemy.engine.Engine show standard_conforming_strings
+2025-05-30 09:46:24,746 - sqlalchemy.engine.Engine - INFO - show standard_conforming_strings
+2025-05-30 09:46:24,746 INFO sqlalchemy.engine.Engine [raw sql] ()
+2025-05-30 09:46:24,746 - sqlalchemy.engine.Engine - INFO - [raw sql] ()
+2025-05-30 09:46:24,747 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2025-05-30 09:46:24,747 - sqlalchemy.engine.Engine - INFO - BEGIN (implicit)
+2025-05-30 09:46:24,747 INFO sqlalchemy.engine.Engine 
+        WITH dataset_data AS (
+            SELECT 
+                d.id,
+                d.name,
+                d.description,
+                d.created_by,
+                d.created_at,
+                d.updated_at,
+                array_agg(DISTINCT t.id) FILTER (WHERE t.id IS NOT NULL) AS tag_ids,
+                array_agg(DISTINCT t.name) FILTER (WHERE t.name IS NOT NULL) AS tag_names
+            FROM 
+                datasets d
+            LEFT JOIN dataset_tags dt ON d.id = dt.dataset_id
+            LEFT JOIN tags t ON dt.tag_id = t.id
+        
+            GROUP BY 
+                d.id, d.name, d.description, d.created_by, d.created_at, d.updated_at
+        )
+        SELECT 
+            dd.id,
+            dd.name,
+            dd.description,
+            dd.created_by,
+            dd.created_at,
+            dd.updated_at,
+            dd.tag_ids,
+            dd.tag_names,
+            dv.version_number as current_version,
+            f.file_type,
+            f.file_size
+        FROM 
+            dataset_data dd
+        LEFT JOIN LATERAL (
+            SELECT version_number, file_id
+            FROM dataset_versions
+            WHERE dataset_id = dd.id
+            ORDER BY version_number DESC
+            LIMIT 1
+        ) dv ON true
+        LEFT JOIN files f ON dv.file_id = f.id
+        
+ORDER BY dd.updated_at DESC
+LIMIT $1 OFFSET $2;
+2025-05-30 09:46:24,747 - sqlalchemy.engine.Engine - INFO - 
+        WITH dataset_data AS (
+            SELECT 
+                d.id,
+                d.name,
+                d.description,
+                d.created_by,
+                d.created_at,
+                d.updated_at,
+                array_agg(DISTINCT t.id) FILTER (WHERE t.id IS NOT NULL) AS tag_ids,
+                array_agg(DISTINCT t.name) FILTER (WHERE t.name IS NOT NULL) AS tag_names
+            FROM 
+                datasets d
+            LEFT JOIN dataset_tags dt ON d.id = dt.dataset_id
+            LEFT JOIN tags t ON dt.tag_id = t.id
+        
+            GROUP BY 
+                d.id, d.name, d.description, d.created_by, d.created_at, d.updated_at
+        )
+        SELECT 
+            dd.id,
+            dd.name,
+            dd.description,
+            dd.created_by,
+            dd.created_at,
+            dd.updated_at,
+            dd.tag_ids,
+            dd.tag_names,
+            dv.version_number as current_version,
+            f.file_type,
+            f.file_size
+        FROM 
+            dataset_data dd
+        LEFT JOIN LATERAL (
+            SELECT version_number, file_id
+            FROM dataset_versions
+            WHERE dataset_id = dd.id
+            ORDER BY version_number DESC
+            LIMIT 1
+        ) dv ON true
+        LEFT JOIN files f ON dv.file_id = f.id
+        
+ORDER BY dd.updated_at DESC
+LIMIT $1 OFFSET $2;
+2025-05-30 09:46:24,747 INFO sqlalchemy.engine.Engine [generated in 0.00011s] (10, 0)
+2025-05-30 09:46:24,747 - sqlalchemy.engine.Engine - INFO - [generated in 0.00011s] (10, 0)
+2025-05-30 09:46:24,761 INFO sqlalchemy.engine.Engine ROLLBACK
+2025-05-30 09:46:24,761 - sqlalchemy.engine.Engine - INFO - ROLLBACK
+INFO:     127.0.0.1:44016 - "GET /api/datasets?limit=10&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44016 - "OPTIONS /api/datasets/11/versions HTTP/1.1" 200 OK
+2025-05-30 09:46:27,955 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2025-05-30 09:46:27,955 - sqlalchemy.engine.Engine - INFO - BEGIN (implicit)
+2025-05-30 09:46:27,955 INFO sqlalchemy.engine.Engine 
+    -- Get a single dataset by ID with its tags and versions (simplified)
+    SELECT 
+        d.id,
+        d.name,
+        d.description,
+        d.created_by,
+        d.created_at,
+        d.updated_at,
+        array_agg(DISTINCT t.id) FILTER (WHERE t.id IS NOT NULL) AS tag_ids,
+        array_agg(DISTINCT t.name) FILTER (WHERE t.name IS NOT NULL) AS tag_names
+    FROM 
+        datasets d
+    LEFT JOIN dataset_tags dt ON d.id = dt.dataset_id
+    LEFT JOIN tags t ON dt.tag_id = t.id
+    WHERE 
+        d.id = $1
+    GROUP BY 
+        d.id, d.name, d.description, d.created_by, d.created_at, d.updated_at;
+    
+2025-05-30 09:46:27,955 - sqlalchemy.engine.Engine - INFO - 
+    -- Get a single dataset by ID with its tags and versions (simplified)
+    SELECT 
+        d.id,
+        d.name,
+        d.description,
+        d.created_by,
+        d.created_at,
+        d.updated_at,
+        array_agg(DISTINCT t.id) FILTER (WHERE t.id IS NOT NULL) AS tag_ids,
+        array_agg(DISTINCT t.name) FILTER (WHERE t.name IS NOT NULL) AS tag_names
+    FROM 
+        datasets d
+    LEFT JOIN dataset_tags dt ON d.id = dt.dataset_id
+    LEFT JOIN tags t ON dt.tag_id = t.id
+    WHERE 
+        d.id = $1
+    GROUP BY 
+        d.id, d.name, d.description, d.created_by, d.created_at, d.updated_at;
+    
+2025-05-30 09:46:27,955 INFO sqlalchemy.engine.Engine [generated in 0.00010s] (11,)
+2025-05-30 09:46:27,955 - sqlalchemy.engine.Engine - INFO - [generated in 0.00010s] (11,)
+2025-05-30 09:46:27,956 INFO sqlalchemy.engine.Engine 
+    -- Get versions for a dataset
+    SELECT 
+        dv.id,
+        dv.dataset_id,
+        dv.version_number,
+        dv.file_id,
+        dv.uploaded_by,
+        dv.ingestion_timestamp,
+        dv.last_updated_timestamp,
+        f.storage_type,
+        f.file_type,
+        f.mime_type,
+        f.file_size
+    FROM 
+        dataset_versions dv
+    JOIN files f ON dv.file_id = f.id
+    WHERE 
+        dv.dataset_id = $1
+    ORDER BY 
+        dv.version_number DESC;
+    
+2025-05-30 09:46:27,956 - sqlalchemy.engine.Engine - INFO - 
+    -- Get versions for a dataset
+    SELECT 
+        dv.id,
+        dv.dataset_id,
+        dv.version_number,
+        dv.file_id,
+        dv.uploaded_by,
+        dv.ingestion_timestamp,
+        dv.last_updated_timestamp,
+        f.storage_type,
+        f.file_type,
+        f.mime_type,
+        f.file_size
+    FROM 
+        dataset_versions dv
+    JOIN files f ON dv.file_id = f.id
+    WHERE 
+        dv.dataset_id = $1
+    ORDER BY 
+        dv.version_number DESC;
+    
+2025-05-30 09:46:27,956 INFO sqlalchemy.engine.Engine [generated in 0.00012s] (11,)
+2025-05-30 09:46:27,956 - sqlalchemy.engine.Engine - INFO - [generated in 0.00012s] (11,)
+2025-05-30 09:46:27,957 INFO sqlalchemy.engine.Engine 
+    -- List all versions for a specific dataset (simplified)
+    SELECT 
+        dv.id,
+        dv.dataset_id,
+        dv.version_number,
+        dv.file_id,
+        dv.uploaded_by,
+        dv.ingestion_timestamp,
+        dv.last_updated_timestamp,
+        f.storage_type,
+        f.file_type,
+        f.mime_type,
+        f.file_size
+    FROM 
+        dataset_versions dv
+    JOIN files f ON dv.file_id = f.id
+    WHERE 
+        dv.dataset_id = $1
+    ORDER BY 
+        dv.version_number DESC;
+    
+2025-05-30 09:46:27,957 - sqlalchemy.engine.Engine - INFO - 
+    -- List all versions for a specific dataset (simplified)
+    SELECT 
+        dv.id,
+        dv.dataset_id,
+        dv.version_number,
+        dv.file_id,
+        dv.uploaded_by,
+        dv.ingestion_timestamp,
+        dv.last_updated_timestamp,
+        f.storage_type,
+        f.file_type,
+        f.mime_type,
+        f.file_size
+    FROM 
+        dataset_versions dv
+    JOIN files f ON dv.file_id = f.id
+    WHERE 
+        dv.dataset_id = $1
+    ORDER BY 
+        dv.version_number DESC;
+    
+2025-05-30 09:46:27,957 INFO sqlalchemy.engine.Engine [generated in 0.00008s] (11,)
+2025-05-30 09:46:27,957 - sqlalchemy.engine.Engine - INFO - [generated in 0.00008s] (11,)
+2025-05-30 09:46:27,958 INFO sqlalchemy.engine.Engine ROLLBACK
+2025-05-30 09:46:27,958 - sqlalchemy.engine.Engine - INFO - ROLLBACK
+INFO:     127.0.0.1:44016 - "GET /api/datasets/11/versions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58668 - "OPTIONS /api/datasets/11/versions/10/data?limit=1 HTTP/1.1" 200 OK
+2025-05-30 09:46:29,277 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2025-05-30 09:46:29,277 - sqlalchemy.engine.Engine - INFO - BEGIN (implicit)
+2025-05-30 09:46:29,278 INFO sqlalchemy.engine.Engine 
+    -- Get a single dataset version by ID (simplified)
+    SELECT 
+        dv.id,
+        dv.dataset_id,
+        dv.version_number,
+        dv.file_id,
+        dv.uploaded_by,
+        dv.ingestion_timestamp,
+        dv.last_updated_timestamp,
+        f.storage_type,
+        f.file_type,
+        f.mime_type,
+        f.file_size
+    FROM 
+        dataset_versions dv
+    JOIN files f ON dv.file_id = f.id
+    WHERE 
+        dv.id = $1;
+    
+2025-05-30 09:46:29,278 - sqlalchemy.engine.Engine - INFO - 
+    -- Get a single dataset version by ID (simplified)
+    SELECT 
+        dv.id,
+        dv.dataset_id,
+        dv.version_number,
+        dv.file_id,
+        dv.uploaded_by,
+        dv.ingestion_timestamp,
+        dv.last_updated_timestamp,
+        f.storage_type,
+        f.file_type,
+        f.mime_type,
+        f.file_size
+    FROM 
+        dataset_versions dv
+    JOIN files f ON dv.file_id = f.id
+    WHERE 
+        dv.id = $1;
+    
+2025-05-30 09:46:29,278 INFO sqlalchemy.engine.Engine [generated in 0.00010s] (10,)
+2025-05-30 09:46:29,278 - sqlalchemy.engine.Engine - INFO - [generated in 0.00010s] (10,)
+2025-05-30 09:46:29,279 INFO sqlalchemy.engine.Engine 
+    -- Get sheets for a dataset version
+    SELECT 
+        s.id,
+        s.name,
+        s.sheet_index,
+        s.description,
+        sm.metadata
+    FROM 
+        sheets s
+    LEFT JOIN sheet_metadata sm ON s.id = sm.sheet_id
+    WHERE 
+        s.dataset_version_id = $1
+    ORDER BY 
+        s.sheet_index;
+    
+2025-05-30 09:46:29,279 - sqlalchemy.engine.Engine - INFO - 
+    -- Get sheets for a dataset version
+    SELECT 
+        s.id,
+        s.name,
+        s.sheet_index,
+        s.description,
+        sm.metadata
+    FROM 
+        sheets s
+    LEFT JOIN sheet_metadata sm ON s.id = sm.sheet_id
+    WHERE 
+        s.dataset_version_id = $1
+    ORDER BY 
+        s.sheet_index;
+    
+2025-05-30 09:46:29,279 INFO sqlalchemy.engine.Engine [generated in 0.00009s] (10,)
+2025-05-30 09:46:29,279 - sqlalchemy.engine.Engine - INFO - [generated in 0.00009s] (10,)
+2025-05-30 09:46:29,280 INFO sqlalchemy.engine.Engine 
+    -- Get a single dataset version by ID (simplified)
+    SELECT 
+        dv.id,
+        dv.dataset_id,
+        dv.version_number,
+        dv.file_id,
+        dv.uploaded_by,
+        dv.ingestion_timestamp,
+        dv.last_updated_timestamp,
+        f.storage_type,
+        f.file_type,
+        f.mime_type,
+        f.file_size
+    FROM 
+        dataset_versions dv
+    JOIN files f ON dv.file_id = f.id
+    WHERE 
+        dv.id = $1;
+    
+2025-05-30 09:46:29,280 - sqlalchemy.engine.Engine - INFO - 
+    -- Get a single dataset version by ID (simplified)
+    SELECT 
+        dv.id,
+        dv.dataset_id,
+        dv.version_number,
+        dv.file_id,
+        dv.uploaded_by,
+        dv.ingestion_timestamp,
+        dv.last_updated_timestamp,
+        f.storage_type,
+        f.file_type,
+        f.mime_type,
+        f.file_size
+    FROM 
+        dataset_versions dv
+    JOIN files f ON dv.file_id = f.id
+    WHERE 
+        dv.id = $1;
+    
+2025-05-30 09:46:29,280 INFO sqlalchemy.engine.Engine [cached since 0.002413s ago] (10,)
+2025-05-30 09:46:29,280 - sqlalchemy.engine.Engine - INFO - [cached since 0.002413s ago] (10,)
+2025-05-30 09:46:29,280 INFO sqlalchemy.engine.Engine 
+    -- Get sheets for a dataset version
+    SELECT 
+        s.id,
+        s.name,
+        s.sheet_index,
+        s.description,
+        sm.metadata
+    FROM 
+        sheets s
+    LEFT JOIN sheet_metadata sm ON s.id = sm.sheet_id
+    WHERE 
+        s.dataset_version_id = $1
+    ORDER BY 
+        s.sheet_index;
+    
+2025-05-30 09:46:29,280 - sqlalchemy.engine.Engine - INFO - 
+    -- Get sheets for a dataset version
+    SELECT 
+        s.id,
+        s.name,
+        s.sheet_index,
+        s.description,
+        sm.metadata
+    FROM 
+        sheets s
+    LEFT JOIN sheet_metadata sm ON s.id = sm.sheet_id
+    WHERE 
+        s.dataset_version_id = $1
+    ORDER BY 
+        s.sheet_index;
+    
+2025-05-30 09:46:29,280 INFO sqlalchemy.engine.Engine [cached since 0.001875s ago] (10,)
+2025-05-30 09:46:29,280 - sqlalchemy.engine.Engine - INFO - [cached since 0.001875s ago] (10,)
+2025-05-30 09:46:29,281 INFO sqlalchemy.engine.Engine 
+    SELECT id, storage_type, file_type, mime_type, file_path, file_size, file_data, created_at 
+    FROM files 
+    WHERE id = $1;
+    
+2025-05-30 09:46:29,281 - sqlalchemy.engine.Engine - INFO - 
+    SELECT id, storage_type, file_type, mime_type, file_path, file_size, file_data, created_at 
+    FROM files 
+    WHERE id = $1;
+    
+2025-05-30 09:46:29,281 INFO sqlalchemy.engine.Engine [generated in 0.00008s] (10,)
+2025-05-30 09:46:29,281 - sqlalchemy.engine.Engine - INFO - [generated in 0.00008s] (10,)
+2025-05-30 09:46:29,282 - app.datasets.repository - DEBUG - Retrieved file 10 - storage_type: filesystem, file_type: parquet, has file_data: False, file_data length: 0
+2025-05-30 09:46:29,282 INFO sqlalchemy.engine.Engine 
+    -- Get all sheets for a dataset version
+    SELECT 
+        id,
+        name, 
+        sheet_index,
+        description
+    FROM 
+        sheets
+    WHERE 
+        dataset_version_id = $1
+    ORDER BY 
+        sheet_index;
+    
+2025-05-30 09:46:29,282 - sqlalchemy.engine.Engine - INFO - 
+    -- Get all sheets for a dataset version
+    SELECT 
+        id,
+        name, 
+        sheet_index,
+        description
+    FROM 
+        sheets
+    WHERE 
+        dataset_version_id = $1
+    ORDER BY 
+        sheet_index;
+    
+2025-05-30 09:46:29,283 INFO sqlalchemy.engine.Engine [generated in 0.00009s] (10,)
+2025-05-30 09:46:29,283 - sqlalchemy.engine.Engine - INFO - [generated in 0.00009s] (10,)
+2025-05-30 09:46:29,283 - app.datasets.service - INFO - Version 10 has 1 sheets: ['yellow_tripdata_2024-01']
+2025-05-30 09:46:29,283 - app.datasets.service - INFO - Requested sheet_name: None
+2025-05-30 09:46:29,283 - app.datasets.service - INFO - No sheet name provided, using first sheet: yellow_tripdata_2024-01
+2025-05-30 09:46:29,311 INFO sqlalchemy.engine.Engine ROLLBACK
+2025-05-30 09:46:29,311 - sqlalchemy.engine.Engine - INFO - ROLLBACK
+INFO:     127.0.0.1:58668 - "GET /api/datasets/11/versions/10/data?limit=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58668 - "OPTIONS /api/sampling/11/10/columns HTTP/1.1" 200 OK
+2025-05-30 09:46:30,945 - app.sampling.controller - INFO - Getting column info for dataset 11, version 10
+2025-05-30 09:46:30,945 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2025-05-30 09:46:30,945 - sqlalchemy.engine.Engine - INFO - BEGIN (implicit)
+2025-05-30 09:46:30,945 INFO sqlalchemy.engine.Engine 
+    -- Get a single dataset version by ID (simplified)
+    SELECT 
+        dv.id,
+        dv.dataset_id,
+        dv.version_number,
+        dv.file_id,
+        dv.uploaded_by,
+        dv.ingestion_timestamp,
+        dv.last_updated_timestamp,
+        f.storage_type,
+        f.file_type,
+        f.mime_type,
+        f.file_size
+    FROM 
+        dataset_versions dv
+    JOIN files f ON dv.file_id = f.id
+    WHERE 
+        dv.id = $1;
+    
+2025-05-30 09:46:30,945 - sqlalchemy.engine.Engine - INFO - 
+    -- Get a single dataset version by ID (simplified)
+    SELECT 
+        dv.id,
+        dv.dataset_id,
+        dv.version_number,
+        dv.file_id,
+        dv.uploaded_by,
+        dv.ingestion_timestamp,
+        dv.last_updated_timestamp,
+        f.storage_type,
+        f.file_type,
+        f.mime_type,
+        f.file_size
+    FROM 
+        dataset_versions dv
+    JOIN files f ON dv.file_id = f.id
+    WHERE 
+        dv.id = $1;
+    
+2025-05-30 09:46:30,945 INFO sqlalchemy.engine.Engine [cached since 1.668s ago] (10,)
+2025-05-30 09:46:30,945 - sqlalchemy.engine.Engine - INFO - [cached since 1.668s ago] (10,)
+2025-05-30 09:46:30,946 INFO sqlalchemy.engine.Engine 
+    -- Get sheets for a dataset version
+    SELECT 
+        s.id,
+        s.name,
+        s.sheet_index,
+        s.description,
+        sm.metadata
+    FROM 
+        sheets s
+    LEFT JOIN sheet_metadata sm ON s.id = sm.sheet_id
+    WHERE 
+        s.dataset_version_id = $1
+    ORDER BY 
+        s.sheet_index;
+    
+2025-05-30 09:46:30,946 - sqlalchemy.engine.Engine - INFO - 
+    -- Get sheets for a dataset version
+    SELECT 
+        s.id,
+        s.name,
+        s.sheet_index,
+        s.description,
+        sm.metadata
+    FROM 
+        sheets s
+    LEFT JOIN sheet_metadata sm ON s.id = sm.sheet_id
+    WHERE 
+        s.dataset_version_id = $1
+    ORDER BY 
+        s.sheet_index;
+    
+2025-05-30 09:46:30,946 INFO sqlalchemy.engine.Engine [cached since 1.668s ago] (10,)
+2025-05-30 09:46:30,946 - sqlalchemy.engine.Engine - INFO - [cached since 1.668s ago] (10,)
+2025-05-30 09:46:30,947 INFO sqlalchemy.engine.Engine 
+    SELECT id, storage_type, file_type, mime_type, file_path, file_size, file_data, created_at 
+    FROM files 
+    WHERE id = $1;
+    
+2025-05-30 09:46:30,947 - sqlalchemy.engine.Engine - INFO - 
+    SELECT id, storage_type, file_type, mime_type, file_path, file_size, file_data, created_at 
+    FROM files 
+    WHERE id = $1;
+    
+2025-05-30 09:46:30,947 INFO sqlalchemy.engine.Engine [cached since 1.666s ago] (10,)
+2025-05-30 09:46:30,947 - sqlalchemy.engine.Engine - INFO - [cached since 1.666s ago] (10,)
+2025-05-30 09:46:30,947 - app.datasets.repository - DEBUG - Retrieved file 10 - storage_type: filesystem, file_type: parquet, has file_data: False, file_data length: 0
+2025-05-30 09:46:31,085 INFO sqlalchemy.engine.Engine ROLLBACK
+2025-05-30 09:46:31,085 - sqlalchemy.engine.Engine - INFO - ROLLBACK
+INFO:     127.0.0.1:58668 - "GET /api/sampling/11/10/columns HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44278 - "OPTIONS /api/sampling/11/10/execute?page=1&page_size=50 HTTP/1.1" 200 OK
+2025-05-30 09:46:55,063 - app.sampling.controller - INFO - User 1 executing sampling synchronously for dataset 11, version 10, page 1, page_size 50
+2025-05-30 09:46:55,063 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2025-05-30 09:46:55,063 - sqlalchemy.engine.Engine - INFO - BEGIN (implicit)
+2025-05-30 09:46:55,063 INFO sqlalchemy.engine.Engine 
+    -- Get a single dataset version by ID (simplified)
+    SELECT 
+        dv.id,
+        dv.dataset_id,
+        dv.version_number,
+        dv.file_id,
+        dv.uploaded_by,
+        dv.ingestion_timestamp,
+        dv.last_updated_timestamp,
+        f.storage_type,
+        f.file_type,
+        f.mime_type,
+        f.file_size
+    FROM 
+        dataset_versions dv
+    JOIN files f ON dv.file_id = f.id
+    WHERE 
+        dv.id = $1;
+    
+2025-05-30 09:46:55,063 - sqlalchemy.engine.Engine - INFO - 
+    -- Get a single dataset version by ID (simplified)
+    SELECT 
+        dv.id,
+        dv.dataset_id,
+        dv.version_number,
+        dv.file_id,
+        dv.uploaded_by,
+        dv.ingestion_timestamp,
+        dv.last_updated_timestamp,
+        f.storage_type,
+        f.file_type,
+        f.mime_type,
+        f.file_size
+    FROM 
+        dataset_versions dv
+    JOIN files f ON dv.file_id = f.id
+    WHERE 
+        dv.id = $1;
+    
+2025-05-30 09:46:55,064 INFO sqlalchemy.engine.Engine [cached since 25.79s ago] (10,)
+2025-05-30 09:46:55,064 - sqlalchemy.engine.Engine - INFO - [cached since 25.79s ago] (10,)
+2025-05-30 09:46:55,064 INFO sqlalchemy.engine.Engine 
+    -- Get sheets for a dataset version
+    SELECT 
+        s.id,
+        s.name,
+        s.sheet_index,
+        s.description,
+        sm.metadata
+    FROM 
+        sheets s
+    LEFT JOIN sheet_metadata sm ON s.id = sm.sheet_id
+    WHERE 
+        s.dataset_version_id = $1
+    ORDER BY 
+        s.sheet_index;
+    
+2025-05-30 09:46:55,064 - sqlalchemy.engine.Engine - INFO - 
+    -- Get sheets for a dataset version
+    SELECT 
+        s.id,
+        s.name,
+        s.sheet_index,
+        s.description,
+        sm.metadata
+    FROM 
+        sheets s
+    LEFT JOIN sheet_metadata sm ON s.id = sm.sheet_id
+    WHERE 
+        s.dataset_version_id = $1
+    ORDER BY 
+        s.sheet_index;
+    
+2025-05-30 09:46:55,064 INFO sqlalchemy.engine.Engine [cached since 25.79s ago] (10,)
+2025-05-30 09:46:55,064 - sqlalchemy.engine.Engine - INFO - [cached since 25.79s ago] (10,)
+2025-05-30 09:46:55,065 INFO sqlalchemy.engine.Engine 
+    SELECT id, storage_type, file_type, mime_type, file_path, file_size, file_data, created_at 
+    FROM files 
+    WHERE id = $1;
+    
+2025-05-30 09:46:55,065 - sqlalchemy.engine.Engine - INFO - 
+    SELECT id, storage_type, file_type, mime_type, file_path, file_size, file_data, created_at 
+    FROM files 
+    WHERE id = $1;
+    
+2025-05-30 09:46:55,065 INFO sqlalchemy.engine.Engine [cached since 25.78s ago] (10,)
+2025-05-30 09:46:55,065 - sqlalchemy.engine.Engine - INFO - [cached since 25.78s ago] (10,)
+2025-05-30 09:46:55,066 - app.datasets.repository - DEBUG - Retrieved file 10 - storage_type: filesystem, file_type: parquet, has file_data: False, file_data length: 0
+2025-05-30 09:46:55,074 - app.sampling.service - DEBUG - Base DuckDB query: SELECT * FROM main_data WHERE "mta_tax" = ? with params: [5]
+2025-05-30 09:46:55,081 INFO sqlalchemy.engine.Engine ROLLBACK
+2025-05-30 09:46:55,081 - sqlalchemy.engine.Engine - INFO - ROLLBACK
+2025-05-30 09:46:55,081 - app.sampling.controller - INFO - Synchronous sampling completed for dataset 11, version 10. Rows: 0
+INFO:     127.0.0.1:44278 - "POST /api/sampling/11/10/execute?page=1&page_size=50 HTTP/1.1" 200 OK
+2025-05-30 09:47:09,880 - app.sampling.controller - INFO - User 1 executing sampling synchronously for dataset 11, version 10, page 1, page_size 50
+2025-05-30 09:47:09,880 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2025-05-30 09:47:09,880 - sqlalchemy.engine.Engine - INFO - BEGIN (implicit)
+2025-05-30 09:47:09,880 INFO sqlalchemy.engine.Engine 
+    -- Get a single dataset version by ID (simplified)
+    SELECT 
+        dv.id,
+        dv.dataset_id,
+        dv.version_number,
+        dv.file_id,
+        dv.uploaded_by,
+        dv.ingestion_timestamp,
+        dv.last_updated_timestamp,
+        f.storage_type,
+        f.file_type,
+        f.mime_type,
+        f.file_size
+    FROM 
+        dataset_versions dv
+    JOIN files f ON dv.file_id = f.id
+    WHERE 
+        dv.id = $1;
+    
+2025-05-30 09:47:09,880 - sqlalchemy.engine.Engine - INFO - 
+    -- Get a single dataset version by ID (simplified)
+    SELECT 
+        dv.id,
+        dv.dataset_id,
+        dv.version_number,
+        dv.file_id,
+        dv.uploaded_by,
+        dv.ingestion_timestamp,
+        dv.last_updated_timestamp,
+        f.storage_type,
+        f.file_type,
+        f.mime_type,
+        f.file_size
+    FROM 
+        dataset_versions dv
+    JOIN files f ON dv.file_id = f.id
+    WHERE 
+        dv.id = $1;
+    
+2025-05-30 09:47:09,880 INFO sqlalchemy.engine.Engine [cached since 40.6s ago] (10,)
+2025-05-30 09:47:09,880 - sqlalchemy.engine.Engine - INFO - [cached since 40.6s ago] (10,)
+2025-05-30 09:47:09,881 INFO sqlalchemy.engine.Engine 
+    -- Get sheets for a dataset version
+    SELECT 
+        s.id,
+        s.name,
+        s.sheet_index,
+        s.description,
+        sm.metadata
+    FROM 
+        sheets s
+    LEFT JOIN sheet_metadata sm ON s.id = sm.sheet_id
+    WHERE 
+        s.dataset_version_id = $1
+    ORDER BY 
+        s.sheet_index;
+    
+2025-05-30 09:47:09,881 - sqlalchemy.engine.Engine - INFO - 
+    -- Get sheets for a dataset version
+    SELECT 
+        s.id,
+        s.name,
+        s.sheet_index,
+        s.description,
+        sm.metadata
+    FROM 
+        sheets s
+    LEFT JOIN sheet_metadata sm ON s.id = sm.sheet_id
+    WHERE 
+        s.dataset_version_id = $1
+    ORDER BY 
+        s.sheet_index;
+    
+2025-05-30 09:47:09,881 INFO sqlalchemy.engine.Engine [cached since 40.6s ago] (10,)
+2025-05-30 09:47:09,881 - sqlalchemy.engine.Engine - INFO - [cached since 40.6s ago] (10,)
+2025-05-30 09:47:09,882 INFO sqlalchemy.engine.Engine 
+    SELECT id, storage_type, file_type, mime_type, file_path, file_size, file_data, created_at 
+    FROM files 
+    WHERE id = $1;
+    
+2025-05-30 09:47:09,882 - sqlalchemy.engine.Engine - INFO - 
+    SELECT id, storage_type, file_type, mime_type, file_path, file_size, file_data, created_at 
+    FROM files 
+    WHERE id = $1;
+    
+2025-05-30 09:47:09,882 INFO sqlalchemy.engine.Engine [cached since 40.6s ago] (10,)
+2025-05-30 09:47:09,882 - sqlalchemy.engine.Engine - INFO - [cached since 40.6s ago] (10,)
+2025-05-30 09:47:09,882 - app.datasets.repository - DEBUG - Retrieved file 10 - storage_type: filesystem, file_type: parquet, has file_data: False, file_data length: 0
+2025-05-30 09:47:09,890 - app.sampling.service - DEBUG - Base DuckDB query: SELECT * FROM main_data with params: []
+2025-05-30 09:47:09,919 INFO sqlalchemy.engine.Engine ROLLBACK
+2025-05-30 09:47:09,919 - sqlalchemy.engine.Engine - INFO - ROLLBACK
+2025-05-30 09:47:09,919 - app.sampling.controller - INFO - Synchronous sampling completed for dataset 11, version 10. Rows: 5
+INFO:     127.0.0.1:33028 - "POST /api/sampling/11/10/execute?page=1&page_size=50 HTTP/1.1" 200 OK
+2025-05-30 09:47:59,402 - app.sampling.controller - INFO - User 1 executing sampling synchronously for dataset 11, version 10, page 1, page_size 50
+2025-05-30 09:47:59,402 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2025-05-30 09:47:59,402 - sqlalchemy.engine.Engine - INFO - BEGIN (implicit)
+2025-05-30 09:47:59,403 INFO sqlalchemy.engine.Engine 
+    -- Get a single dataset version by ID (simplified)
+    SELECT 
+        dv.id,
+        dv.dataset_id,
+        dv.version_number,
+        dv.file_id,
+        dv.uploaded_by,
+        dv.ingestion_timestamp,
+        dv.last_updated_timestamp,
+        f.storage_type,
+        f.file_type,
+        f.mime_type,
+        f.file_size
+    FROM 
+        dataset_versions dv
+    JOIN files f ON dv.file_id = f.id
+    WHERE 
+        dv.id = $1;
+    
+2025-05-30 09:47:59,403 - sqlalchemy.engine.Engine - INFO - 
+    -- Get a single dataset version by ID (simplified)
+    SELECT 
+        dv.id,
+        dv.dataset_id,
+        dv.version_number,
+        dv.file_id,
+        dv.uploaded_by,
+        dv.ingestion_timestamp,
+        dv.last_updated_timestamp,
+        f.storage_type,
+        f.file_type,
+        f.mime_type,
+        f.file_size
+    FROM 
+        dataset_versions dv
+    JOIN files f ON dv.file_id = f.id
+    WHERE 
+        dv.id = $1;
+    
+2025-05-30 09:47:59,403 INFO sqlalchemy.engine.Engine [cached since 90.13s ago] (10,)
+2025-05-30 09:47:59,403 - sqlalchemy.engine.Engine - INFO - [cached since 90.13s ago] (10,)
+2025-05-30 09:47:59,404 INFO sqlalchemy.engine.Engine 
+    -- Get sheets for a dataset version
+    SELECT 
+        s.id,
+        s.name,
+        s.sheet_index,
+        s.description,
+        sm.metadata
+    FROM 
+        sheets s
+    LEFT JOIN sheet_metadata sm ON s.id = sm.sheet_id
+    WHERE 
+        s.dataset_version_id = $1
+    ORDER BY 
+        s.sheet_index;
+    
+2025-05-30 09:47:59,404 - sqlalchemy.engine.Engine - INFO - 
+    -- Get sheets for a dataset version
+    SELECT 
+        s.id,
+        s.name,
+        s.sheet_index,
+        s.description,
+        sm.metadata
+    FROM 
+        sheets s
+    LEFT JOIN sheet_metadata sm ON s.id = sm.sheet_id
+    WHERE 
+        s.dataset_version_id = $1
+    ORDER BY 
+        s.sheet_index;
+    
+2025-05-30 09:47:59,404 INFO sqlalchemy.engine.Engine [cached since 90.13s ago] (10,)
+2025-05-30 09:47:59,404 - sqlalchemy.engine.Engine - INFO - [cached since 90.13s ago] (10,)
+2025-05-30 09:47:59,404 INFO sqlalchemy.engine.Engine 
+    SELECT id, storage_type, file_type, mime_type, file_path, file_size, file_data, created_at 
+    FROM files 
+    WHERE id = $1;
+    
+2025-05-30 09:47:59,404 - sqlalchemy.engine.Engine - INFO - 
+    SELECT id, storage_type, file_type, mime_type, file_path, file_size, file_data, created_at 
+    FROM files 
+    WHERE id = $1;
+    
+2025-05-30 09:47:59,404 INFO sqlalchemy.engine.Engine [cached since 90.12s ago] (10,)
+2025-05-30 09:47:59,404 - sqlalchemy.engine.Engine - INFO - [cached since 90.12s ago] (10,)
+2025-05-30 09:47:59,405 - app.datasets.repository - DEBUG - Retrieved file 10 - storage_type: filesystem, file_type: parquet, has file_data: False, file_data length: 0
+2025-05-30 09:47:59,413 - app.sampling.service - DEBUG - Base DuckDB query: SELECT * FROM main_data WHERE "passenger_count" = ? with params: [1]
+2025-05-30 09:47:59,455 INFO sqlalchemy.engine.Engine ROLLBACK
+2025-05-30 09:47:59,455 - sqlalchemy.engine.Engine - INFO - ROLLBACK
+2025-05-30 09:47:59,456 - app.sampling.controller - INFO - Synchronous sampling completed for dataset 11, version 10. Rows: 5
+INFO:     127.0.0.1:33146 - "POST /api/sampling/11/10/execute?page=1&page_size=50 HTTP/1.1" 200 OK
+2025-05-30 09:52:31,849 - fastapi-app - ERROR - HTTPException: 401 Not authenticated
+Traceback (most recent call last):
+  File "/home/saketh/Projects/dsa/venv/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/home/saketh/Projects/dsa/venv/lib/python3.10/site-packages/starlette/routing.py", line 73, in app
+    response = await f(request)
+  File "/home/saketh/Projects/dsa/venv/lib/python3.10/site-packages/fastapi/routing.py", line 291, in app
+    solved_result = await solve_dependencies(
+  File "/home/saketh/Projects/dsa/venv/lib/python3.10/site-packages/fastapi/dependencies/utils.py", line 615, in solve_dependencies
+    solved_result = await solve_dependencies(
+  File "/home/saketh/Projects/dsa/venv/lib/python3.10/site-packages/fastapi/dependencies/utils.py", line 615, in solve_dependencies
+    solved_result = await solve_dependencies(
+  File "/home/saketh/Projects/dsa/venv/lib/python3.10/site-packages/fastapi/dependencies/utils.py", line 638, in solve_dependencies
+    solved = await call(**solved_result.values)
+  File "/home/saketh/Projects/dsa/venv/lib/python3.10/site-packages/fastapi/security/oauth2.py", line 478, in __call__
+    raise HTTPException(
+fastapi.exceptions.HTTPException: 401: Not authenticated
+INFO:     127.0.0.1:38608 - "GET /api/sampling/11/10/columns HTTP/1.1" 401 Unauthorized
+WARNING:  WatchFiles detected changes in 'app/sampling/service.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [75672]
+2025-05-30 09:53:34,509 - visions.backends - INFO - Pandas backend loaded 2.2.3
+2025-05-30 09:53:34,513 - visions.backends - INFO - Numpy backend loaded 2.1.3
+2025-05-30 09:53:34,514 - visions.backends - INFO - Pyspark backend NOT loaded
+2025-05-30 09:53:34,514 - visions.backends - INFO - Python backend loaded
+2025-05-30 09:53:34,842 - matplotlib - DEBUG - matplotlib data path: /home/saketh/Projects/dsa/venv/lib/python3.10/site-packages/matplotlib/mpl-data
+2025-05-30 09:53:34,845 - matplotlib - DEBUG - CONFIGDIR=/home/saketh/.config/matplotlib
+2025-05-30 09:53:34,846 - matplotlib - DEBUG - interactive is False
+2025-05-30 09:53:34,846 - matplotlib - DEBUG - platform is linux
+2025-05-30 09:53:34,928 - matplotlib - DEBUG - CACHEDIR=/home/saketh/.cache/matplotlib
+2025-05-30 09:53:34,929 - matplotlib.font_manager - DEBUG - Using fontManager instance from /home/saketh/.cache/matplotlib/fontlist-v390.json
+[1;34mUpgrade to ydata-sdk[0m
+Improve your data and profiling with ydata-sdk, featuring data quality scoring, redundancy detection, outlier identification, text validation, and synthetic data generation.
+Register at https://ydata.ai/register
+2025-05-30 09:53:35,367 - matplotlib.pyplot - DEBUG - Loaded backend Agg version v2.2.
+INFO:     Started server process [76608]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+2025-05-30 09:54:22,043 - fastapi-app - INFO - Token refresh attempt
+2025-05-30 09:54:22,070 INFO sqlalchemy.engine.Engine select pg_catalog.version()
+2025-05-30 09:54:22,070 - sqlalchemy.engine.Engine - INFO - select pg_catalog.version()
+2025-05-30 09:54:22,070 INFO sqlalchemy.engine.Engine [raw sql] ()
+2025-05-30 09:54:22,070 - sqlalchemy.engine.Engine - INFO - [raw sql] ()
+2025-05-30 09:54:22,071 INFO sqlalchemy.engine.Engine select current_schema()
+2025-05-30 09:54:22,071 - sqlalchemy.engine.Engine - INFO - select current_schema()
+2025-05-30 09:54:22,071 INFO sqlalchemy.engine.Engine [raw sql] ()
+2025-05-30 09:54:22,071 - sqlalchemy.engine.Engine - INFO - [raw sql] ()
+2025-05-30 09:54:22,071 INFO sqlalchemy.engine.Engine show standard_conforming_strings
+2025-05-30 09:54:22,071 - sqlalchemy.engine.Engine - INFO - show standard_conforming_strings
+2025-05-30 09:54:22,071 INFO sqlalchemy.engine.Engine [raw sql] ()
+2025-05-30 09:54:22,071 - sqlalchemy.engine.Engine - INFO - [raw sql] ()
+2025-05-30 09:54:22,072 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2025-05-30 09:54:22,072 - sqlalchemy.engine.Engine - INFO - BEGIN (implicit)
+2025-05-30 09:54:22,072 INFO sqlalchemy.engine.Engine SELECT * FROM users WHERE soeid=$1
+2025-05-30 09:54:22,072 - sqlalchemy.engine.Engine - INFO - SELECT * FROM users WHERE soeid=$1
+2025-05-30 09:54:22,072 INFO sqlalchemy.engine.Engine [generated in 0.00009s] ('stringy',)
+2025-05-30 09:54:22,072 - sqlalchemy.engine.Engine - INFO - [generated in 0.00009s] ('stringy',)
+2025-05-30 09:54:22,074 - fastapi-app - INFO - Access token refreshed for user: stringy
+2025-05-30 09:54:22,074 INFO sqlalchemy.engine.Engine ROLLBACK
+2025-05-30 09:54:22,074 - sqlalchemy.engine.Engine - INFO - ROLLBACK
+INFO:     127.0.0.1:33502 - "POST /api/users/token/refresh?refresh_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJzdHJpbmd5IiwiZXhwIjoxNzQ5MjIwNDk2LCJ0b2tlbl90eXBlIjoicmVmcmVzaCJ9.4KaSCAtxt7gz6Wl8TNIIYr3KZBxzgXIkCuVkMw619m8 HTTP/1.1" 200 OK
+2025-05-30 09:54:22,084 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2025-05-30 09:54:22,084 - sqlalchemy.engine.Engine - INFO - BEGIN (implicit)
+2025-05-30 09:54:22,084 INFO sqlalchemy.engine.Engine 
+        WITH dataset_data AS (
+            SELECT 
+                d.id,
+                d.name,
+                d.description,
+                d.created_by,
+                d.created_at,
+                d.updated_at,
+                array_agg(DISTINCT t.id) FILTER (WHERE t.id IS NOT NULL) AS tag_ids,
+                array_agg(DISTINCT t.name) FILTER (WHERE t.name IS NOT NULL) AS tag_names
+            FROM 
+                datasets d
+            LEFT JOIN dataset_tags dt ON d.id = dt.dataset_id
+            LEFT JOIN tags t ON dt.tag_id = t.id
+        
+            GROUP BY 
+                d.id, d.name, d.description, d.created_by, d.created_at, d.updated_at
+        )
+        SELECT 
+            dd.id,
+            dd.name,
+            dd.description,
+            dd.created_by,
+            dd.created_at,
+            dd.updated_at,
+            dd.tag_ids,
+            dd.tag_names,
+            dv.version_number as current_version,
+            f.file_type,
+            f.file_size
+        FROM 
+            dataset_data dd
+        LEFT JOIN LATERAL (
+            SELECT version_number, file_id
+            FROM dataset_versions
+            WHERE dataset_id = dd.id
+            ORDER BY version_number DESC
+            LIMIT 1
+        ) dv ON true
+        LEFT JOIN files f ON dv.file_id = f.id
+        
+ORDER BY dd.updated_at DESC
+LIMIT $1 OFFSET $2;
+2025-05-30 09:54:22,084 - sqlalchemy.engine.Engine - INFO - 
+        WITH dataset_data AS (
+            SELECT 
+                d.id,
+                d.name,
+                d.description,
+                d.created_by,
+                d.created_at,
+                d.updated_at,
+                array_agg(DISTINCT t.id) FILTER (WHERE t.id IS NOT NULL) AS tag_ids,
+                array_agg(DISTINCT t.name) FILTER (WHERE t.name IS NOT NULL) AS tag_names
+            FROM 
+                datasets d
+            LEFT JOIN dataset_tags dt ON d.id = dt.dataset_id
+            LEFT JOIN tags t ON dt.tag_id = t.id
+        
+            GROUP BY 
+                d.id, d.name, d.description, d.created_by, d.created_at, d.updated_at
+        )
+        SELECT 
+            dd.id,
+            dd.name,
+            dd.description,
+            dd.created_by,
+            dd.created_at,
+            dd.updated_at,
+            dd.tag_ids,
+            dd.tag_names,
+            dv.version_number as current_version,
+            f.file_type,
+            f.file_size
+        FROM 
+            dataset_data dd
+        LEFT JOIN LATERAL (
+            SELECT version_number, file_id
+            FROM dataset_versions
+            WHERE dataset_id = dd.id
+            ORDER BY version_number DESC
+            LIMIT 1
+        ) dv ON true
+        LEFT JOIN files f ON dv.file_id = f.id
+        
+ORDER BY dd.updated_at DESC
+LIMIT $1 OFFSET $2;
+2025-05-30 09:54:22,084 INFO sqlalchemy.engine.Engine [generated in 0.00011s] (10, 0)
+2025-05-30 09:54:22,084 - sqlalchemy.engine.Engine - INFO - [generated in 0.00011s] (10, 0)
+2025-05-30 09:54:22,097 INFO sqlalchemy.engine.Engine ROLLBACK
+2025-05-30 09:54:22,097 - sqlalchemy.engine.Engine - INFO - ROLLBACK
+INFO:     127.0.0.1:33502 - "GET /api/datasets?limit=10&offset=0 HTTP/1.1" 200 OK
+2025-05-30 09:54:22,619 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2025-05-30 09:54:22,619 - sqlalchemy.engine.Engine - INFO - BEGIN (implicit)
+2025-05-30 09:54:22,619 INFO sqlalchemy.engine.Engine 
+    -- Get a single dataset by ID with its tags and versions (simplified)
+    SELECT 
+        d.id,
+        d.name,
+        d.description,
+        d.created_by,
+        d.created_at,
+        d.updated_at,
+        array_agg(DISTINCT t.id) FILTER (WHERE t.id IS NOT NULL) AS tag_ids,
+        array_agg(DISTINCT t.name) FILTER (WHERE t.name IS NOT NULL) AS tag_names
+    FROM 
+        datasets d
+    LEFT JOIN dataset_tags dt ON d.id = dt.dataset_id
+    LEFT JOIN tags t ON dt.tag_id = t.id
+    WHERE 
+        d.id = $1
+    GROUP BY 
+        d.id, d.name, d.description, d.created_by, d.created_at, d.updated_at;
+    
+2025-05-30 09:54:22,619 - sqlalchemy.engine.Engine - INFO - 
+    -- Get a single dataset by ID with its tags and versions (simplified)
+    SELECT 
+        d.id,
+        d.name,
+        d.description,
+        d.created_by,
+        d.created_at,
+        d.updated_at,
+        array_agg(DISTINCT t.id) FILTER (WHERE t.id IS NOT NULL) AS tag_ids,
+        array_agg(DISTINCT t.name) FILTER (WHERE t.name IS NOT NULL) AS tag_names
+    FROM 
+        datasets d
+    LEFT JOIN dataset_tags dt ON d.id = dt.dataset_id
+    LEFT JOIN tags t ON dt.tag_id = t.id
+    WHERE 
+        d.id = $1
+    GROUP BY 
+        d.id, d.name, d.description, d.created_by, d.created_at, d.updated_at;
+    
+2025-05-30 09:54:22,620 INFO sqlalchemy.engine.Engine [generated in 0.00011s] (11,)
+2025-05-30 09:54:22,620 - sqlalchemy.engine.Engine - INFO - [generated in 0.00011s] (11,)
+2025-05-30 09:54:22,621 INFO sqlalchemy.engine.Engine 
+    -- Get versions for a dataset
+    SELECT 
+        dv.id,
+        dv.dataset_id,
+        dv.version_number,
+        dv.file_id,
+        dv.uploaded_by,
+        dv.ingestion_timestamp,
+        dv.last_updated_timestamp,
+        f.storage_type,
+        f.file_type,
+        f.mime_type,
+        f.file_size
+    FROM 
+        dataset_versions dv
+    JOIN files f ON dv.file_id = f.id
+    WHERE 
+        dv.dataset_id = $1
+    ORDER BY 
+        dv.version_number DESC;
+    
+2025-05-30 09:54:22,621 - sqlalchemy.engine.Engine - INFO - 
+    -- Get versions for a dataset
+    SELECT 
+        dv.id,
+        dv.dataset_id,
+        dv.version_number,
+        dv.file_id,
+        dv.uploaded_by,
+        dv.ingestion_timestamp,
+        dv.last_updated_timestamp,
+        f.storage_type,
+        f.file_type,
+        f.mime_type,
+        f.file_size
+    FROM 
+        dataset_versions dv
+    JOIN files f ON dv.file_id = f.id
+    WHERE 
+        dv.dataset_id = $1
+    ORDER BY 
+        dv.version_number DESC;
+    
+2025-05-30 09:54:22,621 INFO sqlalchemy.engine.Engine [generated in 0.00009s] (11,)
+2025-05-30 09:54:22,621 - sqlalchemy.engine.Engine - INFO - [generated in 0.00009s] (11,)
+2025-05-30 09:54:22,622 INFO sqlalchemy.engine.Engine 
+    -- List all versions for a specific dataset (simplified)
+    SELECT 
+        dv.id,
+        dv.dataset_id,
+        dv.version_number,
+        dv.file_id,
+        dv.uploaded_by,
+        dv.ingestion_timestamp,
+        dv.last_updated_timestamp,
+        f.storage_type,
+        f.file_type,
+        f.mime_type,
+        f.file_size
+    FROM 
+        dataset_versions dv
+    JOIN files f ON dv.file_id = f.id
+    WHERE 
+        dv.dataset_id = $1
+    ORDER BY 
+        dv.version_number DESC;
+    
+2025-05-30 09:54:22,622 - sqlalchemy.engine.Engine - INFO - 
+    -- List all versions for a specific dataset (simplified)
+    SELECT 
+        dv.id,
+        dv.dataset_id,
+        dv.version_number,
+        dv.file_id,
+        dv.uploaded_by,
+        dv.ingestion_timestamp,
+        dv.last_updated_timestamp,
+        f.storage_type,
+        f.file_type,
+        f.mime_type,
+        f.file_size
+    FROM 
+        dataset_versions dv
+    JOIN files f ON dv.file_id = f.id
+    WHERE 
+        dv.dataset_id = $1
+    ORDER BY 
+        dv.version_number DESC;
+    
+2025-05-30 09:54:22,622 INFO sqlalchemy.engine.Engine [generated in 0.00009s] (11,)
+2025-05-30 09:54:22,622 - sqlalchemy.engine.Engine - INFO - [generated in 0.00009s] (11,)
+2025-05-30 09:54:22,623 INFO sqlalchemy.engine.Engine ROLLBACK
+2025-05-30 09:54:22,623 - sqlalchemy.engine.Engine - INFO - ROLLBACK
+INFO:     127.0.0.1:33502 - "GET /api/datasets/11/versions HTTP/1.1" 200 OK
+2025-05-30 09:54:23,926 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2025-05-30 09:54:23,926 - sqlalchemy.engine.Engine - INFO - BEGIN (implicit)
+2025-05-30 09:54:23,926 INFO sqlalchemy.engine.Engine 
+    -- Get a single dataset version by ID (simplified)
+    SELECT 
+        dv.id,
+        dv.dataset_id,
+        dv.version_number,
+        dv.file_id,
+        dv.uploaded_by,
+        dv.ingestion_timestamp,
+        dv.last_updated_timestamp,
+        f.storage_type,
+        f.file_type,
+        f.mime_type,
+        f.file_size
+    FROM 
+        dataset_versions dv
+    JOIN files f ON dv.file_id = f.id
+    WHERE 
+        dv.id = $1;
+    
+2025-05-30 09:54:23,926 - sqlalchemy.engine.Engine - INFO - 
+    -- Get a single dataset version by ID (simplified)
+    SELECT 
+        dv.id,
+        dv.dataset_id,
+        dv.version_number,
+        dv.file_id,
+        dv.uploaded_by,
+        dv.ingestion_timestamp,
+        dv.last_updated_timestamp,
+        f.storage_type,
+        f.file_type,
+        f.mime_type,
+        f.file_size
+    FROM 
+        dataset_versions dv
+    JOIN files f ON dv.file_id = f.id
+    WHERE 
+        dv.id = $1;
+    
+2025-05-30 09:54:23,926 INFO sqlalchemy.engine.Engine [generated in 0.00010s] (10,)
+2025-05-30 09:54:23,926 - sqlalchemy.engine.Engine - INFO - [generated in 0.00010s] (10,)
+2025-05-30 09:54:23,927 INFO sqlalchemy.engine.Engine 
+    -- Get sheets for a dataset version
+    SELECT 
+        s.id,
+        s.name,
+        s.sheet_index,
+        s.description,
+        sm.metadata
+    FROM 
+        sheets s
+    LEFT JOIN sheet_metadata sm ON s.id = sm.sheet_id
+    WHERE 
+        s.dataset_version_id = $1
+    ORDER BY 
+        s.sheet_index;
+    
+2025-05-30 09:54:23,927 - sqlalchemy.engine.Engine - INFO - 
+    -- Get sheets for a dataset version
+    SELECT 
+        s.id,
+        s.name,
+        s.sheet_index,
+        s.description,
+        sm.metadata
+    FROM 
+        sheets s
+    LEFT JOIN sheet_metadata sm ON s.id = sm.sheet_id
+    WHERE 
+        s.dataset_version_id = $1
+    ORDER BY 
+        s.sheet_index;
+    
+2025-05-30 09:54:23,927 INFO sqlalchemy.engine.Engine [generated in 0.00008s] (10,)
+2025-05-30 09:54:23,927 - sqlalchemy.engine.Engine - INFO - [generated in 0.00008s] (10,)
+2025-05-30 09:54:23,929 INFO sqlalchemy.engine.Engine 
+    -- Get a single dataset version by ID (simplified)
+    SELECT 
+        dv.id,
+        dv.dataset_id,
+        dv.version_number,
+        dv.file_id,
+        dv.uploaded_by,
+        dv.ingestion_timestamp,
+        dv.last_updated_timestamp,
+        f.storage_type,
+        f.file_type,
+        f.mime_type,
+        f.file_size
+    FROM 
+        dataset_versions dv
+    JOIN files f ON dv.file_id = f.id
+    WHERE 
+        dv.id = $1;
+    
+2025-05-30 09:54:23,929 - sqlalchemy.engine.Engine - INFO - 
+    -- Get a single dataset version by ID (simplified)
+    SELECT 
+        dv.id,
+        dv.dataset_id,
+        dv.version_number,
+        dv.file_id,
+        dv.uploaded_by,
+        dv.ingestion_timestamp,
+        dv.last_updated_timestamp,
+        f.storage_type,
+        f.file_type,
+        f.mime_type,
+        f.file_size
+    FROM 
+        dataset_versions dv
+    JOIN files f ON dv.file_id = f.id
+    WHERE 
+        dv.id = $1;
+    
+2025-05-30 09:54:23,929 INFO sqlalchemy.engine.Engine [cached since 0.003457s ago] (10,)
+2025-05-30 09:54:23,929 - sqlalchemy.engine.Engine - INFO - [cached since 0.003457s ago] (10,)
+2025-05-30 09:54:23,930 INFO sqlalchemy.engine.Engine 
+    -- Get sheets for a dataset version
+    SELECT 
+        s.id,
+        s.name,
+        s.sheet_index,
+        s.description,
+        sm.metadata
+    FROM 
+        sheets s
+    LEFT JOIN sheet_metadata sm ON s.id = sm.sheet_id
+    WHERE 
+        s.dataset_version_id = $1
+    ORDER BY 
+        s.sheet_index;
+    
+2025-05-30 09:54:23,930 - sqlalchemy.engine.Engine - INFO - 
+    -- Get sheets for a dataset version
+    SELECT 
+        s.id,
+        s.name,
+        s.sheet_index,
+        s.description,
+        sm.metadata
+    FROM 
+        sheets s
+    LEFT JOIN sheet_metadata sm ON s.id = sm.sheet_id
+    WHERE 
+        s.dataset_version_id = $1
+    ORDER BY 
+        s.sheet_index;
+    
+2025-05-30 09:54:23,930 INFO sqlalchemy.engine.Engine [cached since 0.00275s ago] (10,)
+2025-05-30 09:54:23,930 - sqlalchemy.engine.Engine - INFO - [cached since 0.00275s ago] (10,)
+2025-05-30 09:54:23,931 INFO sqlalchemy.engine.Engine 
+    SELECT id, storage_type, file_type, mime_type, file_path, file_size, file_data, created_at 
+    FROM files 
+    WHERE id = $1;
+    
+2025-05-30 09:54:23,931 - sqlalchemy.engine.Engine - INFO - 
+    SELECT id, storage_type, file_type, mime_type, file_path, file_size, file_data, created_at 
+    FROM files 
+    WHERE id = $1;
+    
+2025-05-30 09:54:23,931 INFO sqlalchemy.engine.Engine [generated in 0.00009s] (10,)
+2025-05-30 09:54:23,931 - sqlalchemy.engine.Engine - INFO - [generated in 0.00009s] (10,)
+2025-05-30 09:54:23,931 - app.datasets.repository - DEBUG - Retrieved file 10 - storage_type: filesystem, file_type: parquet, has file_data: False, file_data length: 0
+2025-05-30 09:54:23,931 INFO sqlalchemy.engine.Engine 
+    -- Get all sheets for a dataset version
+    SELECT 
+        id,
+        name, 
+        sheet_index,
+        description
+    FROM 
+        sheets
+    WHERE 
+        dataset_version_id = $1
+    ORDER BY 
+        sheet_index;
+    
+2025-05-30 09:54:23,931 - sqlalchemy.engine.Engine - INFO - 
+    -- Get all sheets for a dataset version
+    SELECT 
+        id,
+        name, 
+        sheet_index,
+        description
+    FROM 
+        sheets
+    WHERE 
+        dataset_version_id = $1
+    ORDER BY 
+        sheet_index;
+    
+2025-05-30 09:54:23,931 INFO sqlalchemy.engine.Engine [generated in 0.00009s] (10,)
+2025-05-30 09:54:23,931 - sqlalchemy.engine.Engine - INFO - [generated in 0.00009s] (10,)
+2025-05-30 09:54:23,932 - app.datasets.service - INFO - Version 10 has 1 sheets: ['yellow_tripdata_2024-01']
+2025-05-30 09:54:23,932 - app.datasets.service - INFO - Requested sheet_name: None
+2025-05-30 09:54:23,932 - app.datasets.service - INFO - No sheet name provided, using first sheet: yellow_tripdata_2024-01
+2025-05-30 09:54:23,960 INFO sqlalchemy.engine.Engine ROLLBACK
+2025-05-30 09:54:23,960 - sqlalchemy.engine.Engine - INFO - ROLLBACK
+INFO:     127.0.0.1:33508 - "GET /api/datasets/11/versions/10/data?limit=1 HTTP/1.1" 200 OK
+2025-05-30 09:54:25,410 - app.sampling.controller - INFO - Getting column info for dataset 11, version 10
+2025-05-30 09:54:25,410 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2025-05-30 09:54:25,410 - sqlalchemy.engine.Engine - INFO - BEGIN (implicit)
+2025-05-30 09:54:25,410 INFO sqlalchemy.engine.Engine 
+    -- Get a single dataset version by ID (simplified)
+    SELECT 
+        dv.id,
+        dv.dataset_id,
+        dv.version_number,
+        dv.file_id,
+        dv.uploaded_by,
+        dv.ingestion_timestamp,
+        dv.last_updated_timestamp,
+        f.storage_type,
+        f.file_type,
+        f.mime_type,
+        f.file_size
+    FROM 
+        dataset_versions dv
+    JOIN files f ON dv.file_id = f.id
+    WHERE 
+        dv.id = $1;
+    
+2025-05-30 09:54:25,410 - sqlalchemy.engine.Engine - INFO - 
+    -- Get a single dataset version by ID (simplified)
+    SELECT 
+        dv.id,
+        dv.dataset_id,
+        dv.version_number,
+        dv.file_id,
+        dv.uploaded_by,
+        dv.ingestion_timestamp,
+        dv.last_updated_timestamp,
+        f.storage_type,
+        f.file_type,
+        f.mime_type,
+        f.file_size
+    FROM 
+        dataset_versions dv
+    JOIN files f ON dv.file_id = f.id
+    WHERE 
+        dv.id = $1;
+    
+2025-05-30 09:54:25,410 INFO sqlalchemy.engine.Engine [cached since 1.484s ago] (10,)
+2025-05-30 09:54:25,410 - sqlalchemy.engine.Engine - INFO - [cached since 1.484s ago] (10,)
+2025-05-30 09:54:25,411 INFO sqlalchemy.engine.Engine 
+    -- Get sheets for a dataset version
+    SELECT 
+        s.id,
+        s.name,
+        s.sheet_index,
+        s.description,
+        sm.metadata
+    FROM 
+        sheets s
+    LEFT JOIN sheet_metadata sm ON s.id = sm.sheet_id
+    WHERE 
+        s.dataset_version_id = $1
+    ORDER BY 
+        s.sheet_index;
+    
+2025-05-30 09:54:25,411 - sqlalchemy.engine.Engine - INFO - 
+    -- Get sheets for a dataset version
+    SELECT 
+        s.id,
+        s.name,
+        s.sheet_index,
+        s.description,
+        sm.metadata
+    FROM 
+        sheets s
+    LEFT JOIN sheet_metadata sm ON s.id = sm.sheet_id
+    WHERE 
+        s.dataset_version_id = $1
+    ORDER BY 
+        s.sheet_index;
+    
+2025-05-30 09:54:25,411 INFO sqlalchemy.engine.Engine [cached since 1.484s ago] (10,)
+2025-05-30 09:54:25,411 - sqlalchemy.engine.Engine - INFO - [cached since 1.484s ago] (10,)
+2025-05-30 09:54:25,411 INFO sqlalchemy.engine.Engine 
+    SELECT id, storage_type, file_type, mime_type, file_path, file_size, file_data, created_at 
+    FROM files 
+    WHERE id = $1;
+    
+2025-05-30 09:54:25,411 - sqlalchemy.engine.Engine - INFO - 
+    SELECT id, storage_type, file_type, mime_type, file_path, file_size, file_data, created_at 
+    FROM files 
+    WHERE id = $1;
+    
+2025-05-30 09:54:25,412 INFO sqlalchemy.engine.Engine [cached since 1.481s ago] (10,)
+2025-05-30 09:54:25,412 - sqlalchemy.engine.Engine - INFO - [cached since 1.481s ago] (10,)
+2025-05-30 09:54:25,412 - app.datasets.repository - DEBUG - Retrieved file 10 - storage_type: filesystem, file_type: parquet, has file_data: False, file_data length: 0
+2025-05-30 09:54:25,428 - app.sampling.service - WARNING - Could not get sample values for column VendorID: Parser Error: syntax error at or near "WHERE"
+2025-05-30 09:54:25,442 - app.sampling.service - WARNING - Could not get sample values for column tpep_pickup_datetime: Parser Error: syntax error at or near "WHERE"
+2025-05-30 09:54:25,456 - app.sampling.service - WARNING - Could not get sample values for column tpep_dropoff_datetime: Parser Error: syntax error at or near "WHERE"
+2025-05-30 09:54:25,462 - app.sampling.service - WARNING - Could not get sample values for column passenger_count: Parser Error: syntax error at or near "WHERE"
+2025-05-30 09:54:25,468 - app.sampling.service - WARNING - Could not get sample values for column trip_distance: Parser Error: syntax error at or near "WHERE"
+2025-05-30 09:54:25,473 - app.sampling.service - WARNING - Could not get sample values for column RatecodeID: Parser Error: syntax error at or near "WHERE"
+2025-05-30 09:54:25,477 - app.sampling.service - WARNING - Could not get sample values for column store_and_fwd_flag: Parser Error: syntax error at or near "WHERE"
+2025-05-30 09:54:25,482 - app.sampling.service - WARNING - Could not get sample values for column PULocationID: Parser Error: syntax error at or near "WHERE"
+2025-05-30 09:54:25,487 - app.sampling.service - WARNING - Could not get sample values for column DOLocationID: Parser Error: syntax error at or near "WHERE"
+2025-05-30 09:54:25,492 - app.sampling.service - WARNING - Could not get sample values for column payment_type: Parser Error: syntax error at or near "WHERE"
+2025-05-30 09:54:25,499 - app.sampling.service - WARNING - Could not get sample values for column fare_amount: Parser Error: syntax error at or near "WHERE"
+2025-05-30 09:54:25,505 - app.sampling.service - WARNING - Could not get sample values for column extra: Parser Error: syntax error at or near "WHERE"
+2025-05-30 09:54:25,509 - app.sampling.service - WARNING - Could not get sample values for column mta_tax: Parser Error: syntax error at or near "WHERE"
+2025-05-30 09:54:25,514 - app.sampling.service - WARNING - Could not get sample values for column tip_amount: Parser Error: syntax error at or near "WHERE"
+2025-05-30 09:54:25,521 - app.sampling.service - WARNING - Could not get sample values for column tolls_amount: Parser Error: syntax error at or near "WHERE"
+2025-05-30 09:54:25,525 - app.sampling.service - WARNING - Could not get sample values for column improvement_surcharge: Parser Error: syntax error at or near "WHERE"
+2025-05-30 09:54:25,532 - app.sampling.service - WARNING - Could not get sample values for column total_amount: Parser Error: syntax error at or near "WHERE"
+2025-05-30 09:54:25,537 - app.sampling.service - WARNING - Could not get sample values for column congestion_surcharge: Parser Error: syntax error at or near "WHERE"
+2025-05-30 09:54:25,541 - app.sampling.service - WARNING - Could not get sample values for column Airport_fee: Parser Error: syntax error at or near "WHERE"
+2025-05-30 09:54:25,544 INFO sqlalchemy.engine.Engine ROLLBACK
+2025-05-30 09:54:25,544 - sqlalchemy.engine.Engine - INFO - ROLLBACK
+INFO:     127.0.0.1:33508 - "GET /api/sampling/11/10/columns HTTP/1.1" 200 OK
+WARNING:  WatchFiles detected changes in 'app/sampling/service.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [76608]
+2025-05-30 09:55:48,318 - visions.backends - INFO - Pandas backend loaded 2.2.3
+2025-05-30 09:55:48,322 - visions.backends - INFO - Numpy backend loaded 2.1.3
+2025-05-30 09:55:48,323 - visions.backends - INFO - Pyspark backend NOT loaded
+2025-05-30 09:55:48,323 - visions.backends - INFO - Python backend loaded
+2025-05-30 09:55:48,647 - matplotlib - DEBUG - matplotlib data path: /home/saketh/Projects/dsa/venv/lib/python3.10/site-packages/matplotlib/mpl-data
+2025-05-30 09:55:48,651 - matplotlib - DEBUG - CONFIGDIR=/home/saketh/.config/matplotlib
+2025-05-30 09:55:48,652 - matplotlib - DEBUG - interactive is False
+2025-05-30 09:55:48,652 - matplotlib - DEBUG - platform is linux
+2025-05-30 09:55:48,729 - matplotlib - DEBUG - CACHEDIR=/home/saketh/.cache/matplotlib
+2025-05-30 09:55:48,730 - matplotlib.font_manager - DEBUG - Using fontManager instance from /home/saketh/.cache/matplotlib/fontlist-v390.json
+[1;34mUpgrade to ydata-sdk[0m
+Improve your data and profiling with ydata-sdk, featuring data quality scoring, redundancy detection, outlier identification, text validation, and synthetic data generation.
+Register at https://ydata.ai/register
+2025-05-30 09:55:49,135 - matplotlib.pyplot - DEBUG - Loaded backend Agg version v2.2.
+INFO:     Started server process [76854]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+2025-05-30 09:56:21,498 INFO sqlalchemy.engine.Engine select pg_catalog.version()
+2025-05-30 09:56:21,498 - sqlalchemy.engine.Engine - INFO - select pg_catalog.version()
+2025-05-30 09:56:21,498 INFO sqlalchemy.engine.Engine [raw sql] ()
+2025-05-30 09:56:21,498 - sqlalchemy.engine.Engine - INFO - [raw sql] ()
+2025-05-30 09:56:21,499 INFO sqlalchemy.engine.Engine select current_schema()
+2025-05-30 09:56:21,499 - sqlalchemy.engine.Engine - INFO - select current_schema()
+2025-05-30 09:56:21,499 INFO sqlalchemy.engine.Engine [raw sql] ()
+2025-05-30 09:56:21,499 - sqlalchemy.engine.Engine - INFO - [raw sql] ()
+2025-05-30 09:56:21,500 INFO sqlalchemy.engine.Engine show standard_conforming_strings
+2025-05-30 09:56:21,500 - sqlalchemy.engine.Engine - INFO - show standard_conforming_strings
+2025-05-30 09:56:21,500 INFO sqlalchemy.engine.Engine [raw sql] ()
+2025-05-30 09:56:21,500 - sqlalchemy.engine.Engine - INFO - [raw sql] ()
+2025-05-30 09:56:21,501 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2025-05-30 09:56:21,501 - sqlalchemy.engine.Engine - INFO - BEGIN (implicit)
+2025-05-30 09:56:21,501 INFO sqlalchemy.engine.Engine 
+        WITH dataset_data AS (
+            SELECT 
+                d.id,
+                d.name,
+                d.description,
+                d.created_by,
+                d.created_at,
+                d.updated_at,
+                array_agg(DISTINCT t.id) FILTER (WHERE t.id IS NOT NULL) AS tag_ids,
+                array_agg(DISTINCT t.name) FILTER (WHERE t.name IS NOT NULL) AS tag_names
+            FROM 
+                datasets d
+            LEFT JOIN dataset_tags dt ON d.id = dt.dataset_id
+            LEFT JOIN tags t ON dt.tag_id = t.id
+        
+            GROUP BY 
+                d.id, d.name, d.description, d.created_by, d.created_at, d.updated_at
+        )
+        SELECT 
+            dd.id,
+            dd.name,
+            dd.description,
+            dd.created_by,
+            dd.created_at,
+            dd.updated_at,
+            dd.tag_ids,
+            dd.tag_names,
+            dv.version_number as current_version,
+            f.file_type,
+            f.file_size
+        FROM 
+            dataset_data dd
+        LEFT JOIN LATERAL (
+            SELECT version_number, file_id
+            FROM dataset_versions
+            WHERE dataset_id = dd.id
+            ORDER BY version_number DESC
+            LIMIT 1
+        ) dv ON true
+        LEFT JOIN files f ON dv.file_id = f.id
+        
+ORDER BY dd.updated_at DESC
+LIMIT $1 OFFSET $2;
+2025-05-30 09:56:21,501 - sqlalchemy.engine.Engine - INFO - 
+        WITH dataset_data AS (
+            SELECT 
+                d.id,
+                d.name,
+                d.description,
+                d.created_by,
+                d.created_at,
+                d.updated_at,
+                array_agg(DISTINCT t.id) FILTER (WHERE t.id IS NOT NULL) AS tag_ids,
+                array_agg(DISTINCT t.name) FILTER (WHERE t.name IS NOT NULL) AS tag_names
+            FROM 
+                datasets d
+            LEFT JOIN dataset_tags dt ON d.id = dt.dataset_id
+            LEFT JOIN tags t ON dt.tag_id = t.id
+        
+            GROUP BY 
+                d.id, d.name, d.description, d.created_by, d.created_at, d.updated_at
+        )
+        SELECT 
+            dd.id,
+            dd.name,
+            dd.description,
+            dd.created_by,
+            dd.created_at,
+            dd.updated_at,
+            dd.tag_ids,
+            dd.tag_names,
+            dv.version_number as current_version,
+            f.file_type,
+            f.file_size
+        FROM 
+            dataset_data dd
+        LEFT JOIN LATERAL (
+            SELECT version_number, file_id
+            FROM dataset_versions
+            WHERE dataset_id = dd.id
+            ORDER BY version_number DESC
+            LIMIT 1
+        ) dv ON true
+        LEFT JOIN files f ON dv.file_id = f.id
+        
+ORDER BY dd.updated_at DESC
+LIMIT $1 OFFSET $2;
+2025-05-30 09:56:21,501 INFO sqlalchemy.engine.Engine [generated in 0.00013s] (10, 0)
+2025-05-30 09:56:21,501 - sqlalchemy.engine.Engine - INFO - [generated in 0.00013s] (10, 0)
+2025-05-30 09:56:21,515 INFO sqlalchemy.engine.Engine ROLLBACK
+2025-05-30 09:56:21,515 - sqlalchemy.engine.Engine - INFO - ROLLBACK
+INFO:     127.0.0.1:49028 - "GET /api/datasets?limit=10&offset=0 HTTP/1.1" 200 OK

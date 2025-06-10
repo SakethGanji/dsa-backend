@@ -140,7 +140,7 @@ class DatasetsController:
 
     async def get_dataset_version_file(self, version_id: int) -> File:
         file_info = await self.service.get_dataset_version_file(version_id)
-        if not file_info or not file_info.file_data:
+        if not file_info:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"File for version {version_id} not found"

@@ -12,6 +12,7 @@ from app.datasets.models import (
 )
 from app.users.models import UserOut as User
 from app.db.connection import get_session
+from app.storage.factory import StorageFactory
 import io
 
 
@@ -24,7 +25,8 @@ router = APIRouter(prefix="/api/datasets", tags=["Datasets"])
 
 def get_datasets_controller(session: AsyncSession = Depends(get_session)):
     repository = DatasetsRepository(session)
-    service = DatasetsService(repository)
+    storage_backend = StorageFactory.get_instance()
+    service = DatasetsService(repository, storage_backend)
     controller = DatasetsController(service)
     return controller
 
@@ -140,24 +142,44 @@ async def download_dataset_version(
     """Stream-download the raw file for that version"""
     version = await controller.get_version_for_dataset(dataset_id, version_id)
     file_info = await controller.get_dataset_version_file(version_id)
-    if not file_info or not file_info.file_data:
+    if not file_info:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="File data not found"
         )
-    file_data = file_info.file_data
+    
     file_type = file_info.file_type
     file_name = f"{version.dataset_id}_v{version.version_number}.{file_type}"
     media_type = file_info.mime_type or "application/octet-stream"
-    def iter_file():
-        yield file_data
-    return StreamingResponse(
-        iter_file(),
-        media_type=media_type,
-        headers={
-            "Content-Disposition": f"attachment; filename={file_name}"
-        }
-    )
+    
+    # Handle different storage types
+    if file_info.storage_type == "filesystem" and file_info.file_path:
+        # For files stored on filesystem (now all files are stored as Parquet)
+        import aiofiles
+        
+        # Update file extension to .parquet since we store all files as Parquet
+        file_name = f"{version.dataset_id}_v{version.version_number}.parquet"
+        media_type = "application/parquet"
+        
+        async def iter_file():
+            async with aiofiles.open(file_info.file_path, 'rb') as f:
+                chunk_size = 1024 * 1024  # 1MB chunks
+                while chunk := await f.read(chunk_size):
+                    yield chunk
+        
+        return StreamingResponse(
+            iter_file(),
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f"attachment; filename={file_name}",
+                "Content-Length": str(file_info.file_size) if file_info.file_size else None
+            }
+        )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File data not found or unsupported storage type"
+        )
 
 
 @router.delete("/{dataset_id}/versions/{version_id}")

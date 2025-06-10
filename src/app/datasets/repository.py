@@ -785,11 +785,28 @@ class DatasetsRepository:
         result = await self.session.execute(query)
         return [Tag.model_validate(row) for row in result.mappings()]
 
+    async def update_file_path(self, file_id: int, new_path: str) -> None:
+        """Update the file path for a file"""
+        query = sa.text("UPDATE files SET file_path = :file_path WHERE id = :file_id")
+        values = {"file_id": file_id, "file_path": new_path}
+        await self.session.execute(query, values)
+        await self.session.commit()
+
     async def get_file(self, file_id: int) -> Optional[File]:
         """Get file information by ID"""
         query = sa.text(self.GET_FILE_SQL)
         result = await self.session.execute(query, {"file_id": file_id})
         row = result.mappings().first()
+        
+        if row:
+            # Debug logging
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Retrieved file {file_id} - storage_type: {row.get('storage_type')}, "
+                        f"file_type: {row.get('file_type')}, "
+                        f"has file_data: {row.get('file_data') is not None}, "
+                        f"file_data length: {len(row.get('file_data')) if row.get('file_data') else 0}")
+        
         return File.model_validate(row) if row else None
 
     async def list_version_sheets(self, version_id: int) -> List[Sheet]:

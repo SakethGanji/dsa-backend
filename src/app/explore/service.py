@@ -3,6 +3,7 @@ import logging
 from io import BytesIO
 from typing import Dict, List, Optional, Any, Tuple
 from app.explore.models import ProfileFormat
+from app.storage.backend import StorageBackend
 from ydata_profiling import ProfileReport
 import matplotlib
 matplotlib.use('Agg')  # Set non-interactive backend for matplotlib
@@ -12,8 +13,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class ExploreService:
-    def __init__(self, repository):
+    def __init__(self, repository, storage_backend: StorageBackend):
         self.repository = repository
+        self.storage_backend = storage_backend
 
     async def explore_dataset(
         self,
@@ -63,31 +65,20 @@ class ExploreService:
             
         # Get file data
         file_info = await self.repository.get_file(version.file_id)
-        if not file_info or not file_info.file_data:
-            raise ValueError("File data not found")
+        if not file_info or not file_info.file_path:
+            raise ValueError("File path not found")
             
         return version, file_info
     
     def _load_dataframe(self, file_info: Any, sheet_name: Optional[str] = None) -> pd.DataFrame:
         """Load file data into a pandas DataFrame"""
-        file_data = file_info.file_data
-        file_type = file_info.file_type.lower()
-
-        # Create BytesIO object from file data
-        buffer = BytesIO(file_data)
-        
+        # Use storage backend to read the dataset
+        # We'll get dataset_id and version_id from the file_info or version info
+        # For now, we'll use the file_path directly since we're transitioning
         try:
-            if file_type == "csv":
-                return pd.read_csv(buffer)
-            elif file_type in ["xls", "xlsx", "xlsm"]:
-                if sheet_name:
-                    return pd.read_excel(buffer, sheet_name=sheet_name)
-                else:
-                    # If no sheet name provided, use the first sheet
-                    return pd.read_excel(buffer)
-            else:
-                # Just try csv as a fallback
-                return pd.read_csv(buffer)
+            # Since the files are stored as Parquet in the new system
+            # We can read them directly using pandas
+            return pd.read_parquet(file_info.file_path)
         except Exception as e:
             logger.error(f"Error loading file: {str(e)}")
             # Return an empty DataFrame with a message column
