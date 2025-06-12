@@ -1,45 +1,51 @@
-from typing import List, Dict, Any, Optional, Tuple
-from datetime import datetime
+"""Unified service for dataset operations"""
 import os
+import shutil
 import logging
-from io import BytesIO
+from typing import List, Optional, Dict, Any, Tuple
+from datetime import datetime
+from fastapi import UploadFile
 import duckdb
-from fastapi import UploadFile, HTTPException
-from app.datasets.repository import DatasetsRepository
-from app.datasets.duckdb_service import DuckDBService
-from app.storage.backend import StorageBackend
+
 from app.datasets.models import (
     Dataset, DatasetCreate, DatasetUpdate, DatasetUploadRequest, DatasetUploadResponse,
-    DatasetVersion, DatasetVersionCreate, File, FileCreate,
-    Sheet, SheetCreate, SheetInfo, SheetMetadata, Tag
+    DatasetVersion, DatasetVersionCreate, File, FileCreate, Sheet, SheetCreate, Tag, SheetInfo
 )
+from app.datasets.exceptions import DatasetNotFound, DatasetVersionNotFound, FileProcessingError, StorageError
+from app.datasets.validators import DatasetValidator
+from app.datasets.constants import DEFAULT_PAGE_SIZE, MAX_ROWS_PER_PAGE
 
 logger = logging.getLogger(__name__)
 
+
 class DatasetsService:
-    def __init__(self, repository: DatasetsRepository, storage_backend: StorageBackend):
+    """Service layer for dataset operations"""
+    
+    def __init__(self, repository, storage_backend):
         self.repository = repository
         self.storage = storage_backend
-
+        self.validator = DatasetValidator()
+        self._tag_cache = {}  # Simple in-memory cache
+        self._cache_timestamp = None
+        self._cache_ttl = 300  # 5 minutes
+    
+    # Dataset operations
     async def upload_dataset(
-        self, 
-        file: UploadFile, 
-        request: DatasetUploadRequest, 
+        self,
+        file: UploadFile,
+        request: DatasetUploadRequest,
         user_id: int
     ) -> DatasetUploadResponse:
-        """
-        Process dataset upload following the flow:
-        1. Create/Upsert dataset
-        2. Save file
-        3. Get next version number
-        4. Create dataset version
-        5. Update dataset timestamp
-        6. Process tags if any
-        7. Parse file into sheets
-        8. Create sheets and metadata
-        9. Return response with dataset info
-        """
-        # Step 0: Upsert dataset if dataset_id provided, otherwise create new dataset
+        """Process dataset upload with validation and error handling"""
+        # Validate file
+        file_size = file.size if hasattr(file, 'size') else 0
+        self.validator.validate_file_upload(file.filename, file_size)
+        
+        # Validate tags
+        if request.tags:
+            request.tags = self.validator.validate_tags(request.tags)
+        
+        # Create or update dataset
         dataset_create = DatasetCreate(
             name=request.name,
             description=request.description,
@@ -49,49 +55,241 @@ class DatasetsService:
         
         dataset_id = await self.repository.upsert_dataset(request.dataset_id, dataset_create)
         
-        # Step 1: Get the original file type
-        file_type = os.path.splitext(file.filename)[1].lower()[1:]  # Original file type
+        # Get the original file type
+        file_type = os.path.splitext(file.filename)[1].lower()[1:]
         
-        # Step 2: Save file to local storage as Parquet
+        # Save file to storage
+        file_id, file_path = await self._save_file(file, dataset_id, file_type)
+        
+        # Create dataset version
+        version_id = await self._create_dataset_version(dataset_id, file_id, user_id)
+        
+        # Process tags
+        if request.tags:
+            await self._process_tags(dataset_id, request.tags)
+        
+        # Update file path with version ID
+        if file_path:
+            file_path = await self._finalize_file_location(file_id, file_path, version_id)
+        
+        # Parse file into sheets
+        sheet_infos = await self._parse_file_into_sheets(file_path, file.filename, version_id)
+        
+        return DatasetUploadResponse(
+            dataset_id=dataset_id,
+            version_id=version_id,
+            sheets=sheet_infos
+        )
+    
+    async def list_datasets(self, **kwargs) -> List[Dataset]:
+        """List datasets with filtering and pagination"""
+        # Validate and normalize inputs
+        limit = kwargs.get('limit', DEFAULT_PAGE_SIZE)
+        if limit < 1:
+            limit = 10
+        elif limit > 100:
+            limit = 100
+        
+        offset = kwargs.get('offset', 0)
+        if offset < 0:
+            offset = 0
+        
+        kwargs['limit'] = limit
+        kwargs['offset'] = offset
+        
+        return await self.repository.list_datasets(**kwargs)
+    
+    async def get_dataset(self, dataset_id: int) -> Optional[Dataset]:
+        """Get detailed information about a single dataset"""
+        result = await self.repository.get_dataset(dataset_id)
+        if not result:
+            raise DatasetNotFound(dataset_id)
+        return result
+    
+    async def update_dataset(self, dataset_id: int, data: DatasetUpdate) -> Optional[Dataset]:
+        """Update dataset metadata including name, description, and tags"""
+        # First check if dataset exists
+        existing_dataset = await self.get_dataset(dataset_id)
+        if not existing_dataset:
+            raise DatasetNotFound(dataset_id)
+        
+        # Update basic metadata
+        updated_id = await self.repository.update_dataset(dataset_id, data)
+        if not updated_id:
+            return None
+        
+        # If tags were provided, update tags
+        if data.tags is not None:
+            # Delete all existing tags
+            await self.repository.delete_dataset_tags(dataset_id)
+            
+            # Add new tags
+            for tag_name in data.tags:
+                tag_id = await self.repository.upsert_tag(tag_name)
+                await self.repository.create_dataset_tag(dataset_id, tag_id)
+        
+        # Return the updated dataset
+        return await self.get_dataset(dataset_id)
+    
+    # Version operations
+    async def list_dataset_versions(self, dataset_id: int) -> List[DatasetVersion]:
+        """List all versions of a dataset"""
+        # Check if dataset exists
+        dataset = await self.get_dataset(dataset_id)
+        if not dataset:
+            raise DatasetNotFound(dataset_id)
+        
+        return await self.repository.list_dataset_versions(dataset_id)
+    
+    async def get_dataset_version(self, version_id: int) -> Optional[DatasetVersion]:
+        """Get detailed information about a single dataset version"""
+        result = await self.repository.get_dataset_version(version_id)
+        if not result:
+            raise DatasetVersionNotFound(version_id)
+        return result
+    
+    async def get_dataset_version_file(self, version_id: int) -> Optional[File]:
+        """Get file information for a dataset version"""
+        version = await self.get_dataset_version(version_id)
+        if not version or not version.file_id:
+            return None
+        
+        return await self.repository.get_file(version.file_id)
+    
+    async def delete_dataset_version(self, version_id: int) -> bool:
+        """Delete a dataset version"""
+        version = await self.get_dataset_version(version_id)
+        if not version:
+            raise DatasetVersionNotFound(version_id)
+        
+        deleted_id = await self.repository.delete_dataset_version(version_id)
+        return deleted_id is not None
+    
+    # Tag operations with simple caching
+    async def list_tags(self) -> List[Tag]:
+        """List all available tags with simple caching"""
+        from datetime import datetime
+        
+        # Check cache
+        if self._cache_timestamp:
+            age = (datetime.now() - self._cache_timestamp).total_seconds()
+            if age < self._cache_ttl and 'tags' in self._tag_cache:
+                return self._tag_cache['tags']
+        
+        # Fetch from database
+        tags = await self.repository.list_tags()
+        
+        # Update cache
+        self._tag_cache['tags'] = tags
+        self._cache_timestamp = datetime.now()
+        
+        return tags
+    
+    # Sheet operations
+    async def list_version_sheets(self, version_id: int) -> List[Sheet]:
+        """Get all sheets for a dataset version"""
+        version = await self.get_dataset_version(version_id)
+        if not version:
+            return []
+        
+        return await self.repository.list_version_sheets(version_id)
+    
+    async def get_sheet_data(
+        self,
+        version_id: int,
+        sheet_name: Optional[str],
+        limit: int = 100,
+        offset: int = 0
+    ) -> Tuple[List[str], List[Dict[str, Any]], bool]:
+        """Get paginated data from a sheet"""
+        # First check if version exists
+        version = await self.get_dataset_version(version_id)
+        if not version:
+            return [], [], False
+        
+        # Get file info
+        file_info = await self.repository.get_file(version.file_id)
+        if not file_info:
+            logger.error(f"File not found for version {version_id}, file_id: {version.file_id}")
+            return [], [], False
+        
+        # Get sheets to validate sheet_name
+        sheets = await self.repository.list_version_sheets(version_id)
+        sheet_names = [sheet.name for sheet in sheets]
+        
+        # For single sheet files, use the first sheet
+        if not sheet_name and sheets:
+            sheet_name = sheets[0].name
+        
+        # Validate sheet name
+        if sheet_name and sheet_name not in sheet_names:
+            logger.error(f"Sheet '{sheet_name}' not found in available sheets: {sheet_names}")
+            return [], [], False
+        
+        # Read data from Parquet file using DuckDB
+        try:
+            if file_info.file_path:
+                return await self._read_parquet_data(file_info.file_path, limit, offset)
+            else:
+                logger.error(f"File path not found for file {file_info.id}")
+                return [], [], False
+        except Exception as e:
+            logger.error(f"Error reading file data: {str(e)}")
+            return [], [], False
+    
+    # User operations
+    async def get_user_id_from_soeid(self, soeid: str) -> Optional[int]:
+        """Get user ID from soeid"""
+        from app.users.repository import get_user_by_soeid
+        user = await get_user_by_soeid(self.repository.session, soeid)
+        return user["id"] if user else None
+    
+    # Private helper methods
+    async def _save_file(self, file: UploadFile, dataset_id: int, file_type: str) -> Tuple[int, str]:
+        """Save file to storage and create database record"""
         try:
             # Read file content
             file_content = await file.read()
-            await file.seek(0)  # Reset file pointer
+            await file.seek(0)
             
             # Save file as Parquet using storage backend
             result = await self.storage.save_dataset_file(
                 file_content=file_content,
                 dataset_id=dataset_id,
-                version_id=0,  # We'll update this after creating the version
+                version_id=0,  # Temporary, will update later
                 file_name=file.filename
             )
             
             file_path = result["path"]
             file_size = result["size"]
             
-            # Create file record in database with path reference
+            # Create file record in database
             file_create = FileCreate(
                 storage_type="filesystem",
-                file_type="parquet",  # Always store as parquet
+                file_type="parquet",
                 mime_type="application/parquet",
-                file_data=None,  # No data in DB
+                file_data=None,
                 file_size=file_size,
-                file_path=file_path  # Store path reference
+                file_path=file_path
             )
             file_id = await self.repository.create_file(file_create)
-            logger.info(f"File saved to local storage: {file_path}, size: {file_size} bytes")
+            logger.info(f"File saved to storage: {file_path}, size: {file_size} bytes")
+            
+            return file_id, file_path
             
         except Exception as e:
             logger.error(f"Error saving file: {str(e)}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error saving file: {str(e)}"
-            )
-        
-        # Step 2: Get next version number
+            raise StorageError("save_file", str(e))
+    
+    async def _create_dataset_version(
+        self,
+        dataset_id: int,
+        file_id: int,
+        user_id: int
+    ) -> int:
+        """Create a new dataset version"""
         version_number = await self.repository.get_next_version_number(dataset_id)
         
-        # Step 3: Create dataset version
         version_create = DatasetVersionCreate(
             dataset_id=dataset_id,
             version_number=version_number,
@@ -100,52 +298,37 @@ class DatasetsService:
         )
         
         version_id = await self.repository.create_dataset_version(version_create)
-        
-        # Step 4: Update dataset timestamp
         await self.repository.update_dataset_timestamp(dataset_id)
         
-        # Step 5: Process tags if any
-        if request.tags:
-            for tag_name in request.tags:
-                tag_id = await self.repository.upsert_tag(tag_name)
-                await self.repository.create_dataset_tag(dataset_id, tag_id)
-        
-        # Step 6: Update file path with version ID
-        if file_path:
-            # Move file to correct location with version ID
-            import shutil
-            new_path = file_path.replace("/temp/", f"/{version_id}/").replace("_temp_", f"_{version_id}_")
-            os.makedirs(os.path.dirname(new_path), exist_ok=True)
-            shutil.move(file_path, new_path)
-            # Update file record with new path
-            await self.repository.update_file_path(file_id, new_path)
-            file_path = new_path
-        
-        # Step 7: Parse file into sheets
-        # For Parquet files, we'll create sheet metadata
-        logger.info(f"Parsing parquet file at: {file_path}")
-        sheet_infos = await self._parse_parquet_file_into_sheets(
-            file_path=file_path,
-            original_filename=file.filename,
-            version_id=version_id
-        )
-        logger.info(f"Created {len(sheet_infos)} sheets for version {version_id}")
-        
-        # Step 8: Return response with dataset info
-        return DatasetUploadResponse(
-            dataset_id=dataset_id,
-            version_id=version_id,
-            sheets=sheet_infos
-        )
-
+        return version_id
     
-    async def _parse_parquet_file_into_sheets(
+    async def _process_tags(self, dataset_id: int, tags: List[str]) -> None:
+        """Process and associate tags with dataset"""
+        for tag_name in tags:
+            tag_id = await self.repository.upsert_tag(tag_name)
+            await self.repository.create_dataset_tag(dataset_id, tag_id)
+    
+    async def _finalize_file_location(
+        self,
+        file_id: int,
+        file_path: str,
+        version_id: int
+    ) -> str:
+        """Move file to final location with version ID"""
+        new_path = file_path.replace("/temp/", f"/{version_id}/").replace("_temp_", f"_{version_id}_")
+        os.makedirs(os.path.dirname(new_path), exist_ok=True)
+        shutil.move(file_path, new_path)
+        
+        await self.repository.update_file_path(file_id, new_path)
+        return new_path
+    
+    async def _parse_file_into_sheets(
         self,
         file_path: str,
         original_filename: str,
         version_id: int
     ) -> List[SheetInfo]:
-        """Parse Parquet file and create sheet metadata"""
+        """Parse file and create sheet metadata"""
         sheet_infos = []
         
         try:
@@ -193,412 +376,83 @@ class DatasetsService:
                 ))
             finally:
                 conn.close()
-            
+                
         except Exception as e:
             logger.error(f"Error parsing Parquet file: {str(e)}")
             # Create error sheet
-            sheet_infos = await self._create_error_sheet_from_path(
-                file_path, version_id, "parquet", str(e)
+            sheet_infos = await self._create_error_sheet(
+                file_path, version_id, "parquet", str(e), original_filename
             )
             
         return sheet_infos
     
-    def _get_file_parser(self, file_type: str):
-        """Factory method to get the appropriate file parser"""
-        parsers = {
-            "xlsx": self._parse_excel_file_duckdb,
-            "xls": self._parse_excel_file_duckdb,
-            "xlsm": self._parse_excel_file_duckdb,
-            "csv": self._parse_csv_file_duckdb
-        }
-        return parsers.get(file_type, self._handle_unsupported_file_type)
-    
-    async def _parse_excel_file_duckdb(self, file_info: Any, filename: str, version_id: int) -> List[SheetInfo]:
-        """Parse Excel file into sheets using DuckDB"""
-        sheet_infos = []
-        
-        # Use DuckDB service to parse the Excel file
-        duckdb_service = DuckDBService()
-        parsed_sheets = await duckdb_service.parse_excel_file_from_info(file_info, filename)
-        
-        for sheet_data in parsed_sheets:
-            sheet_create = SheetCreate(
-                dataset_version_id=version_id,
-                name=sheet_data['name'],
-                sheet_index=sheet_data['index'],
-                description=None
-            )
-
-            sheet_id = await self.repository.create_sheet(sheet_create)
-
-            # Create sheet metadata from DuckDB results
-            await self.repository.create_sheet_metadata(sheet_id, sheet_data['metadata'])
-
-            sheet_infos.append(SheetInfo(
-                id=sheet_id,
-                name=sheet_data['name'],
-                index=sheet_data['index'],
-                description=None
-            ))
-            
-        return sheet_infos
-    
-    async def _parse_csv_file_duckdb(self, file_info: Any, filename: str, version_id: int) -> List[SheetInfo]:
-        """Parse CSV file into a sheet using DuckDB"""
-        # Use DuckDB service to parse the CSV file
-        duckdb_service = DuckDBService()
-        parsed_sheets = await duckdb_service.parse_csv_file_from_info(file_info, filename)
-        
-        sheet_data = parsed_sheets[0]  # CSV has only one sheet
-        
-        sheet_create = SheetCreate(
-            dataset_version_id=version_id,
-            name=sheet_data['name'],
-            sheet_index=0,
-            description=None
-        )
-
-        sheet_id = await self.repository.create_sheet(sheet_create)
-
-        # Create sheet metadata from DuckDB results
-        await self.repository.create_sheet_metadata(sheet_id, sheet_data['metadata'])
-
-        return [SheetInfo(
-            id=sheet_id,
-            name=sheet_data['name'],
-            index=0,
-            description=None
-        )]
-    
-    async def _handle_unsupported_file_type(self, file_info: Any, filename: str, version_id: int) -> List[SheetInfo]:
-        """Handle unsupported file types"""
-        file_type = os.path.splitext(filename)[1].lower()[1:]
-        sheet_create = SheetCreate(
-            dataset_version_id=version_id,
-            name=filename,
-            sheet_index=0,
-            description=f"Unsupported file type: {file_type}"
-        )
-
-        sheet_id = await self.repository.create_sheet(sheet_create)
-
-        # Create minimal metadata
-        metadata = {
-            "file_type": file_type,
-            "note": "Unsupported file type - no parsing performed"
-        }
-
-        await self.repository.create_sheet_metadata(sheet_id, metadata)
-
-        return [SheetInfo(
-            id=sheet_id,
-            name=filename,
-            index=0,
-            description=f"Unsupported file type: {file_type}"
-        )]
-    
-    async def _create_error_sheet(self, file: UploadFile, version_id: int, file_type: str, error_msg: str) -> List[SheetInfo]:
-        """Create a sheet entry for a file parsing error"""
-        filename = os.path.basename(file.filename)
-        sheet_create = SheetCreate(
-            dataset_version_id=version_id,
-            name=filename,
-            sheet_index=0,
-            description="Error parsing file"
-        )
-
-        sheet_id = await self.repository.create_sheet(sheet_create)
-
-        # Create error metadata
-        metadata = {
-            "error": error_msg,
-            "file_type": file_type
-        }
-
-        await self.repository.create_sheet_metadata(sheet_id, metadata)
-
-        return [SheetInfo(
-            id=sheet_id,
-            name=filename,
-            index=0,
-            description="Error parsing file"
-        )]
-    
-    async def _create_error_sheet_from_path(self, file_path: str, version_id: int, file_type: str, error_msg: str) -> List[SheetInfo]:
-        """Create a sheet entry for a file parsing error from path"""
-        filename = os.path.basename(file_path)
-        sheet_create = SheetCreate(
-            dataset_version_id=version_id,
-            name=filename,
-            sheet_index=0,
-            description="Error parsing file"
-        )
-
-        sheet_id = await self.repository.create_sheet(sheet_create)
-
-        # Create error metadata
-        metadata = {
-            "error": error_msg,
-            "file_type": file_type
-        }
-
-        await self.repository.create_sheet_metadata(sheet_id, metadata)
-
-        return [SheetInfo(
-            id=sheet_id,
-            name=filename,
-            index=0,
-            description="Error parsing file"
-        )]
-    
-    async def _generate_profile_report(self, data_source, sheet_name=None):
-        """
-        Generate profiling report for a dataset.
-        This is a stub method to be implemented when profiling is needed.
-
-        Args:
-            data_source: The data source (Excel file, DataFrame, etc.)
-            sheet_name: Optional sheet name for Excel files
-
-        Returns:
-            int: The file_id of the saved profiling report
-        """
-        # Implementation for profiling data goes here
-        # For example, using pandas-profiling or other libraries
-        # Create a report file and save it using self.repository.create_file
-        # Return the file_id
-
-        # Placeholder implementation
-        return None
-
-    # Dataset listing and retrieval methods
-    async def list_datasets(
+    async def _create_error_sheet(
         self,
-        limit: int = 10,
-        offset: int = 0,
-        sort_by: Optional[str] = None,
-        sort_order: Optional[str] = None,
-        name: Optional[str] = None,
-        description: Optional[str] = None,
-        created_by: Optional[int] = None,
-        tags: Optional[List[str]] = None,
-        file_type: Optional[str] = None,
-        file_size_min: Optional[int] = None,
-        file_size_max: Optional[int] = None,
-        version_min: Optional[int] = None,
-        version_max: Optional[int] = None,
-        created_at_from: Optional[datetime] = None,
-        created_at_to: Optional[datetime] = None,
-        updated_at_from: Optional[datetime] = None,
-        updated_at_to: Optional[datetime] = None
-    ) -> List[Dataset]:
-        """List datasets with optional filtering, sorting, and pagination"""
-        # Validate and normalize inputs
-        if limit < 1:
-            limit = 10
-        elif limit > 100:
-            limit = 100
-
-        if offset < 0:
-            offset = 0
-
-        # Default sort parameters
-        valid_sort_fields = ["name", "created_at", "updated_at", "file_size", "current_version"]
-        if sort_by not in valid_sort_fields:
-            sort_by = "updated_at"
-
-        valid_sort_orders = ["asc", "desc"]
-        if sort_order not in valid_sort_orders:
-            sort_order = "desc"
-        
-        # Call repository method
-        result = await self.repository.list_datasets(
-            limit=limit,
-            offset=offset,
-            sort_by=sort_by,
-            sort_order=sort_order,
-            name=name,
-            description=description,
-            created_by=created_by,
-            tags=tags,
-            file_type=file_type,
-            file_size_min=file_size_min,
-            file_size_max=file_size_max,
-            version_min=version_min,
-            version_max=version_max,
-            created_at_from=created_at_from,
-            created_at_to=created_at_to,
-            updated_at_from=updated_at_from,
-            updated_at_to=updated_at_to
+        file_path: str,
+        version_id: int,
+        file_type: str,
+        error_msg: str,
+        original_filename: str
+    ) -> List[SheetInfo]:
+        """Create a sheet entry for a file parsing error"""
+        filename = os.path.basename(original_filename)
+        sheet_create = SheetCreate(
+            dataset_version_id=version_id,
+            name=filename,
+            sheet_index=0,
+            description="Error parsing file"
         )
-
-        # Transform raw results into appropriate response models
-        # The repository now returns List[Dataset], so direct transformation might not be needed
-        # or needs to be adjusted if the structure from repository.list_datasets is already Pydantic models.
-        # Assuming result is List[Dataset] as per repository changes.
-        return result
-
-    async def get_dataset(self, dataset_id: int) -> Optional[Dataset]:
-        """Get detailed information about a single dataset"""
-        result = await self.repository.get_dataset(dataset_id)
-        # No transformation needed if repository returns Optional[Dataset]
-        return result
-
-    async def update_dataset(self, dataset_id: int, data: DatasetUpdate) -> Optional[Dataset]:
-        """Update dataset metadata including name, description, and tags"""
-        # First check if dataset exists
-        # get_dataset now returns Optional[Dataset]
-        existing_dataset = await self.get_dataset(dataset_id)
-        if not existing_dataset:
-            return None
-
-        # Update basic metadata
-        updated_id = await self.repository.update_dataset(dataset_id, data)
-        if not updated_id:
-            return None
-
-        # If tags were provided, update tags
-        if data.tags is not None:
-            # Delete all existing tags
-            await self.repository.delete_dataset_tags(dataset_id)
-
-            # Add new tags
-            for tag_name in data.tags:
-                tag_id = await self.repository.upsert_tag(tag_name)
-                await self.repository.create_dataset_tag(dataset_id, tag_id)
-
-        # Return the updated dataset
-        return await self.get_dataset(dataset_id)
-
-    async def list_dataset_versions(self, dataset_id: int) -> List[DatasetVersion]:
-        """List all versions of a dataset"""
-        # Check if dataset exists
-        dataset = await self.get_dataset(dataset_id) # Returns Optional[Dataset]
-        if not dataset:
-            return [] # Return empty list if dataset not found
-
-        result = await self.repository.list_dataset_versions(dataset_id)
-        # No transformation needed if repository returns List[DatasetVersion]
-        return result
-
-    async def get_dataset_version(self, version_id: int) -> Optional[DatasetVersion]:
-        """Get detailed information about a single dataset version"""
-        result = await self.repository.get_dataset_version(version_id)
-        # No transformation needed if repository returns Optional[DatasetVersion]
-        # JSON parsing for sheets should ideally be handled within the repository or model itself if possible.
-        # However, if sheets are part of the DatasetVersion Pydantic model and are complex,
-        # the repository should ensure they are correctly populated.
-        return result
-
-    async def get_dataset_version_file(self, version_id: int) -> Optional[File]:
-        """Get file information for a dataset version"""
-        # Get the version first
-        version = await self.get_dataset_version(version_id) # Returns Optional[DatasetVersion]
-        if not version or not version.file_id: # Check if version and file_id exist
-            return None
-
-        # Get the associated file
-        file_info = await self.repository.get_file(version.file_id) # Returns Optional[File]
-        return file_info
-
-    async def delete_dataset_version(self, version_id: int) -> bool:
-        """Delete a dataset version"""
-        # Check if version exists
-        version = await self.get_dataset_version(version_id)
-        if not version:
-            return False
-
-        deleted_id = await self.repository.delete_dataset_version(version_id)
-        return deleted_id is not None
-
-    async def list_tags(self) -> List[Tag]:
-        """List all available tags"""
-        result = await self.repository.list_tags()
-        # No transformation needed if repository returns List[Tag]
-        return result
-
-    async def list_version_sheets(self, version_id: int) -> List[Sheet]:
-        """Get all sheets for a dataset version"""
-        # First check if version exists
-        version = await self.get_dataset_version(version_id) # Returns Optional[DatasetVersion]
-        if not version:
-            return []
-
-        # Get sheets
-        sheets = await self.repository.list_version_sheets(version_id) # Returns List[Sheet]
-        return sheets
-
-    async def get_sheet_data(self, version_id: int, sheet_name: Optional[str], limit: int = 100, offset: int = 0) -> Tuple[List[str], List[Dict[str, Any]], bool]:
-        """Get paginated data from a sheet"""
-        # First check if version exists
-        version = await self.get_dataset_version(version_id)
-        if not version:
-            return [], [], False
-
-        # Get file info
-        file_info = await self.repository.get_file(version.file_id)
-        if not file_info:
-            logger.error(f"File not found for version {version_id}, file_id: {version.file_id}")
-            return [], [], False
-
-        # Get sheets to validate sheet_name
-        sheets = await self.repository.list_version_sheets(version_id)
-        sheet_names = [sheet.name for sheet in sheets]
         
-        logger.info(f"Version {version_id} has {len(sheets)} sheets: {sheet_names}")
-        logger.info(f"Requested sheet_name: {sheet_name}")
-
-        # For single sheet files, use the first sheet
-        if not sheet_name and sheets:
-            sheet_name = sheets[0].name
-            logger.info(f"No sheet name provided, using first sheet: {sheet_name}")
-
-        # Validate sheet name
-        if sheet_name and sheet_name not in sheet_names:
-            logger.error(f"Sheet '{sheet_name}' not found in available sheets: {sheet_names}")
-            return [], [], False
+        sheet_id = await self.repository.create_sheet(sheet_create)
         
-        # If no sheets at all, we can still try to read the parquet file directly
-        if not sheets:
-            logger.warning(f"No sheets found for version {version_id}, attempting direct read")
-
-        # Read data from Parquet file using DuckDB
+        # Create error metadata
+        metadata = {
+            "error": error_msg,
+            "file_type": file_type
+        }
+        
+        await self.repository.create_sheet_metadata(sheet_id, metadata)
+        
+        return [SheetInfo(
+            id=sheet_id,
+            name=filename,
+            index=0,
+            description="Error parsing file"
+        )]
+    
+    async def _read_parquet_data(
+        self,
+        file_path: str,
+        limit: int,
+        offset: int
+    ) -> Tuple[List[str], List[Dict[str, Any]], bool]:
+        """Read data from Parquet file using DuckDB"""
+        conn = duckdb.connect(':memory:')
         try:
-            if file_info.file_path:
-                # Use DuckDB to read Parquet with pagination
-                conn = duckdb.connect(':memory:')
-                try:
-                    # Create view from Parquet file
-                    conn.execute(f"CREATE VIEW sheet_data AS SELECT * FROM read_parquet('{file_info.file_path}')")
-                    
-                    # Get headers
-                    columns_info = conn.execute("PRAGMA table_info('sheet_data')").fetchall()
-                    headers = [col[1] for col in columns_info]
-                    
-                    # Get total row count
-                    total_rows = conn.execute("SELECT COUNT(*) FROM sheet_data").fetchone()[0]
-                    
-                    # Get paginated data
-                    result = conn.execute(f"SELECT * FROM sheet_data LIMIT {limit} OFFSET {offset}").fetchall()
-                    
-                    # Convert to list of dicts
-                    rows = []
-                    for row in result:
-                        row_dict = {}
-                        for i, value in enumerate(row):
-                            row_dict[headers[i]] = value
-                        rows.append(row_dict)
-                    
-                    # Check if there's more data
-                    has_more = (offset + limit) < total_rows
-                    
-                    return headers, rows, has_more
-                finally:
-                    conn.close()
-            else:
-                logger.error(f"File path not found for file {file_info.id}")
-                return [], [], False
-        except Exception as e:
-            logger.error(f"Error reading file data: {str(e)}")
-            return [], [], False
-
+            # Create view from Parquet file
+            conn.execute(f"CREATE VIEW sheet_data AS SELECT * FROM read_parquet('{file_path}')")
+            
+            # Get headers
+            columns_info = conn.execute("PRAGMA table_info('sheet_data')").fetchall()
+            headers = [col[1] for col in columns_info]
+            
+            # Get total row count
+            total_rows = conn.execute("SELECT COUNT(*) FROM sheet_data").fetchone()[0]
+            
+            # Get paginated data
+            result = conn.execute(f"SELECT * FROM sheet_data LIMIT {limit} OFFSET {offset}").fetchall()
+            
+            # Convert to list of dicts
+            rows = []
+            for row in result:
+                row_dict = {}
+                for i, value in enumerate(row):
+                    row_dict[headers[i]] = value
+                rows.append(row_dict)
+            
+            # Check if there's more data
+            has_more = (offset + limit) < total_rows
+            
+            return headers, rows, has_more
+        finally:
+            conn.close()

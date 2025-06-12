@@ -1,69 +1,83 @@
 from fastapi import HTTPException, status, UploadFile
 from typing import List, Optional, Dict, Any
 import json
+import logging
 
 from app.datasets.service import DatasetsService
 from app.datasets.models import (
     DatasetUploadRequest, DatasetUploadResponse, DatasetUpdate, Dataset, DatasetVersion, File, Tag, Sheet
 )
+from app.datasets.exceptions import (
+    DatasetNotFound, DatasetVersionNotFound, FileProcessingError, StorageError
+)
+
+logger = logging.getLogger(__name__)
 
 class DatasetsController:
+    """Controller layer handling HTTP requests and responses for datasets"""
+    
     def __init__(self, service: DatasetsService):
         self.service = service
 
     def _parse_tags(self, tags: Optional[str]) -> Optional[List[str]]:
+        """Parse tags from JSON or comma-separated string"""
         if not tags:
             return None
         try:
             parsed = json.loads(tags)
             if not isinstance(parsed, list):
-                raise ValueError
+                raise ValueError("Tags must be a list")
             return parsed
         except json.JSONDecodeError:
-            # comma-separated fallback
+            # Fallback to comma-separated format
             return [t.strip() for t in tags.split(',') if t.strip()]
-        except ValueError:
+        except ValueError as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Tags must be a JSON list or comma-separated string"
+                detail=f"Invalid tags format: {str(e)}"
             )
 
     async def upload_dataset(
         self,
         file: UploadFile,
-        current_user: Any, # This will be a CurrentUser object from JWT
+        current_user: Any,
         dataset_id: Optional[int],
         name: str,
         description: Optional[str],
         tags: Optional[str]
     ) -> DatasetUploadResponse:
+        """Handle dataset upload request"""
         request = DatasetUploadRequest(
             dataset_id=dataset_id,
             name=name,
             description=description,
             tags=self._parse_tags(tags)
         )
+        
         try:
-            # Map user attributes from CurrentUser (JWT token) to database user
-            # For database operations, we need a user ID
-            # In this example, we'll use the SOEID as a unique identifier
-            # In a real app, you would have a users table with IDs
-            user_id = 1  # Mock user ID
-            
-            # You could also implement role-based access control here:
-            # if not current_user.is_admin():
-            #     raise HTTPException(
-            #         status_code=status.HTTP_403_FORBIDDEN,
-            #         detail="Only admins can upload datasets"
-            #     )
+            # Get user ID from the database based on soeid
+            user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
+            if not user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="User not found in the system"
+                )
             
             return await self.service.upload_dataset(file, request, user_id)
-        except HTTPException: # Re-raise HTTPException
-            raise
-        except Exception as e:
+            
+        except (FileProcessingError, StorageError) as e:
+            logger.error(f"Dataset upload error: {str(e)}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Upload failed: {str(e)}"
+                detail=str(e)
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error during dataset upload: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="An unexpected error occurred during upload"
             )
 
     async def list_datasets(
@@ -77,6 +91,7 @@ class DatasetsController:
         sort_by: Optional[str],
         sort_order: Optional[str]
     ) -> List[Dataset]:
+        """List datasets with filtering and pagination"""
         try:
             return await self.service.list_datasets(
                 limit=limit,
@@ -88,42 +103,53 @@ class DatasetsController:
                 sort_by=sort_by,
                 sort_order=sort_order
             )
-        except HTTPException:
-            raise
         except Exception as e:
+            logger.error(f"Error listing datasets: {str(e)}", exc_info=True)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Listing datasets failed: {e}"
+                detail="Failed to retrieve datasets"
             )
 
     async def get_dataset(self, dataset_id: int) -> Dataset:
-        result = await self.service.get_dataset(dataset_id)
-        if not result:
+        """Get a single dataset by ID"""
+        try:
+            result = await self.service.get_dataset(dataset_id)
+            if not result:
+                raise DatasetNotFound(dataset_id)
+            return result
+        except DatasetNotFound:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Dataset {dataset_id} not found"
             )
-        return result
+        except Exception as e:
+            logger.error(f"Error retrieving dataset {dataset_id}: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to retrieve dataset"
+            )
 
     async def update_dataset(
         self,
         dataset_id: int,
         data: DatasetUpdate
     ) -> Dataset:
+        """Update dataset metadata"""
         try:
             updated = await self.service.update_dataset(dataset_id, data)
             if not updated:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Dataset {dataset_id} not found"
-                )
+                raise DatasetNotFound(dataset_id)
             return updated
-        except HTTPException:
-            raise
+        except DatasetNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Dataset {dataset_id} not found"
+            )
         except Exception as e:
+            logger.error(f"Error updating dataset {dataset_id}: {str(e)}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Update failed: {e}"
+                detail="Failed to update dataset"
             )
 
     async def list_dataset_versions(self, dataset_id: int) -> List[DatasetVersion]:
