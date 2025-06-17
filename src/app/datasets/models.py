@@ -59,6 +59,9 @@ class DatasetVersionBase(BaseModel):
     version_number: int
     file_id: int
     uploaded_by: int
+    parent_version_id: Optional[int] = None
+    message: Optional[str] = None
+    overlay_file_id: Optional[int] = None
 
 class DatasetVersionCreate(DatasetVersionBase):
     pass
@@ -118,6 +121,20 @@ class DatasetUploadResponse(BaseModel):
     dataset_id: int
     version_id: int
     sheets: List[SheetInfo]
+
+class SchemaVersionBase(BaseModel):
+    dataset_version_id: int
+    schema_json: Dict[str, Any]
+
+class SchemaVersionCreate(SchemaVersionBase):
+    pass
+
+class SchemaVersion(SchemaVersionBase):
+    id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
 
 class DatasetListParams(BaseModel):
     limit: Optional[int] = Field(10, ge=1, le=100)

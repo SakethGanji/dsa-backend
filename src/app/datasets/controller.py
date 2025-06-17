@@ -5,7 +5,7 @@ import logging
 
 from app.datasets.service import DatasetsService
 from app.datasets.models import (
-    DatasetUploadRequest, DatasetUploadResponse, DatasetUpdate, Dataset, DatasetVersion, File, Tag, Sheet
+    DatasetUploadRequest, DatasetUploadResponse, DatasetUpdate, Dataset, DatasetVersion, File, Tag, Sheet, SchemaVersion
 )
 from app.datasets.exceptions import (
     DatasetNotFound, DatasetVersionNotFound, FileProcessingError, StorageError
@@ -44,7 +44,9 @@ class DatasetsController:
         dataset_id: Optional[int],
         name: str,
         description: Optional[str],
-        tags: Optional[str]
+        tags: Optional[str],
+        parent_version_id: Optional[int] = None,
+        message: Optional[str] = None
     ) -> DatasetUploadResponse:
         """Handle dataset upload request"""
         request = DatasetUploadRequest(
@@ -63,7 +65,11 @@ class DatasetsController:
                     detail="User not found in the system"
                 )
             
-            return await self.service.upload_dataset(file, request, user_id)
+            return await self.service.upload_dataset(
+                file, request, user_id,
+                parent_version_id=parent_version_id,
+                message=message
+            )
             
         except (FileProcessingError, StorageError) as e:
             logger.error(f"Dataset upload error: {str(e)}")
@@ -154,6 +160,16 @@ class DatasetsController:
 
     async def list_dataset_versions(self, dataset_id: int) -> List[DatasetVersion]:
         return await self.service.list_dataset_versions(dataset_id)
+    
+    async def get_version_tree(self, dataset_id: int) -> Dict[str, Any]:
+        """Get version tree structure for a dataset"""
+        try:
+            return await self.service.get_version_tree(dataset_id)
+        except DatasetNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Dataset {dataset_id} not found"
+            )
 
     async def get_dataset_version(self, version_id: int) -> DatasetVersion:
         version = await self.service.get_dataset_version(version_id)
@@ -225,4 +241,35 @@ class DatasetsController:
                 detail=f"Version {version_id} does not belong to dataset {dataset_id}"
             )
         return version
+    
+    async def get_schema_for_version(self, version_id: int) -> SchemaVersion:
+        """Get schema for a dataset version"""
+        try:
+            schema = await self.service.get_schema_for_version(version_id)
+            if not schema:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Schema not found for version {version_id}"
+                )
+            return schema
+        except DatasetVersionNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Version {version_id} not found"
+            )
+    
+    async def compare_version_schemas(self, version_id1: int, version_id2: int) -> Dict[str, Any]:
+        """Compare schemas between two versions"""
+        try:
+            return await self.service.compare_version_schemas(version_id1, version_id2)
+        except DatasetVersionNotFound as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(e)
+            )
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
 

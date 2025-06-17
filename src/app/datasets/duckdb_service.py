@@ -79,6 +79,82 @@ class DuckDBService:
             }
     
     @staticmethod
+    async def extract_schema(file_path: str, file_type: str) -> Dict[str, Any]:
+        """Extract schema information from a file"""
+        try:
+            with DuckDBService.get_connection() as conn:
+                # Create view based on file type
+                if file_type.lower() in ['parquet', 'pq']:
+                    conn.execute(f"CREATE VIEW data AS SELECT * FROM read_parquet('{file_path}')")
+                elif file_type.lower() in ['csv', 'tsv']:
+                    conn.execute(f"CREATE VIEW data AS SELECT * FROM read_csv_auto('{file_path}')")
+                elif file_type.lower() in ['xlsx', 'xls']:
+                    # DuckDB doesn't natively support Excel, would need conversion
+                    # For now, we'll skip Excel support in schema extraction
+                    return {"error": "Excel format not supported for schema extraction"}
+                else:
+                    return {"error": f"Unsupported file type: {file_type}"}
+                
+                # Get column information
+                columns_info = conn.execute("PRAGMA table_info('data')").fetchall()
+                
+                # Build schema in JSON schema format
+                schema = {
+                    "type": "object",
+                    "properties": {},
+                    "columns": []
+                }
+                
+                # Map DuckDB types to JSON schema types
+                type_mapping = {
+                    'INTEGER': 'integer',
+                    'BIGINT': 'integer',
+                    'DOUBLE': 'number',
+                    'FLOAT': 'number',
+                    'DECIMAL': 'number',
+                    'VARCHAR': 'string',
+                    'DATE': 'string',
+                    'TIMESTAMP': 'string',
+                    'BOOLEAN': 'boolean',
+                    'BLOB': 'string'
+                }
+                
+                for col_info in columns_info:
+                    col_name = col_info[1]
+                    col_type = col_info[2]
+                    is_nullable = col_info[3] == 0  # 0 means nullable
+                    
+                    # Map to JSON schema type
+                    json_type = type_mapping.get(col_type.upper().split('(')[0], 'string')
+                    
+                    column_schema = {
+                        "type": json_type,
+                        "nullable": is_nullable,
+                        "duckdb_type": col_type
+                    }
+                    
+                    schema["properties"][col_name] = column_schema
+                    schema["columns"].append({
+                        "name": col_name,
+                        "type": json_type,
+                        "nullable": is_nullable,
+                        "original_type": col_type
+                    })
+                
+                # Get sample statistics
+                try:
+                    row_count = conn.execute("SELECT COUNT(*) FROM data").fetchone()[0]
+                    schema["row_count"] = row_count
+                except:
+                    schema["row_count"] = None
+                
+                return schema
+                
+        except Exception as e:
+            logger.error(f"Error extracting schema: {str(e)}")
+            return {"error": str(e)}
+    
+    @staticmethod
     async def export_to_format(
         file_path: str,
         output_format: str,

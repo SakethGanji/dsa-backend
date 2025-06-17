@@ -41,8 +41,14 @@ CREATE TABLE IF NOT EXISTS dataset_versions (
   ingestion_timestamp      TIMESTAMP    NOT NULL DEFAULT NOW(),
   last_updated_timestamp   TIMESTAMP    NOT NULL DEFAULT NOW(),
   uploaded_by              INT         NOT NULL REFERENCES users(id),
+  parent_version_id        INT         REFERENCES dataset_versions(id),
+  message                  TEXT,
+  overlay_file_id          INT         REFERENCES files(id),
   UNIQUE (dataset_id, version_number)
 );
+
+-- Index for parent version lookups
+CREATE INDEX IF NOT EXISTS idx_dataset_versions_parent ON dataset_versions(parent_version_id);
 
 CREATE TABLE IF NOT EXISTS sheets (
   id                   SERIAL      PRIMARY KEY,
@@ -131,3 +137,16 @@ CREATE TABLE IF NOT EXISTS exploration_outputs (
   metadata              JSONB,
   CONSTRAINT uq_exploration_output_per_run UNIQUE (exploration_run_id, output_index)
 );
+
+-- SCHEMA CAPTURE
+
+-- Schema snapshots for dataset versions
+CREATE TABLE IF NOT EXISTS dataset_schema_versions (
+  id                    SERIAL      PRIMARY KEY,
+  dataset_version_id    INT         NOT NULL REFERENCES dataset_versions(id),
+  schema_json           JSONB       NOT NULL,
+  created_at            TIMESTAMP    NOT NULL DEFAULT NOW()
+);
+
+-- Index for schema version lookups
+CREATE INDEX IF NOT EXISTS idx_schema_versions_dataset ON dataset_schema_versions(dataset_version_id);

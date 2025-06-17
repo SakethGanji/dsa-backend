@@ -7,7 +7,7 @@ import sqlalchemy as sa
 
 from app.datasets.models import (
     Dataset, DatasetCreate, DatasetUpdate, DatasetVersion, DatasetVersionCreate,
-    File, FileCreate, Sheet, SheetCreate, SheetMetadata, Tag
+    File, FileCreate, Sheet, SheetCreate, SheetMetadata, Tag, SchemaVersion, SchemaVersionCreate
 )
 
 
@@ -96,6 +96,9 @@ class DatasetsRepository:
             dv.uploaded_by,
             dv.ingestion_timestamp,
             dv.last_updated_timestamp,
+            dv.parent_version_id,
+            dv.message,
+            dv.overlay_file_id,
             f.storage_type,
             f.file_type,
             f.mime_type,
@@ -120,6 +123,9 @@ class DatasetsRepository:
                 uploaded_by=v_dict["uploaded_by"],
                 ingestion_timestamp=v_dict["ingestion_timestamp"],
                 last_updated_timestamp=v_dict["last_updated_timestamp"],
+                parent_version_id=v_dict.get("parent_version_id"),
+                message=v_dict.get("message"),
+                overlay_file_id=v_dict.get("overlay_file_id"),
                 file_type=v_dict.get("file_type"),
                 file_size=v_dict.get("file_size"),
                 sheets=None
@@ -319,15 +325,24 @@ class DatasetsRepository:
     
     async def create_dataset_version(self, version: DatasetVersionCreate) -> int:
         query = sa.text("""
-        INSERT INTO dataset_versions (dataset_id, version_number, file_id, uploaded_by)
-        VALUES (:dataset_id, :version_number, :file_id, :uploaded_by)
+        INSERT INTO dataset_versions (
+            dataset_id, version_number, file_id, uploaded_by,
+            parent_version_id, message, overlay_file_id
+        )
+        VALUES (
+            :dataset_id, :version_number, :file_id, :uploaded_by,
+            :parent_version_id, :message, :overlay_file_id
+        )
         RETURNING id;
         """)
         values = {
             "dataset_id": version.dataset_id,
             "version_number": version.version_number,
             "file_id": version.file_id,
-            "uploaded_by": version.uploaded_by
+            "uploaded_by": version.uploaded_by,
+            "parent_version_id": version.parent_version_id,
+            "message": version.message,
+            "overlay_file_id": version.overlay_file_id
         }
         result = await self.session.execute(query, values)
         await self.session.commit()
@@ -343,6 +358,9 @@ class DatasetsRepository:
             dv.uploaded_by,
             dv.ingestion_timestamp,
             dv.last_updated_timestamp,
+            dv.parent_version_id,
+            dv.message,
+            dv.overlay_file_id,
             f.storage_type,
             f.file_type,
             f.mime_type,
@@ -369,6 +387,9 @@ class DatasetsRepository:
                 uploaded_by=row_dict["uploaded_by"],
                 ingestion_timestamp=row_dict["ingestion_timestamp"],
                 last_updated_timestamp=row_dict["last_updated_timestamp"],
+                parent_version_id=row_dict.get("parent_version_id"),
+                message=row_dict.get("message"),
+                overlay_file_id=row_dict.get("overlay_file_id"),
                 file_type=row_dict.get("file_type"),
                 file_size=row_dict.get("file_size"),
                 sheets=None
@@ -385,6 +406,9 @@ class DatasetsRepository:
             dv.uploaded_by,
             dv.ingestion_timestamp,
             dv.last_updated_timestamp,
+            dv.parent_version_id,
+            dv.message,
+            dv.overlay_file_id,
             f.storage_type,
             f.file_type,
             f.mime_type,
@@ -449,6 +473,9 @@ class DatasetsRepository:
             uploaded_by=version_dict["uploaded_by"],
             ingestion_timestamp=version_dict["ingestion_timestamp"],
             last_updated_timestamp=version_dict["last_updated_timestamp"],
+            parent_version_id=version_dict.get("parent_version_id"),
+            message=version_dict.get("message"),
+            overlay_file_id=version_dict.get("overlay_file_id"),
             file_type=version_dict.get("file_type"),
             file_size=version_dict.get("file_size"),
             sheets=sheets_list if sheets_list else None
@@ -615,3 +642,94 @@ class DatasetsRepository:
         """)
         result = await self.session.execute(query)
         return [Tag.model_validate(row) for row in result.mappings()]
+    
+    # Schema operations
+    async def create_schema_version(self, schema: SchemaVersionCreate) -> int:
+        query = sa.text("""
+        INSERT INTO dataset_schema_versions (dataset_version_id, schema_json)
+        VALUES (:dataset_version_id, :schema_json)
+        RETURNING id;
+        """)
+        values = {
+            "dataset_version_id": schema.dataset_version_id,
+            "schema_json": json.dumps(schema.schema_json)
+        }
+        result = await self.session.execute(query, values)
+        await self.session.commit()
+        return result.scalar_one()
+    
+    async def get_schema_version(self, version_id: int) -> Optional[SchemaVersion]:
+        query = sa.text("""
+        SELECT 
+            id,
+            dataset_version_id,
+            schema_json,
+            created_at
+        FROM 
+            dataset_schema_versions
+        WHERE 
+            dataset_version_id = :version_id
+        ORDER BY 
+            created_at DESC
+        LIMIT 1;
+        """)
+        values = {"version_id": version_id}
+        result = await self.session.execute(query, values)
+        row = result.mappings().first()
+        
+        if not row:
+            return None
+        
+        row_dict = dict(row)
+        # Parse JSON if it's a string
+        if isinstance(row_dict.get("schema_json"), str):
+            row_dict["schema_json"] = json.loads(row_dict["schema_json"])
+        
+        return SchemaVersion(
+            id=row_dict["id"],
+            dataset_version_id=row_dict["dataset_version_id"],
+            schema_json=row_dict["schema_json"],
+            created_at=row_dict["created_at"]
+        )
+    
+    async def compare_schemas(self, version_id1: int, version_id2: int) -> Dict[str, Any]:
+        """Compare schemas between two versions"""
+        schema1 = await self.get_schema_version(version_id1)
+        schema2 = await self.get_schema_version(version_id2)
+        
+        if not schema1 or not schema2:
+            return {"error": "One or both schemas not found"}
+        
+        # Simple comparison - can be enhanced
+        comparison = {
+            "version1": version_id1,
+            "version2": version_id2,
+            "columns_added": [],
+            "columns_removed": [],
+            "type_changes": []
+        }
+        
+        schema1_cols = {col["name"]: col for col in schema1.schema_json.get("columns", [])}
+        schema2_cols = {col["name"]: col for col in schema2.schema_json.get("columns", [])}
+        
+        # Find added columns
+        for col_name in schema2_cols:
+            if col_name not in schema1_cols:
+                comparison["columns_added"].append(schema2_cols[col_name])
+        
+        # Find removed columns
+        for col_name in schema1_cols:
+            if col_name not in schema2_cols:
+                comparison["columns_removed"].append(schema1_cols[col_name])
+        
+        # Find type changes
+        for col_name in schema1_cols:
+            if col_name in schema2_cols:
+                if schema1_cols[col_name]["type"] != schema2_cols[col_name]["type"]:
+                    comparison["type_changes"].append({
+                        "column": col_name,
+                        "old_type": schema1_cols[col_name]["type"],
+                        "new_type": schema2_cols[col_name]["type"]
+                    })
+        
+        return comparison

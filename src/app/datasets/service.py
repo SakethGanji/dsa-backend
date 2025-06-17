@@ -9,11 +9,13 @@ import duckdb
 
 from app.datasets.models import (
     Dataset, DatasetCreate, DatasetUpdate, DatasetUploadRequest, DatasetUploadResponse,
-    DatasetVersion, DatasetVersionCreate, File, FileCreate, Sheet, SheetCreate, Tag, SheetInfo
+    DatasetVersion, DatasetVersionCreate, File, FileCreate, Sheet, SheetCreate, Tag, SheetInfo,
+    SchemaVersion, SchemaVersionCreate
 )
 from app.datasets.exceptions import DatasetNotFound, DatasetVersionNotFound, FileProcessingError, StorageError
 from app.datasets.validators import DatasetValidator
 from app.datasets.constants import DEFAULT_PAGE_SIZE, MAX_ROWS_PER_PAGE
+from app.datasets.duckdb_service import DuckDBService
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +36,9 @@ class DatasetsService:
         self,
         file: UploadFile,
         request: DatasetUploadRequest,
-        user_id: int
+        user_id: int,
+        parent_version_id: Optional[int] = None,
+        message: Optional[str] = None
     ) -> DatasetUploadResponse:
         """Process dataset upload with validation and error handling"""
         # Validate file
@@ -61,8 +65,14 @@ class DatasetsService:
         # Save file to storage
         file_id, file_path = await self._save_file(file, dataset_id, file_type)
         
-        # Create dataset version
-        version_id = await self._create_dataset_version(dataset_id, file_id, user_id)
+        # Create dataset version with parent support
+        version_id = await self._create_dataset_version(
+            dataset_id=dataset_id,
+            file_id=file_id,
+            user_id=user_id,
+            parent_version_id=parent_version_id,
+            message=message
+        )
         
         # Process tags
         if request.tags:
@@ -74,6 +84,9 @@ class DatasetsService:
         
         # Parse file into sheets
         sheet_infos = await self._parse_file_into_sheets(file_path, file.filename, version_id)
+        
+        # Extract and store schema
+        await self._capture_schema(file_path, file_type, version_id)
         
         return DatasetUploadResponse(
             dataset_id=dataset_id,
@@ -140,6 +153,38 @@ class DatasetsService:
             raise DatasetNotFound(dataset_id)
         
         return await self.repository.list_dataset_versions(dataset_id)
+    
+    async def get_version_tree(self, dataset_id: int) -> Dict[str, Any]:
+        """Get version tree/DAG structure for a dataset"""
+        # Check if dataset exists
+        dataset = await self.get_dataset(dataset_id)
+        if not dataset:
+            raise DatasetNotFound(dataset_id)
+        
+        versions = await self.repository.list_dataset_versions(dataset_id)
+        
+        # Build tree structure
+        version_dict = {v.id: v for v in versions}
+        roots = []
+        
+        for version in versions:
+            if not version.parent_version_id:
+                roots.append(version)
+        
+        def build_tree(version):
+            children = [v for v in versions if v.parent_version_id == version.id]
+            return {
+                "id": version.id,
+                "version_number": version.version_number,
+                "message": version.message,
+                "created_at": version.ingestion_timestamp.isoformat(),
+                "children": [build_tree(child) for child in children]
+            }
+        
+        return {
+            "dataset_id": dataset_id,
+            "roots": [build_tree(root) for root in roots]
+        }
     
     async def get_dataset_version(self, version_id: int) -> Optional[DatasetVersion]:
         """Get detailed information about a single dataset version"""
@@ -285,16 +330,32 @@ class DatasetsService:
         self,
         dataset_id: int,
         file_id: int,
-        user_id: int
+        user_id: int,
+        parent_version_id: Optional[int] = None,
+        message: Optional[str] = None,
+        overlay_file_id: Optional[int] = None
     ) -> int:
-        """Create a new dataset version"""
-        version_number = await self.repository.get_next_version_number(dataset_id)
+        """Create a new dataset version with optional parent reference"""
+        # Determine version number based on parent
+        if parent_version_id:
+            parent_version = await self.repository.get_dataset_version(parent_version_id)
+            if parent_version:
+                # For branching, version number continues from parent
+                version_number = parent_version.version_number + 1
+            else:
+                raise DatasetVersionNotFound(parent_version_id)
+        else:
+            # No parent, get next version number in sequence
+            version_number = await self.repository.get_next_version_number(dataset_id)
         
         version_create = DatasetVersionCreate(
             dataset_id=dataset_id,
             version_number=version_number,
             file_id=file_id,
-            uploaded_by=user_id
+            uploaded_by=user_id,
+            parent_version_id=parent_version_id,
+            message=message,
+            overlay_file_id=overlay_file_id
         )
         
         version_id = await self.repository.create_dataset_version(version_create)
@@ -456,3 +517,52 @@ class DatasetsService:
             return headers, rows, has_more
         finally:
             conn.close()
+    
+    async def _capture_schema(self, file_path: str, file_type: str, version_id: int) -> None:
+        """Extract and store schema for a dataset version"""
+        try:
+            # Extract schema using DuckDB service
+            schema_json = await DuckDBService.extract_schema(file_path, file_type)
+            
+            # Check if extraction was successful
+            if "error" in schema_json:
+                logger.error(f"Schema extraction failed for version {version_id}: {schema_json['error']}")
+                return
+            
+            # Create schema version
+            schema_create = SchemaVersionCreate(
+                dataset_version_id=version_id,
+                schema_json=schema_json
+            )
+            
+            await self.repository.create_schema_version(schema_create)
+            logger.info(f"Schema captured for version {version_id}")
+            
+        except Exception as e:
+            logger.error(f"Error capturing schema for version {version_id}: {str(e)}")
+            # Don't fail the upload if schema capture fails
+    
+    async def get_schema_for_version(self, version_id: int) -> Optional[SchemaVersion]:
+        """Get schema information for a dataset version"""
+        version = await self.get_dataset_version(version_id)
+        if not version:
+            raise DatasetVersionNotFound(version_id)
+        
+        return await self.repository.get_schema_version(version_id)
+    
+    async def compare_version_schemas(self, version_id1: int, version_id2: int) -> Dict[str, Any]:
+        """Compare schemas between two dataset versions"""
+        # Verify both versions exist
+        version1 = await self.get_dataset_version(version_id1)
+        version2 = await self.get_dataset_version(version_id2)
+        
+        if not version1:
+            raise DatasetVersionNotFound(version_id1)
+        if not version2:
+            raise DatasetVersionNotFound(version_id2)
+        
+        # Ensure both versions belong to the same dataset
+        if version1.dataset_id != version2.dataset_id:
+            raise ValueError("Versions belong to different datasets")
+        
+        return await self.repository.compare_schemas(version_id1, version_id2)

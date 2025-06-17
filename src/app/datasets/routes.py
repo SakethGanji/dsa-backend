@@ -10,7 +10,7 @@ from app.datasets.service import DatasetsService
 from app.datasets.repository import DatasetsRepository
 from app.datasets.models import (
     Dataset, DatasetUploadResponse, DatasetUpdate,
-    DatasetVersion, Tag, Sheet
+    DatasetVersion, Tag, Sheet, SchemaVersion
 )
 from app.datasets.constants import DEFAULT_PAGE_SIZE, MAX_ROWS_PER_PAGE
 from app.db.connection import get_session
@@ -48,6 +48,8 @@ async def upload_dataset(
     name: str = Form(..., description="Name of the dataset"),
     description: Optional[str] = Form(None, description="Description of the dataset"),
     tags: Optional[str] = Form(None, description="Tags as JSON array or comma-separated string"),
+    parent_version_id: Optional[int] = Form(None, description="Parent version ID for branching"),
+    message: Optional[str] = Form(None, description="Version message/description"),
     controller: ControllerDep = None,
     current_user: UserDep = None
 ) -> DatasetUploadResponse:
@@ -58,7 +60,9 @@ async def upload_dataset(
         dataset_id=dataset_id,
         name=name,
         description=description,
-        tags=tags
+        tags=tags,
+        parent_version_id=parent_version_id,
+        message=message
     )
 
 
@@ -151,6 +155,21 @@ async def list_dataset_versions(
 ) -> List[DatasetVersion]:
     """Retrieve all versions for a specific dataset."""
     return await controller.list_dataset_versions(dataset_id)
+
+
+@router.get(
+    "/{dataset_id}/versions/tree",
+    response_model=Dict[str, Any],
+    summary="Get version tree",
+    description="Get version tree/DAG structure showing parent-child relationships"
+)
+async def get_version_tree(
+    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
+    controller: ControllerDep = None,
+    current_user: UserDep = None
+) -> Dict[str, Any]:
+    """Get version tree structure showing branching and parent relationships."""
+    return await controller.get_version_tree(dataset_id)
 
 
 @router.get(
@@ -278,3 +297,48 @@ async def get_sheet_data(
         limit=limit,
         offset=offset
     )
+
+
+@router.get(
+    "/{dataset_id}/versions/{version_id}/schema",
+    response_model=SchemaVersion,
+    summary="Get version schema",
+    description="Get schema information for a dataset version"
+)
+async def get_version_schema(
+    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
+    version_id: int = Path(..., gt=0, description="Version ID"),
+    controller: ControllerDep = None,
+    current_user: UserDep = None
+) -> SchemaVersion:
+    """Get schema information including column names, types, and metadata."""
+    await controller.get_version_for_dataset(dataset_id, version_id)
+    return await controller.get_schema_for_version(version_id)
+
+
+@router.post(
+    "/{dataset_id}/schema/compare",
+    response_model=Dict[str, Any],
+    summary="Compare version schemas",
+    description="Compare schemas between two dataset versions"
+)
+async def compare_schemas(
+    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
+    comparison_request: Dict[str, int] = Body(..., example={"version1_id": 1, "version2_id": 2}),
+    controller: ControllerDep = None,
+    current_user: UserDep = None
+) -> Dict[str, Any]:
+    """Compare schemas to identify added/removed columns and type changes."""
+    version1_id = comparison_request.get("version1_id")
+    version2_id = comparison_request.get("version2_id")
+    
+    if not version1_id or not version2_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Both version1_id and version2_id are required"
+        )
+    
+    # Verify both versions belong to the dataset
+    await controller.get_version_for_dataset(dataset_id, version1_id)
+    await controller.get_version_for_dataset(dataset_id, version2_id)
+    return await controller.compare_version_schemas(version1_id, version2_id)
