@@ -5,7 +5,7 @@ import logging
 
 from app.datasets.service import DatasetsService
 from app.datasets.models import (
-    DatasetUploadRequest, DatasetUploadResponse, DatasetUpdate, Dataset, DatasetVersion, File, Tag, Sheet, SchemaVersion
+    DatasetUploadRequest, DatasetUploadResponse, DatasetUpdate, Dataset, DatasetVersion, File, Tag, Sheet, SchemaVersion, VersionFile, DatasetPointer
 )
 from app.datasets.exceptions import (
     DatasetNotFound, DatasetVersionNotFound, FileProcessingError, StorageError
@@ -266,6 +266,216 @@ class DatasetsController:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=str(e)
+            )
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+    
+    async def attach_file_to_version(
+        self,
+        version_id: int,
+        file: UploadFile,
+        component_type: str,
+        component_name: Optional[str],
+        current_user: Any
+    ) -> Dict[str, Any]:
+        """Attach a file to an existing dataset version"""
+        try:
+            # Get user ID
+            user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
+            if not user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="User not found in the system"
+                )
+            
+            file_id = await self.service.attach_file_to_version(
+                version_id=version_id,
+                file=file,
+                component_type=component_type,
+                component_name=component_name,
+                user_id=user_id
+            )
+            
+            return {
+                "file_id": file_id,
+                "message": f"File attached successfully to version {version_id}"
+            }
+            
+        except DatasetVersionNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Version {version_id} not found"
+            )
+        except Exception as e:
+            logger.error(f"Error attaching file to version {version_id}: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to attach file"
+            )
+    
+    async def list_version_files(self, version_id: int) -> List[VersionFile]:
+        """List all files attached to a version"""
+        try:
+            return await self.service.list_version_files(version_id)
+        except DatasetVersionNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Version {version_id} not found"
+            )
+    
+    async def get_version_file(
+        self,
+        version_id: int,
+        component_type: str,
+        component_name: Optional[str] = None
+    ) -> VersionFile:
+        """Get a specific file from a version"""
+        try:
+            version_file = await self.service.get_version_file(
+                version_id=version_id,
+                component_type=component_type,
+                component_name=component_name
+            )
+            if not version_file:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"File with component type '{component_type}' not found in version {version_id}"
+                )
+            return version_file
+        except DatasetVersionNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Version {version_id} not found"
+            )
+    
+    async def create_branch(
+        self,
+        dataset_id: int,
+        branch_name: str,
+        from_version_id: int
+    ) -> DatasetPointer:
+        """Create a new branch"""
+        try:
+            return await self.service.create_branch(dataset_id, branch_name, from_version_id)
+        except DatasetNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Dataset {dataset_id} not found"
+            )
+        except DatasetVersionNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Version {from_version_id} not found or doesn't belong to dataset"
+            )
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+    
+    async def create_tag(
+        self,
+        dataset_id: int,
+        tag_name: str,
+        version_id: int
+    ) -> DatasetPointer:
+        """Create a new tag"""
+        try:
+            return await self.service.create_tag(dataset_id, tag_name, version_id)
+        except DatasetNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Dataset {dataset_id} not found"
+            )
+        except DatasetVersionNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Version {version_id} not found or doesn't belong to dataset"
+            )
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+    
+    async def update_branch(
+        self,
+        dataset_id: int,
+        branch_name: str,
+        to_version_id: int
+    ) -> Dict[str, Any]:
+        """Update a branch to point to a new version"""
+        try:
+            success = await self.service.update_branch(dataset_id, branch_name, to_version_id)
+            if not success:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to update branch"
+                )
+            return {
+                "message": f"Branch '{branch_name}' updated to version {to_version_id}"
+            }
+        except DatasetNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Dataset {dataset_id} not found"
+            )
+        except DatasetVersionNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Version {to_version_id} not found or doesn't belong to dataset"
+            )
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+    
+    async def list_dataset_pointers(self, dataset_id: int) -> List[DatasetPointer]:
+        """List all branches and tags for a dataset"""
+        try:
+            return await self.service.list_dataset_pointers(dataset_id)
+        except DatasetNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Dataset {dataset_id} not found"
+            )
+    
+    async def get_pointer(self, dataset_id: int, pointer_name: str) -> DatasetPointer:
+        """Get a specific pointer"""
+        try:
+            pointer = await self.service.get_pointer(dataset_id, pointer_name)
+            if not pointer:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Pointer '{pointer_name}' not found for dataset {dataset_id}"
+                )
+            return pointer
+        except DatasetNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Dataset {dataset_id} not found"
+            )
+    
+    async def delete_pointer(self, dataset_id: int, pointer_name: str) -> Dict[str, Any]:
+        """Delete a branch or tag"""
+        try:
+            success = await self.service.delete_pointer(dataset_id, pointer_name)
+            if not success:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Pointer '{pointer_name}' not found"
+                )
+            return {
+                "message": f"Pointer '{pointer_name}' deleted successfully"
+            }
+        except DatasetNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Dataset {dataset_id} not found"
             )
         except ValueError as e:
             raise HTTPException(

@@ -150,3 +150,36 @@ CREATE TABLE IF NOT EXISTS dataset_schema_versions (
 
 -- Index for schema version lookups
 CREATE INDEX IF NOT EXISTS idx_schema_versions_dataset ON dataset_schema_versions(dataset_version_id);
+
+-- MULTI-FILE SUPPORT
+
+-- Junction table for version-file relationships
+CREATE TABLE IF NOT EXISTS dataset_version_files (
+  version_id        INT         NOT NULL REFERENCES dataset_versions(id),
+  file_id           INT         NOT NULL REFERENCES files(id),
+  component_type    VARCHAR(50) NOT NULL,
+  component_name    TEXT,
+  component_index   INT,
+  metadata          JSONB,
+  PRIMARY KEY (version_id, file_id)
+);
+
+-- Index for version file lookups
+CREATE INDEX IF NOT EXISTS idx_version_files_version ON dataset_version_files(version_id);
+
+-- BRANCH AND TAG SUPPORT
+
+-- Pointers table for branches and tags
+CREATE TABLE IF NOT EXISTS dataset_pointers (
+  id                  SERIAL       PRIMARY KEY,
+  dataset_id          INT          NOT NULL REFERENCES datasets(id),
+  pointer_name        VARCHAR(255) NOT NULL,
+  dataset_version_id  INT          NOT NULL REFERENCES dataset_versions(id),
+  is_tag              BOOLEAN      NOT NULL DEFAULT FALSE,
+  created_at          TIMESTAMP    NOT NULL DEFAULT NOW(),
+  updated_at          TIMESTAMP    NOT NULL DEFAULT NOW(),
+  UNIQUE (dataset_id, pointer_name)
+);
+
+-- Index for dataset pointer lookups
+CREATE INDEX IF NOT EXISTS idx_pointers_dataset ON dataset_pointers(dataset_id);

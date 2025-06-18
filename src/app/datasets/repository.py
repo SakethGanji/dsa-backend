@@ -7,7 +7,8 @@ import sqlalchemy as sa
 
 from app.datasets.models import (
     Dataset, DatasetCreate, DatasetUpdate, DatasetVersion, DatasetVersionCreate,
-    File, FileCreate, Sheet, SheetCreate, SheetMetadata, Tag, SchemaVersion, SchemaVersionCreate
+    File, FileCreate, Sheet, SheetCreate, SheetMetadata, Tag, SchemaVersion, SchemaVersionCreate,
+    VersionFile, VersionFileCreate, DatasetPointer, DatasetPointerCreate, DatasetPointerUpdate
 )
 
 
@@ -733,3 +734,290 @@ class DatasetsRepository:
                     })
         
         return comparison
+    
+    # Version file operations
+    async def create_version_file(self, version_file: VersionFileCreate) -> None:
+        """Create a version-file association"""
+        query = sa.text("""
+        INSERT INTO dataset_version_files (
+            version_id, file_id, component_type, component_name, 
+            component_index, metadata
+        )
+        VALUES (
+            :version_id, :file_id, :component_type, :component_name,
+            :component_index, :metadata
+        );
+        """)
+        values = {
+            "version_id": version_file.version_id,
+            "file_id": version_file.file_id,
+            "component_type": version_file.component_type,
+            "component_name": version_file.component_name,
+            "component_index": version_file.component_index,
+            "metadata": json.dumps(version_file.metadata) if version_file.metadata else None
+        }
+        await self.session.execute(query, values)
+        await self.session.commit()
+    
+    async def list_version_files(self, version_id: int) -> List[VersionFile]:
+        """List all files associated with a version"""
+        query = sa.text("""
+        SELECT 
+            vf.version_id,
+            vf.file_id,
+            vf.component_type,
+            vf.component_name,
+            vf.component_index,
+            vf.metadata,
+            f.id as file_id,
+            f.storage_type,
+            f.file_type,
+            f.mime_type,
+            f.file_path,
+            f.file_size,
+            f.created_at as file_created_at
+        FROM 
+            dataset_version_files vf
+        JOIN files f ON vf.file_id = f.id
+        WHERE 
+            vf.version_id = :version_id
+        ORDER BY 
+            vf.component_index, vf.component_name;
+        """)
+        values = {"version_id": version_id}
+        result = await self.session.execute(query, values)
+        
+        version_files: List[VersionFile] = []
+        for row in result.mappings():
+            row_dict = dict(row)
+            
+            # Parse metadata if it's a string
+            if row_dict.get("metadata") and isinstance(row_dict["metadata"], str):
+                row_dict["metadata"] = json.loads(row_dict["metadata"])
+            
+            # Create File object
+            file_obj = File(
+                id=row_dict["file_id"],
+                storage_type=row_dict["storage_type"],
+                file_type=row_dict["file_type"],
+                mime_type=row_dict.get("mime_type"),
+                file_path=row_dict.get("file_path"),
+                file_size=row_dict.get("file_size"),
+                created_at=row_dict["file_created_at"]
+            )
+            
+            version_file = VersionFile(
+                version_id=row_dict["version_id"],
+                file_id=row_dict["file_id"],
+                component_type=row_dict["component_type"],
+                component_name=row_dict.get("component_name"),
+                component_index=row_dict.get("component_index"),
+                metadata=row_dict.get("metadata"),
+                file=file_obj
+            )
+            version_files.append(version_file)
+        
+        return version_files
+    
+    async def delete_version_files(self, version_id: int) -> None:
+        """Delete all file associations for a version"""
+        query = sa.text("""
+        DELETE FROM dataset_version_files
+        WHERE version_id = :version_id;
+        """)
+        values = {"version_id": version_id}
+        await self.session.execute(query, values)
+        await self.session.commit()
+    
+    async def get_version_file_by_component(
+        self, 
+        version_id: int, 
+        component_type: str,
+        component_name: Optional[str] = None
+    ) -> Optional[VersionFile]:
+        """Get a specific file by component type and name"""
+        query = sa.text("""
+        SELECT 
+            vf.version_id,
+            vf.file_id,
+            vf.component_type,
+            vf.component_name,
+            vf.component_index,
+            vf.metadata,
+            f.id as file_id,
+            f.storage_type,
+            f.file_type,
+            f.mime_type,
+            f.file_path,
+            f.file_size,
+            f.created_at as file_created_at
+        FROM 
+            dataset_version_files vf
+        JOIN files f ON vf.file_id = f.id
+        WHERE 
+            vf.version_id = :version_id
+            AND vf.component_type = :component_type
+        """)
+        
+        values = {
+            "version_id": version_id,
+            "component_type": component_type
+        }
+        
+        if component_name:
+            query += " AND vf.component_name = :component_name"
+            values["component_name"] = component_name
+        
+        query += " LIMIT 1;"
+        
+        result = await self.session.execute(sa.text(str(query)), values)
+        row = result.mappings().first()
+        
+        if not row:
+            return None
+        
+        row_dict = dict(row)
+        
+        # Parse metadata if it's a string
+        if row_dict.get("metadata") and isinstance(row_dict["metadata"], str):
+            row_dict["metadata"] = json.loads(row_dict["metadata"])
+        
+        # Create File object
+        file_obj = File(
+            id=row_dict["file_id"],
+            storage_type=row_dict["storage_type"],
+            file_type=row_dict["file_type"],
+            mime_type=row_dict.get("mime_type"),
+            file_path=row_dict.get("file_path"),
+            file_size=row_dict.get("file_size"),
+            created_at=row_dict["file_created_at"]
+        )
+        
+        return VersionFile(
+            version_id=row_dict["version_id"],
+            file_id=row_dict["file_id"],
+            component_type=row_dict["component_type"],
+            component_name=row_dict.get("component_name"),
+            component_index=row_dict.get("component_index"),
+            metadata=row_dict.get("metadata"),
+            file=file_obj
+        )
+    
+    # Pointer operations (branches and tags)
+    async def create_pointer(self, pointer: DatasetPointerCreate) -> int:
+        """Create a new pointer (branch or tag)"""
+        query = sa.text("""
+        INSERT INTO dataset_pointers (
+            dataset_id, pointer_name, dataset_version_id, is_tag
+        )
+        VALUES (
+            :dataset_id, :pointer_name, :dataset_version_id, :is_tag
+        )
+        ON CONFLICT (dataset_id, pointer_name) DO UPDATE
+        SET dataset_version_id = :dataset_version_id,
+            updated_at = NOW()
+        WHERE dataset_pointers.is_tag = FALSE
+        RETURNING id;
+        """)
+        values = {
+            "dataset_id": pointer.dataset_id,
+            "pointer_name": pointer.pointer_name,
+            "dataset_version_id": pointer.dataset_version_id,
+            "is_tag": pointer.is_tag
+        }
+        result = await self.session.execute(query, values)
+        await self.session.commit()
+        return result.scalar_one()
+    
+    async def update_pointer(self, dataset_id: int, pointer_name: str, version_id: int) -> bool:
+        """Update a branch pointer to point to a new version"""
+        query = sa.text("""
+        UPDATE dataset_pointers
+        SET dataset_version_id = :version_id,
+            updated_at = NOW()
+        WHERE dataset_id = :dataset_id 
+            AND pointer_name = :pointer_name
+            AND is_tag = FALSE
+        RETURNING id;
+        """)
+        values = {
+            "dataset_id": dataset_id,
+            "pointer_name": pointer_name,
+            "version_id": version_id
+        }
+        result = await self.session.execute(query, values)
+        await self.session.commit()
+        return result.scalar_one_or_none() is not None
+    
+    async def get_pointer(self, dataset_id: int, pointer_name: str) -> Optional[DatasetPointer]:
+        """Get a pointer by name"""
+        query = sa.text("""
+        SELECT 
+            id,
+            dataset_id,
+            pointer_name,
+            dataset_version_id,
+            is_tag,
+            created_at,
+            updated_at
+        FROM 
+            dataset_pointers
+        WHERE 
+            dataset_id = :dataset_id
+            AND pointer_name = :pointer_name;
+        """)
+        values = {
+            "dataset_id": dataset_id,
+            "pointer_name": pointer_name
+        }
+        result = await self.session.execute(query, values)
+        row = result.mappings().first()
+        
+        if not row:
+            return None
+        
+        return DatasetPointer(**dict(row))
+    
+    async def list_dataset_pointers(self, dataset_id: int) -> List[DatasetPointer]:
+        """List all pointers for a dataset"""
+        query = sa.text("""
+        SELECT 
+            id,
+            dataset_id,
+            pointer_name,
+            dataset_version_id,
+            is_tag,
+            created_at,
+            updated_at
+        FROM 
+            dataset_pointers
+        WHERE 
+            dataset_id = :dataset_id
+        ORDER BY 
+            is_tag, pointer_name;
+        """)
+        values = {"dataset_id": dataset_id}
+        result = await self.session.execute(query, values)
+        
+        return [DatasetPointer(**dict(row)) for row in result.mappings()]
+    
+    async def delete_pointer(self, dataset_id: int, pointer_name: str) -> bool:
+        """Delete a pointer"""
+        query = sa.text("""
+        DELETE FROM dataset_pointers
+        WHERE dataset_id = :dataset_id 
+            AND pointer_name = :pointer_name
+        RETURNING id;
+        """)
+        values = {
+            "dataset_id": dataset_id,
+            "pointer_name": pointer_name
+        }
+        result = await self.session.execute(query, values)
+        await self.session.commit()
+        return result.scalar_one_or_none() is not None
+    
+    async def resolve_pointer_to_version(self, dataset_id: int, pointer_name: str) -> Optional[int]:
+        """Resolve a pointer name to a version ID"""
+        pointer = await self.get_pointer(dataset_id, pointer_name)
+        return pointer.dataset_version_id if pointer else None

@@ -10,7 +10,7 @@ import duckdb
 from app.datasets.models import (
     Dataset, DatasetCreate, DatasetUpdate, DatasetUploadRequest, DatasetUploadResponse,
     DatasetVersion, DatasetVersionCreate, File, FileCreate, Sheet, SheetCreate, Tag, SheetInfo,
-    SchemaVersion, SchemaVersionCreate
+    SchemaVersion, SchemaVersionCreate, VersionFile, VersionFileCreate, DatasetPointer, DatasetPointerCreate
 )
 from app.datasets.exceptions import DatasetNotFound, DatasetVersionNotFound, FileProcessingError, StorageError
 from app.datasets.validators import DatasetValidator
@@ -74,6 +74,14 @@ class DatasetsService:
             message=message
         )
         
+        # Create version-file association
+        await self._attach_file_to_version(
+            version_id=version_id,
+            file_id=file_id,
+            component_type="primary",
+            component_name="main"
+        )
+        
         # Process tags
         if request.tags:
             await self._process_tags(dataset_id, request.tags)
@@ -87,6 +95,16 @@ class DatasetsService:
         
         # Extract and store schema
         await self._capture_schema(file_path, file_type, version_id)
+        
+        # Update 'main' branch to point to new version if this is a linear update
+        if not parent_version_id:
+            # This is a linear update, move main branch
+            main_pointer = await self.repository.get_pointer(dataset_id, "main")
+            if main_pointer:
+                await self.repository.update_pointer(dataset_id, "main", version_id)
+            else:
+                # Create main branch if it doesn't exist
+                await self.create_branch(dataset_id, "main", version_id)
         
         return DatasetUploadResponse(
             dataset_id=dataset_id,
@@ -194,12 +212,24 @@ class DatasetsService:
         return result
     
     async def get_dataset_version_file(self, version_id: int) -> Optional[File]:
-        """Get file information for a dataset version"""
+        """Get primary file information for a dataset version"""
         version = await self.get_dataset_version(version_id)
-        if not version or not version.file_id:
+        if not version:
             return None
         
-        return await self.repository.get_file(version.file_id)
+        # Try to get primary file from version_files table first
+        primary_file = await self.repository.get_version_file_by_component(
+            version_id, "primary", "main"
+        )
+        
+        if primary_file and primary_file.file:
+            return primary_file.file
+        
+        # Fallback to legacy file_id if no primary file in version_files
+        if version.file_id:
+            return await self.repository.get_file(version.file_id)
+        
+        return None
     
     async def delete_dataset_version(self, version_id: int) -> bool:
         """Delete a dataset version"""
@@ -207,6 +237,17 @@ class DatasetsService:
         if not version:
             raise DatasetVersionNotFound(version_id)
         
+        # Get all files attached to this version
+        version_files = await self.repository.list_version_files(version_id)
+        
+        # Delete version-file associations first
+        await self.repository.delete_version_files(version_id)
+        
+        # Decrement reference counts for all files
+        for vf in version_files:
+            await self._decrement_file_reference_count(vf.file_id)
+        
+        # Delete the version itself
         deleted_id = await self.repository.delete_dataset_version(version_id)
         return deleted_id is not None
     
@@ -566,3 +607,233 @@ class DatasetsService:
             raise ValueError("Versions belong to different datasets")
         
         return await self.repository.compare_schemas(version_id1, version_id2)
+    
+    async def _attach_file_to_version(
+        self,
+        version_id: int,
+        file_id: int,
+        component_type: str,
+        component_name: Optional[str] = None,
+        component_index: Optional[int] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """Attach a file to a dataset version"""
+        version_file = VersionFileCreate(
+            version_id=version_id,
+            file_id=file_id,
+            component_type=component_type,
+            component_name=component_name,
+            component_index=component_index,
+            metadata=metadata
+        )
+        await self.repository.create_version_file(version_file)
+    
+    async def attach_file_to_version(
+        self,
+        version_id: int,
+        file: UploadFile,
+        component_type: str,
+        component_name: Optional[str] = None,
+        user_id: int = None
+    ) -> int:
+        """Attach an additional file to an existing dataset version"""
+        # Verify version exists
+        version = await self.get_dataset_version(version_id)
+        if not version:
+            raise DatasetVersionNotFound(version_id)
+        
+        # Save the file
+        file_type = os.path.splitext(file.filename)[1].lower()[1:]
+        file_id, file_path = await self._save_file(file, version.dataset_id, file_type)
+        
+        # Update file path with version ID
+        if file_path:
+            file_path = await self._finalize_file_location(file_id, file_path, version_id)
+        
+        # Attach to version
+        await self._attach_file_to_version(
+            version_id=version_id,
+            file_id=file_id,
+            component_type=component_type,
+            component_name=component_name or file.filename,
+            metadata={"original_filename": file.filename}
+        )
+        
+        # Update reference count for the file
+        await self._increment_file_reference_count(file_id)
+        
+        return file_id
+    
+    async def list_version_files(self, version_id: int) -> List[VersionFile]:
+        """List all files attached to a dataset version"""
+        version = await self.get_dataset_version(version_id)
+        if not version:
+            raise DatasetVersionNotFound(version_id)
+        
+        return await self.repository.list_version_files(version_id)
+    
+    async def get_version_file(
+        self, 
+        version_id: int, 
+        component_type: str,
+        component_name: Optional[str] = None
+    ) -> Optional[VersionFile]:
+        """Get a specific file from a version by component"""
+        version = await self.get_dataset_version(version_id)
+        if not version:
+            raise DatasetVersionNotFound(version_id)
+        
+        return await self.repository.get_version_file_by_component(
+            version_id, component_type, component_name
+        )
+    
+    async def _increment_file_reference_count(self, file_id: int) -> None:
+        """Increment reference count for a file (for Phase 1 compatibility)"""
+        # This would be implemented if Phase 1 reference counting is in place
+        # For now, we'll log it
+        logger.info(f"Reference count increment needed for file {file_id}")
+    
+    async def _decrement_file_reference_count(self, file_id: int) -> None:
+        """Decrement reference count for a file (for Phase 1 compatibility)"""
+        # This would be implemented if Phase 1 reference counting is in place
+        # For now, we'll log it
+        logger.info(f"Reference count decrement needed for file {file_id}")
+    
+    # Branch and tag operations
+    async def create_branch(
+        self,
+        dataset_id: int,
+        branch_name: str,
+        from_version_id: int
+    ) -> DatasetPointer:
+        """Create a new branch pointing to a specific version"""
+        # Validate dataset exists
+        dataset = await self.get_dataset(dataset_id)
+        if not dataset:
+            raise DatasetNotFound(dataset_id)
+        
+        # Validate version exists and belongs to dataset
+        version = await self.get_dataset_version(from_version_id)
+        if not version or version.dataset_id != dataset_id:
+            raise DatasetVersionNotFound(from_version_id)
+        
+        # Validate branch name
+        if not branch_name or len(branch_name) > 255:
+            raise ValueError("Invalid branch name")
+        
+        # Create branch pointer
+        pointer = DatasetPointerCreate(
+            dataset_id=dataset_id,
+            pointer_name=branch_name,
+            dataset_version_id=from_version_id,
+            is_tag=False
+        )
+        
+        pointer_id = await self.repository.create_pointer(pointer)
+        return await self.repository.get_pointer(dataset_id, branch_name)
+    
+    async def create_tag(
+        self,
+        dataset_id: int,
+        tag_name: str,
+        version_id: int
+    ) -> DatasetPointer:
+        """Create an immutable tag pointing to a specific version"""
+        # Validate dataset exists
+        dataset = await self.get_dataset(dataset_id)
+        if not dataset:
+            raise DatasetNotFound(dataset_id)
+        
+        # Validate version exists and belongs to dataset
+        version = await self.get_dataset_version(version_id)
+        if not version or version.dataset_id != dataset_id:
+            raise DatasetVersionNotFound(version_id)
+        
+        # Validate tag name
+        if not tag_name or len(tag_name) > 255:
+            raise ValueError("Invalid tag name")
+        
+        # Check if tag already exists (tags are immutable)
+        existing = await self.repository.get_pointer(dataset_id, tag_name)
+        if existing and existing.is_tag:
+            raise ValueError(f"Tag '{tag_name}' already exists")
+        
+        # Create tag pointer
+        pointer = DatasetPointerCreate(
+            dataset_id=dataset_id,
+            pointer_name=tag_name,
+            dataset_version_id=version_id,
+            is_tag=True
+        )
+        
+        pointer_id = await self.repository.create_pointer(pointer)
+        return await self.repository.get_pointer(dataset_id, tag_name)
+    
+    async def update_branch(
+        self,
+        dataset_id: int,
+        branch_name: str,
+        to_version_id: int
+    ) -> bool:
+        """Update a branch to point to a new version"""
+        # Validate dataset exists
+        dataset = await self.get_dataset(dataset_id)
+        if not dataset:
+            raise DatasetNotFound(dataset_id)
+        
+        # Validate version exists and belongs to dataset
+        version = await self.get_dataset_version(to_version_id)
+        if not version or version.dataset_id != dataset_id:
+            raise DatasetVersionNotFound(to_version_id)
+        
+        # Check if pointer exists and is a branch
+        pointer = await self.repository.get_pointer(dataset_id, branch_name)
+        if not pointer:
+            raise ValueError(f"Branch '{branch_name}' not found")
+        if pointer.is_tag:
+            raise ValueError(f"Cannot update tag '{branch_name}' - tags are immutable")
+        
+        return await self.repository.update_pointer(dataset_id, branch_name, to_version_id)
+    
+    async def list_dataset_pointers(self, dataset_id: int) -> List[DatasetPointer]:
+        """List all branches and tags for a dataset"""
+        dataset = await self.get_dataset(dataset_id)
+        if not dataset:
+            raise DatasetNotFound(dataset_id)
+        
+        return await self.repository.list_dataset_pointers(dataset_id)
+    
+    async def get_pointer(self, dataset_id: int, pointer_name: str) -> Optional[DatasetPointer]:
+        """Get a specific pointer (branch or tag)"""
+        dataset = await self.get_dataset(dataset_id)
+        if not dataset:
+            raise DatasetNotFound(dataset_id)
+        
+        return await self.repository.get_pointer(dataset_id, pointer_name)
+    
+    async def delete_pointer(self, dataset_id: int, pointer_name: str) -> bool:
+        """Delete a branch or tag"""
+        dataset = await self.get_dataset(dataset_id)
+        if not dataset:
+            raise DatasetNotFound(dataset_id)
+        
+        # Don't allow deleting 'main' branch
+        if pointer_name.lower() == 'main':
+            raise ValueError("Cannot delete 'main' branch")
+        
+        return await self.repository.delete_pointer(dataset_id, pointer_name)
+    
+    async def resolve_pointer_to_version(self, dataset_id: int, ref: str) -> Optional[int]:
+        """Resolve a reference (pointer name or version number) to a version ID"""
+        # Try to parse as version number first
+        try:
+            version_num = int(ref)
+            # Find version by number
+            versions = await self.list_dataset_versions(dataset_id)
+            for v in versions:
+                if v.version_number == version_num:
+                    return v.id
+            return None
+        except ValueError:
+            # Not a number, try as pointer name
+            return await self.repository.resolve_pointer_to_version(dataset_id, ref)

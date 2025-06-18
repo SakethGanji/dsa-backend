@@ -136,6 +136,43 @@ class SchemaVersion(SchemaVersionBase):
     class Config:
         from_attributes = True
 
+class VersionFileBase(BaseModel):
+    version_id: int
+    file_id: int
+    component_type: str = Field(..., description="Type of component: primary, metadata, schema, etc.")
+    component_name: Optional[str] = Field(None, description="Name/identifier for the component")
+    component_index: Optional[int] = Field(None, description="Index for ordering multiple files")
+    metadata: Optional[Dict[str, Any]] = None
+
+class VersionFileCreate(VersionFileBase):
+    pass
+
+class VersionFile(VersionFileBase):
+    file: Optional[File] = None
+
+    class Config:
+        from_attributes = True
+
+class DatasetPointerBase(BaseModel):
+    dataset_id: int
+    pointer_name: str = Field(..., max_length=255, description="Branch or tag name")
+    dataset_version_id: int
+    is_tag: bool = Field(False, description="True for immutable tags, False for branches")
+
+class DatasetPointerCreate(DatasetPointerBase):
+    pass
+
+class DatasetPointerUpdate(BaseModel):
+    dataset_version_id: int
+
+class DatasetPointer(DatasetPointerBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
 class DatasetListParams(BaseModel):
     limit: Optional[int] = Field(10, ge=1, le=100)
     offset: Optional[int] = Field(0, ge=0)
