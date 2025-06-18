@@ -3,7 +3,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.users.repository import list_users as repo_list_users, create_user as repo_create_user, get_user_by_soeid
-from app.users.models import UserCreate, UserOut, Permission, PermissionCreate, PermissionType, ResourceType
+from app.users.models import UserCreate, UserOut, DatasetPermissionType, FilePermissionType, DatasetPermission, FilePermission, PermissionGrant
 from app.users.auth import create_access_token
 from typing import List, Dict, Any, Optional
 import sqlalchemy as sa
@@ -67,58 +67,79 @@ class UserService:
             return UserOut.model_validate(user)
         return None
     
-    # Permission methods
-    async def grant_permission(
+    # Dataset permission methods
+    async def grant_dataset_permission(
         self,
-        resource_type: ResourceType,
-        resource_id: int,
+        dataset_id: int,
         user_id: int,
-        permission_type: PermissionType,
-        granted_by: int
-    ) -> Permission:
-        """Grant a permission to a user for a resource"""
+        permission_type: DatasetPermissionType
+    ) -> DatasetPermission:
+        """Grant a permission to a user for a dataset"""
         query = sa.text("""
-        INSERT INTO permissions (resource_type, resource_id, user_id, permission_type, granted_by)
-        VALUES (:resource_type, :resource_id, :user_id, :permission_type, :granted_by)
-        ON CONFLICT (resource_type, resource_id, user_id, permission_type) DO UPDATE
-        SET granted_at = NOW(), granted_by = :granted_by
-        RETURNING id, resource_type, resource_id, user_id, permission_type, granted_at, granted_by;
+        INSERT INTO dataset_permissions (dataset_id, user_id, permission_type)
+        VALUES (:dataset_id, :user_id, :permission_type)
+        ON CONFLICT (dataset_id, user_id) DO UPDATE
+        SET permission_type = :permission_type
+        RETURNING dataset_id, user_id, permission_type;
         """)
         
         values = {
-            "resource_type": resource_type.value,
-            "resource_id": resource_id,
+            "dataset_id": dataset_id,
             "user_id": user_id,
-            "permission_type": permission_type.value,
-            "granted_by": granted_by
+            "permission_type": permission_type.value
         }
         
         result = await self.session.execute(query, values)
         await self.session.commit()
         row = result.mappings().first()
         
-        return Permission(**dict(row))
+        return DatasetPermission(**dict(row))
     
-    async def revoke_permission(
+    # File permission methods
+    async def grant_file_permission(
         self,
-        resource_type: ResourceType,
-        resource_id: int,
+        file_id: int,
         user_id: int,
-        permission_type: PermissionType
-    ) -> bool:
-        """Revoke a permission from a user for a resource"""
+        permission_type: FilePermissionType
+    ) -> FilePermission:
+        """Grant a permission to a user for a file"""
         query = sa.text("""
-        DELETE FROM permissions
-        WHERE resource_type = :resource_type
-        AND resource_id = :resource_id
-        AND user_id = :user_id
-        AND permission_type = :permission_type
-        RETURNING id;
+        INSERT INTO file_permissions (file_id, user_id, permission_type)
+        VALUES (:file_id, :user_id, :permission_type)
+        ON CONFLICT (file_id, user_id) DO UPDATE
+        SET permission_type = :permission_type
+        RETURNING file_id, user_id, permission_type;
         """)
         
         values = {
-            "resource_type": resource_type.value,
-            "resource_id": resource_id,
+            "file_id": file_id,
+            "user_id": user_id,
+            "permission_type": permission_type.value
+        }
+        
+        result = await self.session.execute(query, values)
+        await self.session.commit()
+        row = result.mappings().first()
+        
+        return FilePermission(**dict(row))
+    
+    async def revoke_dataset_permission(
+        self,
+        dataset_id: int,
+        user_id: int,
+        permission_type: DatasetPermissionType
+    ) -> bool:
+        """Revoke a permission from a user for a dataset"""
+        query = sa.text("""
+        DELETE FROM dataset_permissions
+        WHERE dataset_id = :dataset_id
+        AND user_id = :user_id
+        AND permission_type = :permission_type
+        RETURNING dataset_id;
+        """)
+        
+        values = {
+            "dataset_id": dataset_id,
             "user_id": user_id,
             "permission_type": permission_type.value
         }
@@ -128,27 +149,50 @@ class UserService:
         
         return result.scalar_one_or_none() is not None
     
-    async def check_permission(
+    async def revoke_file_permission(
         self,
-        resource_type: ResourceType,
-        resource_id: int,
+        file_id: int,
         user_id: int,
-        permission_type: PermissionType
+        permission_type: FilePermissionType
     ) -> bool:
-        """Check if a user has a specific permission for a resource"""
+        """Revoke a permission from a user for a file"""
+        query = sa.text("""
+        DELETE FROM file_permissions
+        WHERE file_id = :file_id
+        AND user_id = :user_id
+        AND permission_type = :permission_type
+        RETURNING file_id;
+        """)
+        
+        values = {
+            "file_id": file_id,
+            "user_id": user_id,
+            "permission_type": permission_type.value
+        }
+        
+        result = await self.session.execute(query, values)
+        await self.session.commit()
+        
+        return result.scalar_one_or_none() is not None
+    
+    async def check_dataset_permission(
+        self,
+        dataset_id: int,
+        user_id: int,
+        permission_type: DatasetPermissionType
+    ) -> bool:
+        """Check if a user has a specific permission for a dataset"""
         # Admin permission includes all other permissions
         query = sa.text("""
         SELECT COUNT(*) > 0 as has_permission
-        FROM permissions
-        WHERE resource_type = :resource_type
-        AND resource_id = :resource_id
+        FROM dataset_permissions
+        WHERE dataset_id = :dataset_id
         AND user_id = :user_id
         AND (permission_type = :permission_type OR permission_type = 'admin');
         """)
         
         values = {
-            "resource_type": resource_type.value,
-            "resource_id": resource_id,
+            "dataset_id": dataset_id,
             "user_id": user_id,
             "permission_type": permission_type.value
         }
@@ -156,49 +200,98 @@ class UserService:
         result = await self.session.execute(query, values)
         return result.scalar_one()
     
-    async def list_user_permissions(
+    async def check_file_permission(
         self,
+        file_id: int,
         user_id: int,
-        resource_type: Optional[ResourceType] = None
-    ) -> List[Permission]:
-        """List all permissions for a user"""
-        query = """
-        SELECT id, resource_type, resource_id, user_id, permission_type, granted_at, granted_by
-        FROM permissions
-        WHERE user_id = :user_id
-        """
-        
-        values = {"user_id": user_id}
-        
-        if resource_type:
-            query += " AND resource_type = :resource_type"
-            values["resource_type"] = resource_type.value
-        
-        query += " ORDER BY resource_type, resource_id, permission_type;"
-        
-        result = await self.session.execute(sa.text(query), values)
-        
-        return [Permission(**dict(row)) for row in result.mappings()]
-    
-    async def list_resource_permissions(
-        self,
-        resource_type: ResourceType,
-        resource_id: int
-    ) -> List[Permission]:
-        """List all permissions for a resource"""
+        permission_type: FilePermissionType
+    ) -> bool:
+        """Check if a user has a specific permission for a file"""
+        # Admin permission includes all other permissions
         query = sa.text("""
-        SELECT id, resource_type, resource_id, user_id, permission_type, granted_at, granted_by
-        FROM permissions
-        WHERE resource_type = :resource_type
-        AND resource_id = :resource_id
-        ORDER BY user_id, permission_type;
+        SELECT COUNT(*) > 0 as has_permission
+        FROM file_permissions
+        WHERE file_id = :file_id
+        AND user_id = :user_id
+        AND (permission_type = :permission_type OR permission_type = 'admin');
         """)
         
         values = {
-            "resource_type": resource_type.value,
-            "resource_id": resource_id
+            "file_id": file_id,
+            "user_id": user_id,
+            "permission_type": permission_type.value
         }
         
         result = await self.session.execute(query, values)
+        return result.scalar_one()
+    
+    async def list_user_dataset_permissions(
+        self,
+        user_id: int
+    ) -> List[DatasetPermission]:
+        """List all dataset permissions for a user"""
+        query = """
+        SELECT dataset_id, user_id, permission_type
+        FROM dataset_permissions
+        WHERE user_id = :user_id
+        ORDER BY dataset_id, permission_type;"""
         
-        return [Permission(**dict(row)) for row in result.mappings()]
+        values = {"user_id": user_id}
+        
+        result = await self.session.execute(sa.text(query), values)
+        
+        return [DatasetPermission(**dict(row)) for row in result.mappings()]
+    
+    async def list_user_file_permissions(
+        self,
+        user_id: int
+    ) -> List[FilePermission]:
+        """List all file permissions for a user"""
+        query = sa.text("""
+        SELECT file_id, user_id, permission_type
+        FROM file_permissions
+        WHERE user_id = :user_id
+        ORDER BY file_id, permission_type;
+        """)
+        
+        values = {"user_id": user_id}
+        
+        result = await self.session.execute(query, values)
+        
+        return [FilePermission(**dict(row)) for row in result.mappings()]
+    
+    async def list_dataset_permissions(
+        self,
+        dataset_id: int
+    ) -> List[DatasetPermission]:
+        """List all permissions for a dataset"""
+        query = sa.text("""
+        SELECT dataset_id, user_id, permission_type
+        FROM dataset_permissions
+        WHERE dataset_id = :dataset_id
+        ORDER BY user_id, permission_type;
+        """)
+        
+        values = {"dataset_id": dataset_id}
+        
+        result = await self.session.execute(query, values)
+        
+        return [DatasetPermission(**dict(row)) for row in result.mappings()]
+    
+    async def list_file_permissions(
+        self,
+        file_id: int
+    ) -> List[FilePermission]:
+        """List all permissions for a file"""
+        query = sa.text("""
+        SELECT file_id, user_id, permission_type
+        FROM file_permissions
+        WHERE file_id = :file_id
+        ORDER BY user_id, permission_type;
+        """)
+        
+        values = {"file_id": file_id}
+        
+        result = await self.session.execute(query, values)
+        
+        return [FilePermission(**dict(row)) for row in result.mappings()]

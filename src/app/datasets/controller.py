@@ -5,7 +5,7 @@ import logging
 
 from app.datasets.service import DatasetsService
 from app.datasets.models import (
-    DatasetUploadRequest, DatasetUploadResponse, DatasetUpdate, Dataset, DatasetVersion, File, Tag, Sheet, SchemaVersion, VersionFile, DatasetPointer
+    DatasetUploadRequest, DatasetUploadResponse, DatasetUpdate, Dataset, DatasetVersion, File, Tag, SheetInfo, SchemaVersion, VersionFile, DatasetPointer
 )
 from app.datasets.exceptions import (
     DatasetNotFound, DatasetVersionNotFound, FileProcessingError, StorageError
@@ -272,7 +272,7 @@ class DatasetsController:
     async def list_tags(self) -> List[Tag]:
         return await self.service.list_tags()
 
-    async def list_version_sheets(self, version_id: int) -> List[Sheet]:
+    async def list_version_sheets(self, version_id: int) -> List[SheetInfo]:
         sheets = await self.service.list_version_sheets(version_id)
         # The service already handles the case where the version doesn't exist and returns [].
         # If sheets is an empty list, it will be returned as such, which is appropriate.

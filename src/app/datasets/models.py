@@ -34,25 +34,8 @@ class File(FileBase):
     class Config:
         from_attributes = True
 
-class SheetBase(BaseModel):
-    name: str
-    sheet_index: int
-    description: Optional[str] = None
-
-class SheetCreate(SheetBase):
-    dataset_version_id: int
-
-class SheetMetadata(BaseModel):
-    metadata: Dict[str, Any]
-    profiling_report_file_id: Optional[int] = None
-
-class Sheet(SheetBase):
-    id: int
-    dataset_version_id: int
-    metadata: Optional[SheetMetadata] = None
-
-    class Config:
-        from_attributes = True
+# Sheet functionality now uses dataset_version_files table
+# with component_type='sheet'
 
 class DatasetVersionBase(BaseModel):
     dataset_id: int
@@ -73,7 +56,8 @@ class DatasetVersion(DatasetVersionBase):
     uploaded_by_soeid: Optional[str] = None
     file_type: Optional[str] = None
     file_size: Optional[int] = None
-    sheets: Optional[List[Sheet]] = None
+    # Sheets are now retrieved via dataset_version_files
+    # sheets: Optional[List[Sheet]] = None
 
     class Config:
         from_attributes = True
@@ -112,10 +96,11 @@ class DatasetUploadRequest(BaseModel):
     tags: Optional[List[str]] = None
 
 class SheetInfo(BaseModel):
-    name: str
-    index: int
-    description: Optional[str] = None
-    id: Optional[int] = None
+    """Represents a sheet as a component in dataset_version_files"""
+    name: str  # component_name
+    index: int  # component_index
+    description: Optional[str] = None  # from metadata
+    file_id: Optional[int] = None  # references files table
 
 class DatasetUploadResponse(BaseModel):
     dataset_id: int
@@ -124,7 +109,7 @@ class DatasetUploadResponse(BaseModel):
 
 class SchemaVersionBase(BaseModel):
     dataset_version_id: int
-    schema_json: Dict[str, Any]
+    schema_data: Dict[str, Any] = Field(..., description="JSON schema for the dataset")
 
 class SchemaVersionCreate(SchemaVersionBase):
     pass

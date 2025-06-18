@@ -15,32 +15,47 @@ class UserOut(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-class PermissionType(str, Enum):
+# Permission types match the ENUMs in the schema
+class DatasetPermissionType(str, Enum):
     READ = "read"
     WRITE = "write"
     ADMIN = "admin"
 
-class ResourceType(str, Enum):
-    DATASET = "dataset"
-    FILE = "file"
+class FilePermissionType(str, Enum):
+    READ = "read"
+    WRITE = "write"
+    ADMIN = "admin"
 
-class PermissionBase(BaseModel):
-    resource_type: ResourceType
-    resource_id: int
+# Dataset permissions
+class DatasetPermissionBase(BaseModel):
+    dataset_id: int
     user_id: int
-    permission_type: PermissionType
+    permission_type: DatasetPermissionType
 
-class PermissionCreate(PermissionBase):
-    granted_by: int
+class DatasetPermissionCreate(DatasetPermissionBase):
+    pass
 
-class Permission(PermissionBase):
-    id: int
-    granted_at: datetime
-    granted_by: int
-
+class DatasetPermission(DatasetPermissionBase):
     class Config:
         from_attributes = True
 
+# File permissions
+class FilePermissionBase(BaseModel):
+    file_id: int
+    user_id: int
+    permission_type: FilePermissionType
+
+class FilePermissionCreate(FilePermissionBase):
+    pass
+
+class FilePermission(FilePermissionBase):
+    class Config:
+        from_attributes = True
+
+# Generic permission grant request (for API)
 class PermissionGrant(BaseModel):
     user_id: int = Field(..., description="User ID to grant permission to")
-    permission_type: PermissionType = Field(..., description="Permission type to grant")
+    permission_type: str = Field(..., description="Permission type to grant")
+
+# Backwards compatibility aliases
+PermissionType = DatasetPermissionType

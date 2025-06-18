@@ -7,7 +7,7 @@ import sqlalchemy as sa
 
 from app.datasets.models import (
     Dataset, DatasetCreate, DatasetUpdate, DatasetVersion, DatasetVersionCreate,
-    File, FileCreate, Sheet, SheetCreate, SheetMetadata, Tag, SchemaVersion, SchemaVersionCreate,
+    File, FileCreate, SheetInfo, Tag, SchemaVersion, SchemaVersionCreate,
     VersionFile, VersionFileCreate, DatasetPointer, DatasetPointerCreate, DatasetPointerUpdate
 )
 
@@ -441,42 +441,24 @@ class DatasetsRepository:
         
         version_dict = dict(version_row)
         
-        # Get sheets for this version
+        # Get sheets for this version from dataset_version_files
         sheets_query = sa.text("""
         SELECT 
-            s.id,
-            s.name,
-            s.sheet_index,
-            s.description,
-            sm.metadata
+            file_id,
+            component_name as name,
+            component_index as sheet_index,
+            metadata
         FROM 
-            sheets s
-        LEFT JOIN sheet_metadata sm ON s.id = sm.sheet_id
+            dataset_version_files
         WHERE 
-            s.dataset_version_id = :version_id
+            version_id = :version_id
+            AND component_type = 'sheet'
         ORDER BY 
-            s.sheet_index;
+            component_index;
         """)
         sheets_result = await self.session.execute(sheets_query, {"version_id": version_id})
-        sheets_list: List[Sheet] = []
-        for s_row_data in sheets_result.mappings():
-            s_dict = dict(s_row_data)
-            sheet_metadata_obj: Optional[SheetMetadata] = None
-            if "metadata" in s_dict and s_dict["metadata"] is not None:
-                try:
-                    parsed_meta = json.loads(s_dict["metadata"]) if isinstance(s_dict["metadata"], str) else s_dict["metadata"]
-                    sheet_metadata_obj = SheetMetadata(metadata=parsed_meta, profiling_report_file_id=None)
-                except json.JSONDecodeError:
-                    sheet_metadata_obj = SheetMetadata(metadata={"error": "Invalid JSON metadata in DB"}, profiling_report_file_id=None)
-            
-            sheets_list.append(Sheet(
-                id=s_dict["id"],
-                name=s_dict["name"],
-                sheet_index=s_dict["sheet_index"],
-                description=s_dict.get("description"),
-                dataset_version_id=version_id,
-                metadata=sheet_metadata_obj
-            ))
+        # Note: sheets are now handled differently through dataset_version_files
+        # The DatasetVersion model no longer includes a sheets field
         
         return DatasetVersion(
             id=version_dict["id"],
@@ -491,7 +473,7 @@ class DatasetsRepository:
             overlay_file_id=version_dict.get("overlay_file_id"),
             file_type=version_dict.get("file_type"),
             file_size=version_dict.get("file_size"),
-            sheets=sheets_list if sheets_list else None
+            # sheets field removed - use list_version_sheets() separately
         )
     
     async def delete_dataset_version(self, version_id: int) -> Optional[int]:
@@ -540,65 +522,66 @@ class DatasetsRepository:
         await self.session.execute(query, values)
         await self.session.commit()
     
-    # Sheet operations
-    async def create_sheet(self, sheet: SheetCreate) -> int:
+    # Sheet operations - now using dataset_version_files table
+    async def create_sheet_as_version_file(self, version_id: int, file_id: int, sheet_name: str, 
+                                          sheet_index: int, description: Optional[str] = None,
+                                          metadata: Optional[Dict[str, Any]] = None) -> None:
+        """Create a sheet entry using dataset_version_files table"""
+        full_metadata = metadata or {}
+        if description:
+            full_metadata["description"] = description
+            
         query = sa.text("""
-        INSERT INTO sheets (dataset_version_id, name, sheet_index, description)
-        VALUES (:dataset_version_id, :name, :sheet_index, :description)
-        RETURNING id;
+        INSERT INTO dataset_version_files 
+        (version_id, file_id, component_type, component_name, component_index, metadata)
+        VALUES (:version_id, :file_id, 'sheet', :component_name, :component_index, :metadata)
         """)
         values = {
-            "dataset_version_id": sheet.dataset_version_id,
-            "name": sheet.name,
-            "sheet_index": sheet.sheet_index,
-            "description": sheet.description
+            "version_id": version_id,
+            "file_id": file_id,
+            "component_type": "sheet",
+            "component_name": sheet_name,
+            "component_index": sheet_index,
+            "metadata": json.dumps(full_metadata) if full_metadata else None
         }
-        result = await self.session.execute(query, values)
+        await self.session.execute(query, values)
         await self.session.commit()
-        return result.scalar_one()
     
-    async def create_sheet_metadata(self, sheet_id: int, metadata: Dict[str, Any]) -> int:
-        query = sa.text("""
-        INSERT INTO sheet_metadata (sheet_id, metadata, profiling_report_file_id)
-        VALUES (:sheet_id, :metadata, :profiling_report_file_id)
-        RETURNING id;
-        """)
-        values = {
-            "sheet_id": sheet_id,
-            "metadata": json.dumps(metadata),
-            "profiling_report_file_id": None
-        }
-        result = await self.session.execute(query, values)
-        await self.session.commit()
-        return result.scalar_one()
-    
-    async def list_version_sheets(self, version_id: int) -> List[Sheet]:
+    async def list_version_sheets(self, version_id: int) -> List[SheetInfo]:
+        """List sheets from dataset_version_files table"""
         query = sa.text("""
         SELECT 
-            id,
-            name, 
-            sheet_index,
-            description
+            file_id,
+            component_name as name,
+            component_index as index,
+            metadata
         FROM 
-            sheets
+            dataset_version_files
         WHERE 
-            dataset_version_id = :version_id
+            version_id = :version_id
+            AND component_type = 'sheet'
         ORDER BY 
-            sheet_index;
+            component_index;
         """)
         values = {"version_id": version_id}
         result = await self.session.execute(query, values)
         
-        sheets_list: List[Sheet] = []
-        for row_data in result.mappings():
-            s_dict = dict(row_data)
-            sheets_list.append(Sheet(
-                id=s_dict["id"],
-                name=s_dict["name"],
-                sheet_index=s_dict["sheet_index"],
-                description=s_dict.get("description"),
-                dataset_version_id=version_id,
-                metadata=None
+        sheets_list: List[SheetInfo] = []
+        for row in result.mappings():
+            metadata = row.get("metadata")
+            description = None
+            if metadata:
+                try:
+                    parsed_meta = json.loads(metadata) if isinstance(metadata, str) else metadata
+                    description = parsed_meta.get("description")
+                except:
+                    pass
+                    
+            sheets_list.append(SheetInfo(
+                name=row["name"],
+                index=row["index"],
+                description=description,
+                file_id=row["file_id"]
             ))
         return sheets_list
     
@@ -665,7 +648,7 @@ class DatasetsRepository:
         """)
         values = {
             "dataset_version_id": schema.dataset_version_id,
-            "schema_json": json.dumps(schema.schema_json)
+            "schema_json": json.dumps(schema.schema_data)
         }
         result = await self.session.execute(query, values)
         await self.session.commit()
@@ -701,7 +684,7 @@ class DatasetsRepository:
         return SchemaVersion(
             id=row_dict["id"],
             dataset_version_id=row_dict["dataset_version_id"],
-            schema_json=row_dict["schema_json"],
+            schema_data=row_dict["schema_json"],
             created_at=row_dict["created_at"]
         )
     
@@ -722,8 +705,8 @@ class DatasetsRepository:
             "type_changes": []
         }
         
-        schema1_cols = {col["name"]: col for col in schema1.schema_json.get("columns", [])}
-        schema2_cols = {col["name"]: col for col in schema2.schema_json.get("columns", [])}
+        schema1_cols = {col["name"]: col for col in schema1.schema_data.get("columns", [])}
+        schema2_cols = {col["name"]: col for col in schema2.schema_data.get("columns", [])}
         
         # Find added columns
         for col_name in schema2_cols:

@@ -10,9 +10,9 @@ from app.datasets.service import DatasetsService
 from app.datasets.repository import DatasetsRepository
 from app.datasets.models import (
     Dataset, DatasetUploadResponse, DatasetUpdate,
-    DatasetVersion, Tag, Sheet, SchemaVersion, VersionFile, DatasetPointer
+    DatasetVersion, Tag, SheetInfo, SchemaVersion, VersionFile, DatasetPointer
 )
-from app.users.models import Permission, PermissionGrant, PermissionType
+from app.users.models import DatasetPermission, PermissionGrant, DatasetPermissionType
 from app.datasets.constants import DEFAULT_PAGE_SIZE, MAX_ROWS_PER_PAGE
 from app.db.connection import get_session
 from app.storage.factory import StorageFactory
@@ -280,7 +280,7 @@ async def delete_dataset_version(
 
 @router.get(
     "/{dataset_id}/versions/{version_id}/sheets",
-    response_model=List[Sheet],
+    response_model=List[SheetInfo],
     summary="List version sheets",
     description="Get all sheets in a dataset version"
 )
@@ -289,7 +289,7 @@ async def list_version_sheets(
     version_id: int = Path(..., gt=0, description="Version ID"),
     controller: ControllerDep = None,
     current_user: UserDep = None
-) -> List[Sheet]:
+) -> List[SheetInfo]:
     """List all sheets/tables in the dataset version."""
     await controller.get_version_for_dataset(dataset_id, version_id)
     return await controller.list_version_sheets(version_id)
@@ -552,7 +552,7 @@ async def delete_pointer(
 # Permission operations
 @router.get(
     "/{dataset_id}/permissions",
-    response_model=List[Permission],
+    response_model=List[DatasetPermission],
     summary="List dataset permissions",
     description="List all permissions for a dataset"
 )
@@ -560,7 +560,7 @@ async def list_dataset_permissions(
     dataset_id: int = Path(..., gt=0, description="Dataset ID"),
     controller: ControllerDep = None,
     current_user: UserDep = None
-) -> List[Permission]:
+) -> List[DatasetPermission]:
     """Get all permissions granted for this dataset."""
     # Check if user has admin permission to view permissions
     user_id = await controller.service.get_user_id_from_soeid(current_user.soeid)
@@ -577,15 +577,12 @@ async def list_dataset_permissions(
             detail="Admin permission required to view permissions"
         )
     
-    from app.users.models import ResourceType
-    return await controller.service.user_service.list_resource_permissions(
-        ResourceType.DATASET, dataset_id
-    )
+    return await controller.service.user_service.list_dataset_permissions(dataset_id)
 
 
 @router.post(
     "/{dataset_id}/permissions",
-    response_model=Permission,
+    response_model=DatasetPermission,
     summary="Grant permission",
     description="Grant permission on a dataset to a user"
 )
@@ -594,7 +591,7 @@ async def grant_dataset_permission(
     grant: PermissionGrant = Body(...),
     controller: ControllerDep = None,
     current_user: UserDep = None
-) -> Permission:
+) -> DatasetPermission:
     """Grant permission to a user for this dataset (requires admin permission)."""
     # Check if current user has admin permission
     user_id = await controller.service.get_user_id_from_soeid(current_user.soeid)
@@ -614,13 +611,12 @@ async def grant_dataset_permission(
     # Verify dataset exists
     dataset = await controller.get_dataset(dataset_id)
     
-    from app.users.models import ResourceType
-    return await controller.service.user_service.grant_permission(
-        ResourceType.DATASET,
+    from app.users.models import DatasetPermissionType
+    perm_type = DatasetPermissionType(grant.permission_type)
+    return await controller.service.user_service.grant_dataset_permission(
         dataset_id,
         grant.user_id,
-        grant.permission_type,
-        user_id
+        perm_type
     )
 
 
@@ -633,7 +629,7 @@ async def grant_dataset_permission(
 async def revoke_dataset_permission(
     dataset_id: int = Path(..., gt=0, description="Dataset ID"),
     user_id: int = Path(..., description="User ID to revoke permission from"),
-    permission_type: PermissionType = Path(..., description="Permission type to revoke"),
+    permission_type: DatasetPermissionType = Path(..., description="Permission type to revoke"),
     controller: ControllerDep = None,
     current_user: UserDep = None
 ) -> Dict[str, Any]:
@@ -654,15 +650,13 @@ async def revoke_dataset_permission(
         )
     
     # Don't allow revoking own admin permission
-    if user_id == current_user_id and permission_type == PermissionType.ADMIN:
+    if user_id == current_user_id and permission_type == DatasetPermissionType.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot revoke your own admin permission"
         )
     
-    from app.users.models import ResourceType
-    success = await controller.service.user_service.revoke_permission(
-        ResourceType.DATASET,
+    success = await controller.service.user_service.revoke_dataset_permission(
         dataset_id,
         user_id,
         permission_type

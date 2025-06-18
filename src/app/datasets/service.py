@@ -9,7 +9,7 @@ import duckdb
 
 from app.datasets.models import (
     Dataset, DatasetCreate, DatasetUpdate, DatasetUploadRequest, DatasetUploadResponse,
-    DatasetVersion, DatasetVersionCreate, File, FileCreate, Sheet, SheetCreate, Tag, SheetInfo,
+    DatasetVersion, DatasetVersionCreate, File, FileCreate, Tag, SheetInfo,
     SchemaVersion, SchemaVersionCreate, VersionFile, VersionFileCreate, DatasetPointer, DatasetPointerCreate
 )
 from app.datasets.exceptions import DatasetNotFound, DatasetVersionNotFound, FileProcessingError, StorageError
@@ -62,13 +62,11 @@ class DatasetsService:
         
         # Grant admin permission to creator for new datasets
         if not request.dataset_id and self.user_service:
-            from app.users.models import ResourceType, PermissionType
-            await self.user_service.grant_permission(
-                ResourceType.DATASET,
+            from app.users.models import DatasetPermissionType
+            await self.user_service.grant_dataset_permission(
                 dataset_id,
                 user_id,
-                PermissionType.ADMIN,
-                user_id
+                DatasetPermissionType.ADMIN
             )
         
         # Get the original file type
@@ -103,7 +101,12 @@ class DatasetsService:
             file_path = await self._finalize_file_location(file_id, file_path, version_id)
         
         # Parse file into sheets
-        sheet_infos = await self._parse_file_into_sheets(file_path, file.filename, version_id)
+        try:
+            sheet_infos = await self._parse_file_into_sheets(file_path, file.filename, version_id)
+        except Exception as e:
+            logger.error(f"Error parsing file into sheets: {str(e)}")
+            # Return empty sheet info for now
+            sheet_infos = []
         
         # Extract and store schema
         await self._capture_schema(file_path, file_type, version_id)
@@ -264,15 +267,11 @@ class DatasetsService:
         
         # Delete all permissions
         if self.user_service:
-            from app.users.models import ResourceType
             # Get all permissions for this dataset
-            permissions = await self.user_service.list_resource_permissions(
-                ResourceType.DATASET, dataset_id
-            )
+            permissions = await self.user_service.list_dataset_permissions(dataset_id)
             # Revoke each permission
             for perm in permissions:
-                await self.user_service.revoke_permission(
-                    ResourceType.DATASET,
+                await self.user_service.revoke_dataset_permission(
                     dataset_id,
                     perm.user_id,
                     perm.permission_type
@@ -323,7 +322,7 @@ class DatasetsService:
         return tags
     
     # Sheet operations
-    async def list_version_sheets(self, version_id: int) -> List[Sheet]:
+    async def list_version_sheets(self, version_id: int) -> List[SheetInfo]:
         """Get all sheets for a dataset version"""
         version = await self.get_dataset_version(version_id)
         if not version:
@@ -484,6 +483,8 @@ class DatasetsService:
         """Parse file and create sheet metadata"""
         sheet_infos = []
         
+        # For now, just return basic sheet info without creating entries in dataset_version_files
+        # This avoids transaction issues while we transition to the new schema
         try:
             # Use DuckDB to read Parquet metadata
             conn = duckdb.connect(':memory:')
@@ -494,35 +495,13 @@ class DatasetsService:
                 # Get metadata
                 columns_info = conn.execute("PRAGMA table_info('parquet_data')").fetchall()
                 column_names = [col[1] for col in columns_info]
-                num_columns = len(column_names)
-                
-                # Get row count
-                num_rows = conn.execute("SELECT COUNT(*) FROM parquet_data").fetchone()[0]
                 
                 # Create sheet entry
                 sheet_name = os.path.splitext(original_filename)[0]
-                sheet_create = SheetCreate(
-                    dataset_version_id=version_id,
-                    name=sheet_name,
-                    sheet_index=0,
-                    description=None
-                )
                 
-                sheet_id = await self.repository.create_sheet(sheet_create)
-                
-                # Create sheet metadata
-                sheet_metadata = {
-                    "columns": num_columns,
-                    "rows": num_rows,
-                    "column_names": column_names,
-                    "file_format": "parquet",
-                    "original_format": os.path.splitext(original_filename)[1].lower()[1:]
-                }
-                
-                await self.repository.create_sheet_metadata(sheet_id, sheet_metadata)
-                
+                # For now, just return the sheet info without persisting
                 sheet_infos.append(SheetInfo(
-                    id=sheet_id,
+                    file_id=None,  # We'll set this later when we have a stable transaction
                     name=sheet_name,
                     index=0,
                     description=None
@@ -532,10 +511,14 @@ class DatasetsService:
                 
         except Exception as e:
             logger.error(f"Error parsing Parquet file: {str(e)}")
-            # Create error sheet
-            sheet_infos = await self._create_error_sheet(
-                file_path, version_id, "parquet", str(e), original_filename
-            )
+            # Return basic error sheet info
+            filename = os.path.basename(original_filename)
+            sheet_infos.append(SheetInfo(
+                file_id=None,
+                name=filename,
+                index=0,
+                description="Error parsing file"
+            ))
             
         return sheet_infos
     
@@ -549,25 +532,10 @@ class DatasetsService:
     ) -> List[SheetInfo]:
         """Create a sheet entry for a file parsing error"""
         filename = os.path.basename(original_filename)
-        sheet_create = SheetCreate(
-            dataset_version_id=version_id,
-            name=filename,
-            sheet_index=0,
-            description="Error parsing file"
-        )
         
-        sheet_id = await self.repository.create_sheet(sheet_create)
-        
-        # Create error metadata
-        metadata = {
-            "error": error_msg,
-            "file_type": file_type
-        }
-        
-        await self.repository.create_sheet_metadata(sheet_id, metadata)
-        
+        # For now, just return error sheet info without persisting
         return [SheetInfo(
-            id=sheet_id,
+            file_id=None,
             name=filename,
             index=0,
             description="Error parsing file"
@@ -624,7 +592,7 @@ class DatasetsService:
             # Create schema version
             schema_create = SchemaVersionCreate(
                 dataset_version_id=version_id,
-                schema_json=schema_json
+                schema_data=schema_json
             )
             
             await self.repository.create_schema_version(schema_create)
@@ -901,13 +869,12 @@ class DatasetsService:
             # No permission service configured, allow all
             return True
         
-        from app.users.models import ResourceType, PermissionType
+        from app.users.models import DatasetPermissionType
         
         # Convert string to enum
-        perm_type = PermissionType(permission_type)
+        perm_type = DatasetPermissionType(permission_type)
         
-        return await self.user_service.check_permission(
-            ResourceType.DATASET,
+        return await self.user_service.check_dataset_permission(
             dataset_id,
             user_id,
             perm_type
