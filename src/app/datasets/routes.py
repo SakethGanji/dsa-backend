@@ -12,6 +12,7 @@ from app.datasets.models import (
     Dataset, DatasetUploadResponse, DatasetUpdate,
     DatasetVersion, Tag, Sheet, SchemaVersion, VersionFile, DatasetPointer
 )
+from app.users.models import Permission, PermissionGrant, PermissionType
 from app.datasets.constants import DEFAULT_PAGE_SIZE, MAX_ROWS_PER_PAGE
 from app.db.connection import get_session
 from app.storage.factory import StorageFactory
@@ -26,9 +27,12 @@ router = APIRouter(prefix="/api/datasets", tags=["Datasets"])
 # Dependency injection - simplified like sampling slice
 async def get_controller(session: AsyncSession = Depends(get_session)) -> DatasetsController:
     """Get datasets controller instance"""
+    from app.users.service import UserService
+    
     repository = DatasetsRepository(session)
     storage_backend = StorageFactory.get_instance()
-    service = DatasetsService(repository, storage_backend)
+    user_service = UserService(session)
+    service = DatasetsService(repository, storage_backend, user_service)
     return DatasetsController(service)
 
 # Type aliases for cleaner code
@@ -93,7 +97,8 @@ async def list_datasets(
         name=name,
         description=description,
         created_by=created_by,
-        tags=tags
+        tags=tags,
+        current_user=current_user
     )
 
 
@@ -123,7 +128,7 @@ async def get_dataset(
     current_user: UserDep = None
 ) -> Dataset:
     """Get complete dataset information including versions and tags."""
-    return await controller.get_dataset(dataset_id)
+    return await controller.get_dataset(dataset_id, current_user)
 
 
 @router.patch(
@@ -139,7 +144,22 @@ async def update_dataset(
     current_user: UserDep = None
 ) -> Dataset:
     """Update dataset name, description, and tags."""
-    return await controller.update_dataset(dataset_id, data)
+    return await controller.update_dataset(dataset_id, data, current_user)
+
+
+@router.delete(
+    "/{dataset_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete dataset",
+    description="Delete an entire dataset and all its versions (requires admin permission)"
+)
+async def delete_dataset(
+    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
+    controller: ControllerDep = None,
+    current_user: UserDep = None
+) -> None:
+    """Delete a dataset and all associated data. This operation cannot be undone."""
+    await controller.delete_dataset(dataset_id, current_user)
 
 
 @router.get(
@@ -255,7 +275,7 @@ async def delete_dataset_version(
 ) -> None:
     """Delete a dataset version. This operation cannot be undone."""
     await controller.get_version_for_dataset(dataset_id, version_id)
-    await controller.delete_dataset_version(version_id)
+    await controller.delete_dataset_version(version_id, current_user)
 
 
 @router.get(
@@ -429,7 +449,7 @@ async def create_branch(
             detail="Both branch_name and from_version_id are required"
         )
     
-    return await controller.create_branch(dataset_id, branch_name, from_version_id)
+    return await controller.create_branch(dataset_id, branch_name, from_version_id, current_user)
 
 
 @router.post(
@@ -454,7 +474,7 @@ async def create_tag(
             detail="Both tag_name and version_id are required"
         )
     
-    return await controller.create_tag(dataset_id, tag_name, version_id)
+    return await controller.create_tag(dataset_id, tag_name, version_id, current_user)
 
 
 @router.patch(
@@ -479,7 +499,7 @@ async def update_branch(
             detail="to_version_id is required"
         )
     
-    return await controller.update_branch(dataset_id, branch_name, to_version_id)
+    return await controller.update_branch(dataset_id, branch_name, to_version_id, current_user)
 
 
 @router.get(
@@ -526,4 +546,132 @@ async def delete_pointer(
     current_user: UserDep = None
 ) -> Dict[str, Any]:
     """Delete a branch or tag (cannot delete 'main' branch)."""
-    return await controller.delete_pointer(dataset_id, pointer_name)
+    return await controller.delete_pointer(dataset_id, pointer_name, current_user)
+
+
+# Permission operations
+@router.get(
+    "/{dataset_id}/permissions",
+    response_model=List[Permission],
+    summary="List dataset permissions",
+    description="List all permissions for a dataset"
+)
+async def list_dataset_permissions(
+    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
+    controller: ControllerDep = None,
+    current_user: UserDep = None
+) -> List[Permission]:
+    """Get all permissions granted for this dataset."""
+    # Check if user has admin permission to view permissions
+    user_id = await controller.service.get_user_id_from_soeid(current_user.soeid)
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User not found"
+        )
+    
+    has_permission = await controller.service.check_dataset_permission(dataset_id, user_id, "admin")
+    if not has_permission:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin permission required to view permissions"
+        )
+    
+    from app.users.models import ResourceType
+    return await controller.service.user_service.list_resource_permissions(
+        ResourceType.DATASET, dataset_id
+    )
+
+
+@router.post(
+    "/{dataset_id}/permissions",
+    response_model=Permission,
+    summary="Grant permission",
+    description="Grant permission on a dataset to a user"
+)
+async def grant_dataset_permission(
+    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
+    grant: PermissionGrant = Body(...),
+    controller: ControllerDep = None,
+    current_user: UserDep = None
+) -> Permission:
+    """Grant permission to a user for this dataset (requires admin permission)."""
+    # Check if current user has admin permission
+    user_id = await controller.service.get_user_id_from_soeid(current_user.soeid)
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User not found"
+        )
+    
+    has_permission = await controller.service.check_dataset_permission(dataset_id, user_id, "admin")
+    if not has_permission:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin permission required to grant permissions"
+        )
+    
+    # Verify dataset exists
+    dataset = await controller.get_dataset(dataset_id)
+    
+    from app.users.models import ResourceType
+    return await controller.service.user_service.grant_permission(
+        ResourceType.DATASET,
+        dataset_id,
+        grant.user_id,
+        grant.permission_type,
+        user_id
+    )
+
+
+@router.delete(
+    "/{dataset_id}/permissions/{user_id}/{permission_type}",
+    response_model=Dict[str, Any],
+    summary="Revoke permission",
+    description="Revoke a specific permission from a user"
+)
+async def revoke_dataset_permission(
+    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
+    user_id: int = Path(..., description="User ID to revoke permission from"),
+    permission_type: PermissionType = Path(..., description="Permission type to revoke"),
+    controller: ControllerDep = None,
+    current_user: UserDep = None
+) -> Dict[str, Any]:
+    """Revoke permission from a user for this dataset (requires admin permission)."""
+    # Check if current user has admin permission
+    current_user_id = await controller.service.get_user_id_from_soeid(current_user.soeid)
+    if not current_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User not found"
+        )
+    
+    has_permission = await controller.service.check_dataset_permission(dataset_id, current_user_id, "admin")
+    if not has_permission:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin permission required to revoke permissions"
+        )
+    
+    # Don't allow revoking own admin permission
+    if user_id == current_user_id and permission_type == PermissionType.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot revoke your own admin permission"
+        )
+    
+    from app.users.models import ResourceType
+    success = await controller.service.user_service.revoke_permission(
+        ResourceType.DATASET,
+        dataset_id,
+        user_id,
+        permission_type
+    )
+    
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Permission not found"
+        )
+    
+    return {"message": f"Permission {permission_type} revoked from user {user_id}"}

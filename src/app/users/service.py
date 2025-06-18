@@ -3,9 +3,10 @@ from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.users.repository import list_users as repo_list_users, create_user as repo_create_user, get_user_by_soeid
-from app.users.models import UserCreate, UserOut
+from app.users.models import UserCreate, UserOut, Permission, PermissionCreate, PermissionType, ResourceType
 from app.users.auth import create_access_token
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+import sqlalchemy as sa
 
 class UserService:
     def __init__(self, session: AsyncSession):
@@ -65,3 +66,139 @@ class UserService:
         if user:
             return UserOut.model_validate(user)
         return None
+    
+    # Permission methods
+    async def grant_permission(
+        self,
+        resource_type: ResourceType,
+        resource_id: int,
+        user_id: int,
+        permission_type: PermissionType,
+        granted_by: int
+    ) -> Permission:
+        """Grant a permission to a user for a resource"""
+        query = sa.text("""
+        INSERT INTO permissions (resource_type, resource_id, user_id, permission_type, granted_by)
+        VALUES (:resource_type, :resource_id, :user_id, :permission_type, :granted_by)
+        ON CONFLICT (resource_type, resource_id, user_id, permission_type) DO UPDATE
+        SET granted_at = NOW(), granted_by = :granted_by
+        RETURNING id, resource_type, resource_id, user_id, permission_type, granted_at, granted_by;
+        """)
+        
+        values = {
+            "resource_type": resource_type.value,
+            "resource_id": resource_id,
+            "user_id": user_id,
+            "permission_type": permission_type.value,
+            "granted_by": granted_by
+        }
+        
+        result = await self.session.execute(query, values)
+        await self.session.commit()
+        row = result.mappings().first()
+        
+        return Permission(**dict(row))
+    
+    async def revoke_permission(
+        self,
+        resource_type: ResourceType,
+        resource_id: int,
+        user_id: int,
+        permission_type: PermissionType
+    ) -> bool:
+        """Revoke a permission from a user for a resource"""
+        query = sa.text("""
+        DELETE FROM permissions
+        WHERE resource_type = :resource_type
+        AND resource_id = :resource_id
+        AND user_id = :user_id
+        AND permission_type = :permission_type
+        RETURNING id;
+        """)
+        
+        values = {
+            "resource_type": resource_type.value,
+            "resource_id": resource_id,
+            "user_id": user_id,
+            "permission_type": permission_type.value
+        }
+        
+        result = await self.session.execute(query, values)
+        await self.session.commit()
+        
+        return result.scalar_one_or_none() is not None
+    
+    async def check_permission(
+        self,
+        resource_type: ResourceType,
+        resource_id: int,
+        user_id: int,
+        permission_type: PermissionType
+    ) -> bool:
+        """Check if a user has a specific permission for a resource"""
+        # Admin permission includes all other permissions
+        query = sa.text("""
+        SELECT COUNT(*) > 0 as has_permission
+        FROM permissions
+        WHERE resource_type = :resource_type
+        AND resource_id = :resource_id
+        AND user_id = :user_id
+        AND (permission_type = :permission_type OR permission_type = 'admin');
+        """)
+        
+        values = {
+            "resource_type": resource_type.value,
+            "resource_id": resource_id,
+            "user_id": user_id,
+            "permission_type": permission_type.value
+        }
+        
+        result = await self.session.execute(query, values)
+        return result.scalar_one()
+    
+    async def list_user_permissions(
+        self,
+        user_id: int,
+        resource_type: Optional[ResourceType] = None
+    ) -> List[Permission]:
+        """List all permissions for a user"""
+        query = """
+        SELECT id, resource_type, resource_id, user_id, permission_type, granted_at, granted_by
+        FROM permissions
+        WHERE user_id = :user_id
+        """
+        
+        values = {"user_id": user_id}
+        
+        if resource_type:
+            query += " AND resource_type = :resource_type"
+            values["resource_type"] = resource_type.value
+        
+        query += " ORDER BY resource_type, resource_id, permission_type;"
+        
+        result = await self.session.execute(sa.text(query), values)
+        
+        return [Permission(**dict(row)) for row in result.mappings()]
+    
+    async def list_resource_permissions(
+        self,
+        resource_type: ResourceType,
+        resource_id: int
+    ) -> List[Permission]:
+        """List all permissions for a resource"""
+        query = sa.text("""
+        SELECT id, resource_type, resource_id, user_id, permission_type, granted_at, granted_by
+        FROM permissions
+        WHERE resource_type = :resource_type
+        AND resource_id = :resource_id
+        ORDER BY user_id, permission_type;
+        """)
+        
+        values = {
+            "resource_type": resource_type.value,
+            "resource_id": resource_id
+        }
+        
+        result = await self.session.execute(query, values)
+        
+        return [Permission(**dict(row)) for row in result.mappings()]

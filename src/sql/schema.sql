@@ -183,3 +183,20 @@ CREATE TABLE IF NOT EXISTS dataset_pointers (
 
 -- Index for dataset pointer lookups
 CREATE INDEX IF NOT EXISTS idx_pointers_dataset ON dataset_pointers(dataset_id);
+
+-- PERMISSIONS
+
+-- Permissions table for dataset and file access control
+CREATE TABLE IF NOT EXISTS permissions (
+  id                SERIAL      PRIMARY KEY,
+  resource_type     VARCHAR(50) NOT NULL, -- 'dataset' or 'file'
+  resource_id       INT         NOT NULL,
+  user_id           INT         NOT NULL REFERENCES users(id),
+  permission_type   VARCHAR(20) NOT NULL, -- 'read', 'write', 'admin'
+  granted_at        TIMESTAMP   NOT NULL DEFAULT NOW(),
+  granted_by        INT         NOT NULL REFERENCES users(id),
+  UNIQUE (resource_type, resource_id, user_id, permission_type)
+);
+
+-- Index for permission lookups
+CREATE INDEX IF NOT EXISTS idx_permissions_lookup ON permissions(resource_type, resource_id, user_id);

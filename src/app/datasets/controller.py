@@ -95,11 +95,13 @@ class DatasetsController:
         created_by: Optional[int],
         tags: Optional[List[str]],
         sort_by: Optional[str],
-        sort_order: Optional[str]
+        sort_order: Optional[str],
+        current_user: Any = None
     ) -> List[Dataset]:
         """List datasets with filtering and pagination"""
         try:
-            return await self.service.list_datasets(
+            # Get all datasets first
+            datasets = await self.service.list_datasets(
                 limit=limit,
                 offset=offset,
                 name=name,
@@ -109,6 +111,22 @@ class DatasetsController:
                 sort_by=sort_by,
                 sort_order=sort_order
             )
+            
+            # If user is provided, filter by permissions
+            if current_user:
+                user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
+                if user_id:
+                    # Filter datasets where user has at least read permission
+                    filtered_datasets = []
+                    for dataset in datasets:
+                        has_permission = await self.service.check_dataset_permission(
+                            dataset.id, user_id, "read"
+                        )
+                        if has_permission:
+                            filtered_datasets.append(dataset)
+                    return filtered_datasets
+            
+            return datasets
         except Exception as e:
             logger.error(f"Error listing datasets: {str(e)}", exc_info=True)
             raise HTTPException(
@@ -116,9 +134,20 @@ class DatasetsController:
                 detail="Failed to retrieve datasets"
             )
 
-    async def get_dataset(self, dataset_id: int) -> Dataset:
+    async def get_dataset(self, dataset_id: int, current_user: Any = None) -> Dataset:
         """Get a single dataset by ID"""
         try:
+            # Check read permission if user provided
+            if current_user:
+                user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
+                if user_id:
+                    has_permission = await self.service.check_dataset_permission(dataset_id, user_id, "read")
+                    if not has_permission:
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Read permission required to view dataset"
+                        )
+            
             result = await self.service.get_dataset(dataset_id)
             if not result:
                 raise DatasetNotFound(dataset_id)
@@ -128,6 +157,8 @@ class DatasetsController:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Dataset {dataset_id} not found"
             )
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"Error retrieving dataset {dataset_id}: {str(e)}")
             raise HTTPException(
@@ -138,10 +169,26 @@ class DatasetsController:
     async def update_dataset(
         self,
         dataset_id: int,
-        data: DatasetUpdate
+        data: DatasetUpdate,
+        current_user: Any
     ) -> Dataset:
         """Update dataset metadata"""
         try:
+            # Check permission
+            user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
+            if not user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="User not found"
+                )
+            
+            has_permission = await self.service.check_dataset_permission(dataset_id, user_id, "write")
+            if not has_permission:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Write permission required to update dataset"
+                )
+            
             updated = await self.service.update_dataset(dataset_id, data)
             if not updated:
                 raise DatasetNotFound(dataset_id)
@@ -151,6 +198,8 @@ class DatasetsController:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Dataset {dataset_id} not found"
             )
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"Error updating dataset {dataset_id}: {str(e)}")
             raise HTTPException(
@@ -189,7 +238,30 @@ class DatasetsController:
             )
         return file_info
 
-    async def delete_dataset_version(self, version_id: int) -> None:
+    async def delete_dataset_version(self, version_id: int, current_user: Any) -> None:
+        # Get version to check dataset
+        version = await self.service.get_dataset_version(version_id)
+        if not version:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Version {version_id} not found"
+            )
+        
+        # Check write permission
+        user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User not found"
+            )
+        
+        has_permission = await self.service.check_dataset_permission(version.dataset_id, user_id, "write")
+        if not has_permission:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Write permission required to delete version"
+            )
+        
         success = await self.service.delete_dataset_version(version_id)
         if not success:
             raise HTTPException(
@@ -291,6 +363,22 @@ class DatasetsController:
                     detail="User not found in the system"
                 )
             
+            # Get version to check dataset
+            version = await self.service.get_dataset_version(version_id)
+            if not version:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Version {version_id} not found"
+                )
+            
+            # Check write permission
+            has_permission = await self.service.check_dataset_permission(version.dataset_id, user_id, "write")
+            if not has_permission:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Write permission required to attach files"
+                )
+            
             file_id = await self.service.attach_file_to_version(
                 version_id=version_id,
                 file=file,
@@ -309,6 +397,8 @@ class DatasetsController:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Version {version_id} not found"
             )
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"Error attaching file to version {version_id}: {str(e)}")
             raise HTTPException(
@@ -355,9 +445,25 @@ class DatasetsController:
         self,
         dataset_id: int,
         branch_name: str,
-        from_version_id: int
+        from_version_id: int,
+        current_user: Any
     ) -> DatasetPointer:
         """Create a new branch"""
+        # Check write permission
+        user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User not found"
+            )
+        
+        has_permission = await self.service.check_dataset_permission(dataset_id, user_id, "write")
+        if not has_permission:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Write permission required to create branches"
+            )
+        
         try:
             return await self.service.create_branch(dataset_id, branch_name, from_version_id)
         except DatasetNotFound:
@@ -380,9 +486,25 @@ class DatasetsController:
         self,
         dataset_id: int,
         tag_name: str,
-        version_id: int
+        version_id: int,
+        current_user: Any
     ) -> DatasetPointer:
         """Create a new tag"""
+        # Check write permission
+        user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User not found"
+            )
+        
+        has_permission = await self.service.check_dataset_permission(dataset_id, user_id, "write")
+        if not has_permission:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Write permission required to create tags"
+            )
+        
         try:
             return await self.service.create_tag(dataset_id, tag_name, version_id)
         except DatasetNotFound:
@@ -405,9 +527,25 @@ class DatasetsController:
         self,
         dataset_id: int,
         branch_name: str,
-        to_version_id: int
+        to_version_id: int,
+        current_user: Any
     ) -> Dict[str, Any]:
         """Update a branch to point to a new version"""
+        # Check write permission
+        user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User not found"
+            )
+        
+        has_permission = await self.service.check_dataset_permission(dataset_id, user_id, "write")
+        if not has_permission:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Write permission required to update branches"
+            )
+        
         try:
             success = await self.service.update_branch(dataset_id, branch_name, to_version_id)
             if not success:
@@ -460,8 +598,56 @@ class DatasetsController:
                 detail=f"Dataset {dataset_id} not found"
             )
     
-    async def delete_pointer(self, dataset_id: int, pointer_name: str) -> Dict[str, Any]:
+    async def delete_dataset(self, dataset_id: int, current_user: Any) -> Dict[str, Any]:
+        """Delete an entire dataset (requires admin permission)"""
+        # Check admin permission
+        user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User not found"
+            )
+        
+        has_permission = await self.service.check_dataset_permission(dataset_id, user_id, "admin")
+        if not has_permission:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin permission required to delete dataset"
+            )
+        
+        try:
+            success = await self.service.delete_dataset(dataset_id)
+            if not success:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Dataset {dataset_id} not found"
+                )
+            return {
+                "message": f"Dataset {dataset_id} deleted successfully"
+            }
+        except DatasetNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Dataset {dataset_id} not found"
+            )
+    
+    async def delete_pointer(self, dataset_id: int, pointer_name: str, current_user: Any) -> Dict[str, Any]:
         """Delete a branch or tag"""
+        # Check write permission
+        user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User not found"
+            )
+        
+        has_permission = await self.service.check_dataset_permission(dataset_id, user_id, "write")
+        if not has_permission:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Write permission required to delete branches/tags"
+            )
+        
         try:
             success = await self.service.delete_pointer(dataset_id, pointer_name)
             if not success:

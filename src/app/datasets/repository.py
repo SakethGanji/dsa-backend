@@ -187,6 +187,18 @@ class DatasetsRepository:
         await self.session.execute(query, values)
         await self.session.commit()
     
+    async def delete_dataset(self, dataset_id: int) -> Optional[int]:
+        """Delete a dataset"""
+        query = sa.text("""
+        DELETE FROM datasets
+        WHERE id = :dataset_id
+        RETURNING id;
+        """)
+        values = {"dataset_id": dataset_id}
+        result = await self.session.execute(query, values)
+        await self.session.commit()
+        return result.scalar_one_or_none()
+    
     async def list_datasets(
         self,
         limit: int = 10,

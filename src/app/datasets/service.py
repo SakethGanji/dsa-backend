@@ -23,10 +23,11 @@ logger = logging.getLogger(__name__)
 class DatasetsService:
     """Service layer for dataset operations"""
     
-    def __init__(self, repository, storage_backend):
+    def __init__(self, repository, storage_backend, user_service=None):
         self.repository = repository
         self.storage = storage_backend
         self.validator = DatasetValidator()
+        self.user_service = user_service
         self._tag_cache = {}  # Simple in-memory cache
         self._cache_timestamp = None
         self._cache_ttl = 300  # 5 minutes
@@ -58,6 +59,17 @@ class DatasetsService:
         )
         
         dataset_id = await self.repository.upsert_dataset(request.dataset_id, dataset_create)
+        
+        # Grant admin permission to creator for new datasets
+        if not request.dataset_id and self.user_service:
+            from app.users.models import ResourceType, PermissionType
+            await self.user_service.grant_permission(
+                ResourceType.DATASET,
+                dataset_id,
+                user_id,
+                PermissionType.ADMIN,
+                user_id
+            )
         
         # Get the original file type
         file_type = os.path.splitext(file.filename)[1].lower()[1:]
@@ -230,6 +242,45 @@ class DatasetsService:
             return await self.repository.get_file(version.file_id)
         
         return None
+    
+    async def delete_dataset(self, dataset_id: int) -> bool:
+        """Delete an entire dataset and all its versions"""
+        dataset = await self.get_dataset(dataset_id)
+        if not dataset:
+            raise DatasetNotFound(dataset_id)
+        
+        # Delete all versions first
+        versions = await self.repository.list_dataset_versions(dataset_id)
+        for version in versions:
+            await self.delete_dataset_version(version.id)
+        
+        # Delete all pointers
+        pointers = await self.repository.list_dataset_pointers(dataset_id)
+        for pointer in pointers:
+            await self.repository.delete_pointer(dataset_id, pointer.pointer_name)
+        
+        # Delete all tags associations
+        await self.repository.delete_dataset_tags(dataset_id)
+        
+        # Delete all permissions
+        if self.user_service:
+            from app.users.models import ResourceType
+            # Get all permissions for this dataset
+            permissions = await self.user_service.list_resource_permissions(
+                ResourceType.DATASET, dataset_id
+            )
+            # Revoke each permission
+            for perm in permissions:
+                await self.user_service.revoke_permission(
+                    ResourceType.DATASET,
+                    dataset_id,
+                    perm.user_id,
+                    perm.permission_type
+                )
+        
+        # Finally delete the dataset itself
+        deleted_id = await self.repository.delete_dataset(dataset_id)
+        return deleted_id is not None
     
     async def delete_dataset_version(self, version_id: int) -> bool:
         """Delete a dataset version"""
@@ -837,3 +888,27 @@ class DatasetsService:
         except ValueError:
             # Not a number, try as pointer name
             return await self.repository.resolve_pointer_to_version(dataset_id, ref)
+    
+    # Permission helpers
+    async def check_dataset_permission(
+        self,
+        dataset_id: int,
+        user_id: int,
+        permission_type: str
+    ) -> bool:
+        """Check if user has permission for a dataset"""
+        if not self.user_service:
+            # No permission service configured, allow all
+            return True
+        
+        from app.users.models import ResourceType, PermissionType
+        
+        # Convert string to enum
+        perm_type = PermissionType(permission_type)
+        
+        return await self.user_service.check_permission(
+            ResourceType.DATASET,
+            dataset_id,
+            user_id,
+            perm_type
+        )
