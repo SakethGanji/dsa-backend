@@ -12,6 +12,7 @@ class UserOut(BaseModel):
     id: int
     soeid: str
     role_id: int
+    role_name: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

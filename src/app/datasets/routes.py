@@ -54,6 +54,7 @@ async def upload_dataset(
     tags: Optional[str] = Form(None, description="Tags as JSON array or comma-separated string"),
     parent_version_id: Optional[int] = Form(None, description="Parent version ID for branching"),
     message: Optional[str] = Form(None, description="Version message/description"),
+    branch_name: Optional[str] = Form("main", description="Target branch for the upload"),
     controller: ControllerDep = None,
     current_user: UserDep = None
 ) -> DatasetUploadResponse:
@@ -66,7 +67,8 @@ async def upload_dataset(
         description=description,
         tags=tags,
         parent_version_id=parent_version_id,
-        message=message
+        message=message,
+        branch_name=branch_name
     )
 
 
@@ -478,7 +480,7 @@ async def create_tag(
 
 
 @router.patch(
-    "/{dataset_id}/branches/{branch_name}",
+    "/{dataset_id}/branches/{branch_name:path}",
     response_model=Dict[str, Any],
     summary="Update branch",
     description="Update a branch to point to a different version"
@@ -547,6 +549,71 @@ async def delete_pointer(
 ) -> Dict[str, Any]:
     """Delete a branch or tag (cannot delete 'main' branch)."""
     return await controller.delete_pointer(dataset_id, pointer_name, current_user)
+
+
+@router.get(
+    "/{dataset_id}/branches",
+    response_model=List[DatasetPointer],
+    summary="List branches",
+    description="List all branches for a dataset"
+)
+async def list_branches(
+    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
+    controller: ControllerDep = None,
+    current_user: UserDep = None
+) -> List[DatasetPointer]:
+    """Get all branches (not tags) for a dataset."""
+    return await controller.list_branches(dataset_id)
+
+
+@router.get(
+    "/{dataset_id}/branches/{branch_name:path}/head",
+    response_model=DatasetVersion,
+    summary="Get branch head",
+    description="Get the latest version on a branch"
+)
+async def get_branch_head(
+    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
+    branch_name: str = Path(..., description="Branch name"),
+    controller: ControllerDep = None,
+    current_user: UserDep = None
+) -> DatasetVersion:
+    """Get the latest version on a specific branch."""
+    return await controller.get_branch_head(dataset_id, branch_name)
+
+
+@router.get(
+    "/{dataset_id}/branches/{branch_name:path}/history",
+    response_model=List[DatasetVersion],
+    summary="Get branch history",
+    description="Get commit history for a branch"
+)
+async def get_branch_history(
+    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
+    branch_name: str = Path(..., description="Branch name"),
+    controller: ControllerDep = None,
+    current_user: UserDep = None
+) -> List[DatasetVersion]:
+    """Get the commit history for a branch by following parent links."""
+    return await controller.get_branch_history(dataset_id, branch_name)
+
+
+@router.post(
+    "/{dataset_id}/branches/{branch_name:path}/commit",
+    response_model=DatasetUploadResponse,
+    summary="Commit to branch",
+    description="Create a new version on a specific branch"
+)
+async def commit_to_branch(
+    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
+    branch_name: str = Path(..., description="Target branch"),
+    file: UploadFile = File(..., description="The dataset file to commit"),
+    message: Optional[str] = Form(None, description="Commit message"),
+    controller: ControllerDep = None,
+    current_user: UserDep = None
+) -> DatasetUploadResponse:
+    """Create a new version on a specific branch."""
+    return await controller.commit_to_branch(dataset_id, branch_name, file, message, current_user)
 
 
 # Permission operations

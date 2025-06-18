@@ -18,10 +18,13 @@ class Token(BaseModel):
 class TokenData(BaseModel):
     soeid: Optional[str] = None
     role_id: Optional[int] = None # Added role_id
+    role_name: Optional[str] = None # Added role_name
 
 # Create a JWT access token
-def create_access_token(subject: str, role_id: int, expires_delta: Optional[timedelta] = None) -> str: # Added role_id parameter
+def create_access_token(subject: str, role_id: int, role_name: str = None, expires_delta: Optional[timedelta] = None) -> str: # Added role_name parameter
     to_encode = {"sub": subject, "role_id": role_id} # Added role_id to payload
+    if role_name:
+        to_encode["role_name"] = role_name  # Add role_name if provided
     expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
@@ -46,6 +49,7 @@ def verify_token(token: str, token_type: str = "access") -> TokenData: # Added t
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         soeid: str = payload.get("sub")
         role_id: int = payload.get("role_id") # Extract role_id
+        role_name: str = payload.get("role_name") # Extract role_name
 
         # If verifying a refresh token, check its type
         if token_type == "refresh":
@@ -57,7 +61,7 @@ def verify_token(token: str, token_type: str = "access") -> TokenData: # Added t
 
         if soeid is None:
             raise credentials_exception
-        return TokenData(soeid=soeid, role_id=role_id) # Include role_id in TokenData
+        return TokenData(soeid=soeid, role_id=role_id, role_name=role_name) # Include role_id and role_name in TokenData
     except jwt.ExpiredSignatureError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -75,9 +79,13 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> TokenData:
 class CurrentUser(BaseModel):
     soeid: str
     role_id: int
+    role_name: Optional[str] = None
     
     # Helper methods for role-based access control
     def is_admin(self) -> bool:
+        # Check by role_name if available, otherwise by role_id
+        if self.role_name:
+            return self.role_name == 'admin'
         # Replace 1 with your actual admin role ID
         return self.role_id == 1
         
@@ -101,7 +109,7 @@ def get_current_user_info(token_data: TokenData = Depends(get_current_user)) -> 
             detail="Token missing role information",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return CurrentUser(soeid=token_data.soeid, role_id=token_data.role_id)
+    return CurrentUser(soeid=token_data.soeid, role_id=token_data.role_id, role_name=token_data.role_name)
 
 # Helper dependency to get just the soeid
 def get_current_soeid(token_data: TokenData = Depends(get_current_user)) -> str:

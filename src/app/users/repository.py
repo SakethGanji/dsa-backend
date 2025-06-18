@@ -25,7 +25,12 @@ async def create_user(session: AsyncSession, soeid: str, password_hash: str, rol
 
 async def get_user_by_soeid(session: AsyncSession, soeid: str) -> dict | None:
     result = await session.execute(
-        text("SELECT * FROM users WHERE soeid=:soeid"),
+        text("""
+            SELECT u.*, r.role_name 
+            FROM users u 
+            JOIN roles r ON u.role_id = r.id 
+            WHERE u.soeid = :soeid
+        """),
         {"soeid": soeid}
     )
     row = result.first()

@@ -39,12 +39,11 @@ class DatasetsRepository:
             return await self.create_dataset(dataset)
         
         query = sa.text("""
-        INSERT INTO datasets (name, description, created_by) 
-        VALUES (:name, :description, :created_by)
-        ON CONFLICT (id) DO UPDATE 
+        UPDATE datasets 
         SET name = :name,
             description = :description,
             updated_at = NOW()
+        WHERE id = :id
         RETURNING id;
         """)
         values = {

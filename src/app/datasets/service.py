@@ -69,6 +69,19 @@ class DatasetsService:
                 DatasetPermissionType.ADMIN
             )
         
+        # Handle branch context
+        branch_name = request.branch_name or "main"
+        
+        # For existing datasets, determine parent version from branch
+        if request.dataset_id and not parent_version_id:
+            # Get the current version of the target branch
+            branch_pointer = await self.repository.get_pointer(dataset_id, branch_name)
+            if branch_pointer:
+                parent_version_id = branch_pointer.dataset_version_id
+            elif branch_name != "main":
+                # Branch doesn't exist
+                raise ValueError(f"Branch '{branch_name}' does not exist for dataset {dataset_id}")
+        
         # Get the original file type
         file_type = os.path.splitext(file.filename)[1].lower()[1:]
         
@@ -111,15 +124,13 @@ class DatasetsService:
         # Extract and store schema
         await self._capture_schema(file_path, file_type, version_id)
         
-        # Update 'main' branch to point to new version if this is a linear update
-        if not parent_version_id:
-            # This is a linear update, move main branch
-            main_pointer = await self.repository.get_pointer(dataset_id, "main")
-            if main_pointer:
-                await self.repository.update_pointer(dataset_id, "main", version_id)
-            else:
-                # Create main branch if it doesn't exist
-                await self.create_branch(dataset_id, "main", version_id)
+        # Update branch pointer to new version
+        branch_pointer = await self.repository.get_pointer(dataset_id, branch_name)
+        if branch_pointer:
+            await self.repository.update_pointer(dataset_id, branch_name, version_id)
+        else:
+            # Create branch if it doesn't exist (should only happen for "main" on first upload)
+            await self.create_branch(dataset_id, branch_name, version_id)
         
         return DatasetUploadResponse(
             dataset_id=dataset_id,
@@ -178,14 +189,19 @@ class DatasetsService:
         return await self.get_dataset(dataset_id)
     
     # Version operations
-    async def list_dataset_versions(self, dataset_id: int) -> List[DatasetVersion]:
-        """List all versions of a dataset"""
+    async def list_dataset_versions(self, dataset_id: int, branch_name: Optional[str] = None) -> List[DatasetVersion]:
+        """List all versions of a dataset, optionally filtered by branch"""
         # Check if dataset exists
         dataset = await self.get_dataset(dataset_id)
         if not dataset:
             raise DatasetNotFound(dataset_id)
         
-        return await self.repository.list_dataset_versions(dataset_id)
+        if branch_name:
+            # Get versions on specific branch
+            return await self.get_branch_history(dataset_id, branch_name)
+        else:
+            # Get all versions
+            return await self.repository.list_dataset_versions(dataset_id)
     
     async def get_version_tree(self, dataset_id: int) -> Dict[str, Any]:
         """Get version tree/DAG structure for a dataset"""
@@ -225,6 +241,36 @@ class DatasetsService:
         if not result:
             raise DatasetVersionNotFound(version_id)
         return result
+    
+    async def get_version_from_branch(
+        self, 
+        dataset_id: int, 
+        branch_name: str, 
+        version_ref: Optional[str] = "HEAD"
+    ) -> Optional[DatasetVersion]:
+        """Get a specific version from a branch
+        
+        Args:
+            dataset_id: The dataset ID
+            branch_name: The branch name
+            version_ref: Version reference - "HEAD" for latest, or version number
+        """
+        if version_ref == "HEAD":
+            # Get the latest version on the branch
+            return await self.get_branch_head(dataset_id, branch_name)
+        else:
+            # Get specific version number on the branch
+            branch_history = await self.get_branch_history(dataset_id, branch_name)
+            
+            try:
+                target_version_num = int(version_ref)
+                for version in branch_history:
+                    if version.version_number == target_version_num:
+                        return version
+            except ValueError:
+                raise ValueError(f"Invalid version reference: {version_ref}")
+            
+            return None
     
     async def get_dataset_version_file(self, version_id: int) -> Optional[File]:
         """Get primary file information for a dataset version"""
@@ -788,6 +834,44 @@ class DatasetsService:
         pointer_id = await self.repository.create_pointer(pointer)
         return await self.repository.get_pointer(dataset_id, tag_name)
     
+    async def commit_to_branch(
+        self,
+        dataset_id: int,
+        branch_name: str,
+        file: UploadFile,
+        user_id: int,
+        message: Optional[str] = None
+    ) -> DatasetUploadResponse:
+        """Create a new version on a specific branch"""
+        # Validate dataset exists
+        dataset = await self.get_dataset(dataset_id)
+        if not dataset:
+            raise DatasetNotFound(dataset_id)
+        
+        # Get the branch pointer
+        branch_pointer = await self.repository.get_pointer(dataset_id, branch_name)
+        if not branch_pointer:
+            raise ValueError(f"Branch '{branch_name}' does not exist")
+        if branch_pointer.is_tag:
+            raise ValueError(f"Cannot commit to tag '{branch_name}' - tags are immutable")
+        
+        # Create upload request with branch context
+        upload_request = DatasetUploadRequest(
+            dataset_id=dataset_id,
+            name=dataset.name,
+            description=dataset.description,
+            branch_name=branch_name
+        )
+        
+        # Use the existing upload_dataset method with branch context
+        return await self.upload_dataset(
+            file=file,
+            request=upload_request,
+            user_id=user_id,
+            parent_version_id=branch_pointer.dataset_version_id,
+            message=message
+        )
+    
     async def update_branch(
         self,
         dataset_id: int,
@@ -856,6 +940,57 @@ class DatasetsService:
         except ValueError:
             # Not a number, try as pointer name
             return await self.repository.resolve_pointer_to_version(dataset_id, ref)
+    
+    # Branch navigation methods
+    async def get_branch_head(self, dataset_id: int, branch_name: str) -> Optional[DatasetVersion]:
+        """Get the latest version on a branch"""
+        # Validate dataset exists
+        dataset = await self.get_dataset(dataset_id)
+        if not dataset:
+            raise DatasetNotFound(dataset_id)
+        
+        # Get branch pointer
+        pointer = await self.repository.get_pointer(dataset_id, branch_name)
+        if not pointer:
+            return None
+        
+        # Get the version the branch points to
+        return await self.get_dataset_version(pointer.dataset_version_id)
+    
+    async def list_branches(self, dataset_id: int) -> List[DatasetPointer]:
+        """List all branches (not tags) for a dataset"""
+        pointers = await self.list_dataset_pointers(dataset_id)
+        return [p for p in pointers if not p.is_tag]
+    
+    async def list_tags(self, dataset_id: int) -> List[DatasetPointer]:
+        """List all tags (not branches) for a dataset"""
+        pointers = await self.list_dataset_pointers(dataset_id)
+        return [p for p in pointers if p.is_tag]
+    
+    async def get_branch_history(self, dataset_id: int, branch_name: str) -> List[DatasetVersion]:
+        """Get the commit history for a branch by following parent links"""
+        # Get branch head
+        branch_head = await self.get_branch_head(dataset_id, branch_name)
+        if not branch_head:
+            return []
+        
+        history = []
+        current_version = branch_head
+        
+        # Follow parent links
+        while current_version:
+            history.append(current_version)
+            if current_version.parent_version_id:
+                current_version = await self.get_dataset_version(current_version.parent_version_id)
+            else:
+                break
+        
+        return history
+    
+    async def branch_exists(self, dataset_id: int, branch_name: str) -> bool:
+        """Check if a branch exists"""
+        pointer = await self.repository.get_pointer(dataset_id, branch_name)
+        return pointer is not None and not pointer.is_tag
     
     # Permission helpers
     async def check_dataset_permission(

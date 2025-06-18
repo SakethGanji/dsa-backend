@@ -46,14 +46,16 @@ class DatasetsController:
         description: Optional[str],
         tags: Optional[str],
         parent_version_id: Optional[int] = None,
-        message: Optional[str] = None
+        message: Optional[str] = None,
+        branch_name: Optional[str] = "main"
     ) -> DatasetUploadResponse:
         """Handle dataset upload request"""
         request = DatasetUploadRequest(
             dataset_id=dataset_id,
             name=name,
             description=description,
-            tags=self._parse_tags(tags)
+            tags=self._parse_tags(tags),
+            branch_name=branch_name
         )
         
         try:
@@ -669,3 +671,88 @@ class DatasetsController:
                 detail=str(e)
             )
 
+    
+    async def list_branches(self, dataset_id: int) -> List[DatasetPointer]:
+        """List all branches for a dataset"""
+        try:
+            return await self.service.list_branches(dataset_id)
+        except DatasetNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Dataset {dataset_id} not found"
+            )
+    
+    async def get_branch_head(self, dataset_id: int, branch_name: str) -> DatasetVersion:
+        """Get the latest version on a branch"""
+        try:
+            branch_head = await self.service.get_branch_head(dataset_id, branch_name)
+            if not branch_head:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Branch '{branch_name}' not found or has no versions"
+                )
+            return branch_head
+        except DatasetNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Dataset {dataset_id} not found"
+            )
+    
+    async def get_branch_history(self, dataset_id: int, branch_name: str) -> List[DatasetVersion]:
+        """Get commit history for a branch"""
+        try:
+            return await self.service.get_branch_history(dataset_id, branch_name)
+        except DatasetNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Dataset {dataset_id} not found"
+            )
+    
+    async def commit_to_branch(
+        self,
+        dataset_id: int,
+        branch_name: str,
+        file: UploadFile,
+        message: Optional[str],
+        current_user: Any
+    ) -> DatasetUploadResponse:
+        """Create a new version on a specific branch"""
+        # Check write permission
+        user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User not found"
+            )
+        
+        has_permission = await self.service.check_dataset_permission(dataset_id, user_id, "write")
+        if not has_permission:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Write permission required to commit to branch"
+            )
+        
+        try:
+            return await self.service.commit_to_branch(
+                dataset_id=dataset_id,
+                branch_name=branch_name,
+                file=file,
+                user_id=user_id,
+                message=message
+            )
+        except DatasetNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Dataset {dataset_id} not found"
+            )
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+        except Exception as e:
+            logger.error(f"Error committing to branch: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="An error occurred while committing to branch"
+            )

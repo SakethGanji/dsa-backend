@@ -94,6 +94,7 @@ class DatasetUploadRequest(BaseModel):
     name: str
     description: Optional[str] = None
     tags: Optional[List[str]] = None
+    branch_name: Optional[str] = Field("main", description="Target branch for the upload")
 
 class SheetInfo(BaseModel):
     """Represents a sheet as a component in dataset_version_files"""

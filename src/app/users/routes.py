@@ -44,11 +44,12 @@ async def login_for_access_token(
             detail="Internal server error: SOEID not found after authentication.",
         )
 
-    # Get role_id from user_data
+    # Get role_id and role_name from user_data
     user_role_id = user_data.role_id
+    user_role_name = user_data.role_name
     
-    # Pass subject and role_id directly as required by the function signature
-    access_token = create_access_token(subject=user_soeid, role_id=user_role_id)
+    # Pass subject, role_id, and role_name as required by the function signature
+    access_token = create_access_token(subject=user_soeid, role_id=user_role_id, role_name=user_role_name)
     # Create refresh token using the new function
     refresh_token = create_refresh_token(subject=user_soeid)
     logger.info(f"Token created for user: {user_soeid}")
@@ -75,8 +76,9 @@ async def refresh_access_token(refresh_token: str, session: AsyncSession = Depen
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Since user_data is a UserOut model, access role_id as an attribute
+    # Since user_data is a UserOut model, access role_id and role_name as attributes
     user_role_id = user_data.role_id
+    user_role_name = user_data.role_name
     if user_role_id is None:
         logger.error(f"User data missing role_id for user: {token_data.soeid} during token refresh")
         raise HTTPException(
@@ -84,7 +86,7 @@ async def refresh_access_token(refresh_token: str, session: AsyncSession = Depen
             detail="User data incomplete for token refresh.",
         )
 
-    new_access_token = create_access_token(subject=token_data.soeid, role_id=user_role_id)
+    new_access_token = create_access_token(subject=token_data.soeid, role_id=user_role_id, role_name=user_role_name)
     logger.info(f"Access token refreshed for user: {token_data.soeid}")
     return {"access_token": new_access_token, "refresh_token": refresh_token, "token_type": "bearer"}
 
