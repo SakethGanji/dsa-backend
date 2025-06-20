@@ -1,202 +1,213 @@
+      
+-- 1. Core Security & User Entities
+-- (No changes in this section)
+
 CREATE TABLE IF NOT EXISTS roles (
-  id          SERIAL      PRIMARY KEY,
-  role_name   VARCHAR(50)  UNIQUE NOT NULL,
-  description TEXT
+    id SERIAL PRIMARY KEY,
+    role_name VARCHAR(50) UNIQUE NOT NULL,
+    description TEXT
 );
 
 CREATE TABLE IF NOT EXISTS users (
-  id             SERIAL      PRIMARY KEY,
-  soeid          VARCHAR(20)  UNIQUE NOT NULL,
-  password_hash  VARCHAR(255) NOT NULL,
-  role_id        INT          NOT NULL REFERENCES roles(id),
-  created_at     TIMESTAMP    NOT NULL DEFAULT NOW(),
-  updated_at     TIMESTAMP    NOT NULL DEFAULT NOW()
+    id SERIAL PRIMARY KEY,
+    soeid VARCHAR(20) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    role_id INT NOT NULL REFERENCES roles(id),
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+-- 2. Content-Addressable & Deduplicated File Store
+-- (No changes in this section)
 
 CREATE TABLE IF NOT EXISTS files (
-  id            SERIAL      PRIMARY KEY,
-  storage_type  VARCHAR(50)  NOT NULL,
-  file_type     VARCHAR(50)  NOT NULL,
-  mime_type     VARCHAR(100),
-  file_data     BYTEA,
-  file_path     TEXT,
-  file_size     BIGINT,
-  created_at    TIMESTAMP    NOT NULL DEFAULT NOW()
+    id SERIAL PRIMARY KEY,
+    storage_type VARCHAR(50) NOT NULL, -- e.g. 's3', 'local'
+    file_type VARCHAR(50) NOT NULL, -- e.g. 'parquet','csv','json'
+    mime_type VARCHAR(100),
+    file_path TEXT, -- e.g. S3 URI
+    file_size BIGINT,
+    content_hash CHAR(64) UNIQUE, -- SHA256 for dedupe
+    reference_count BIGINT NOT NULL DEFAULT 0, -- for safe GC
+    compression_type VARCHAR(50), -- e.g. 'snappy','zstd'
+    metadata JSONB, -- arbitrary file metadata
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+-- 2.1 File-level permissions
+
+CREATE TYPE file_permission AS ENUM ('read','write','admin');
+
+CREATE TABLE IF NOT EXISTS file_permissions (
+    file_id INT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    permission_type file_permission NOT NULL,
+    PRIMARY KEY (file_id, user_id)
+);
+
+-- 3. Datasets
+-- (No changes in this section)
 
 CREATE TABLE IF NOT EXISTS datasets (
-  id           SERIAL      PRIMARY KEY,
-  name         VARCHAR(255) NOT NULL,
-  description  TEXT,
-  created_by   INT          NOT NULL REFERENCES users(id),
-  created_at   TIMESTAMP    NOT NULL DEFAULT NOW(),
-  updated_at   TIMESTAMP    NOT NULL DEFAULT NOW()
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    created_by INT NOT NULL REFERENCES users(id),
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    UNIQUE(name, created_by)
 );
 
+-- 3.1 Dataset-level permissions
+
+CREATE TYPE dataset_permission AS ENUM ('read','write','admin');
+
+CREATE TABLE IF NOT EXISTS dataset_permissions (
+    dataset_id INT NOT NULL REFERENCES datasets(id) ON DELETE CASCADE,
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    permission_type dataset_permission NOT NULL,
+    PRIMARY KEY (dataset_id, user_id)
+);
+
+-- 4. Versioning
+-- (This section is MODIFIED for linear versioning)
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'version_status') THEN
+        CREATE TYPE version_status AS ENUM('active','archived','deleted');
+    END IF;
+END$$;
+
+-- MODIFIED: Simplified for linear history.
+-- The `parent_version_id` column has been removed.
+-- The linear history is now strictly enforced by the `version_number`.
 CREATE TABLE IF NOT EXISTS dataset_versions (
-  id                       SERIAL      PRIMARY KEY,
-  dataset_id               INT         NOT NULL REFERENCES datasets(id),
-  version_number           INT         NOT NULL,
-  file_id                  INT         NOT NULL REFERENCES files(id),
-  ingestion_timestamp      TIMESTAMP    NOT NULL DEFAULT NOW(),
-  last_updated_timestamp   TIMESTAMP    NOT NULL DEFAULT NOW(),
-  uploaded_by              INT         NOT NULL REFERENCES users(id),
-  parent_version_id        INT         REFERENCES dataset_versions(id),
-  message                  TEXT,
-  overlay_file_id          INT         REFERENCES files(id),
-  UNIQUE (dataset_id, version_number)
+    id SERIAL PRIMARY KEY,
+    dataset_id INT NOT NULL REFERENCES datasets(id) ON DELETE CASCADE,
+    -- parent_version_id REMOVED to enforce strict linear history.
+    overlay_file_id INT NOT NULL REFERENCES files(id),
+    materialized_file_id INT REFERENCES files(id) ON DELETE SET NULL,
+    message TEXT, -- "Commit message" for the version.
+    version_number INT NOT NULL, -- Monotonically increasing per-dataset, starting at 1.
+    status version_status NOT NULL DEFAULT 'active',
+    created_by INT NOT NULL REFERENCES users(id),
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+
+    -- The UNIQUE constraint on (dataset_id, version_number) now solely defines the linear history.
+    UNIQUE (dataset_id, version_number)
 );
 
--- Index for parent version lookups
-CREATE INDEX IF NOT EXISTS idx_dataset_versions_parent ON dataset_versions(parent_version_id);
+-- Optional but recommended index for quickly finding the latest version of a dataset.
+CREATE INDEX IF NOT EXISTS idx_latest_version ON dataset_versions (dataset_id, version_number DESC);
 
-CREATE TABLE IF NOT EXISTS sheets (
-  id                   SERIAL      PRIMARY KEY,
-  dataset_version_id   INT         NOT NULL REFERENCES dataset_versions(id),
-  name                 VARCHAR(255) NOT NULL,
-  sheet_index          INT         NOT NULL,
-  description          TEXT,
-  UNIQUE (dataset_version_id, sheet_index)
+
+-- 4.1 Version Tagging
+-- REPLACED: `dataset_pointers` is replaced with `version_tags` to remove the concept of "branches".
+-- This table creates permanent, named aliases for specific versions.
+CREATE TABLE IF NOT EXISTS version_tags (
+    id SERIAL PRIMARY KEY,
+    dataset_id INT NOT NULL REFERENCES datasets(id) ON DELETE CASCADE,
+    tag_name VARCHAR(255) NOT NULL, -- e.g. 'v1.0', 'latest-stable', 'approved-for-prod'
+    dataset_version_id INT NOT NULL REFERENCES dataset_versions(id) ON DELETE CASCADE,
+
+    -- A tag name must be unique for a given dataset.
+    UNIQUE (dataset_id, tag_name)
 );
 
--- METADATA tables (tags + sheet metadata)
+-- Index for quickly looking up a version by its tag.
+CREATE INDEX IF NOT EXISTS idx_version_tags_lookup ON version_tags (dataset_id, tag_name);
+
+
+-- 5. Multi-file Support
+-- (No changes in this section)
+
+CREATE TABLE IF NOT EXISTS dataset_version_files (
+    version_id INT NOT NULL REFERENCES dataset_versions(id) ON DELETE CASCADE,
+    file_id INT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+    component_type VARCHAR(50) NOT NULL, -- e.g. 'sheet','partition','shard'
+    component_name TEXT, -- e.g. sheet name or partition key
+    component_index INT, -- ordering within this version
+    metadata JSONB, -- per-file hints
+    PRIMARY KEY (version_id, file_id)
+);
+
+-- 6. Schema Evolution
+-- (No changes in this section)
+
+CREATE TABLE IF NOT EXISTS dataset_schema_versions (
+    id SERIAL PRIMARY KEY,
+    dataset_version_id INT NOT NULL REFERENCES dataset_versions(id) ON DELETE CASCADE,
+    schema_json JSONB NOT NULL, -- full JSON schema snapshot
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- 7. Dataset Tags (categorization)
+-- (No changes in this section)
 
 CREATE TABLE IF NOT EXISTS tags (
-  id          SERIAL      PRIMARY KEY,
-  name        VARCHAR(100) UNIQUE NOT NULL,
-  description TEXT
+    id SERIAL PRIMARY KEY,
+    tag_name VARCHAR(100) UNIQUE NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS dataset_tags (
-  dataset_id  INT NOT NULL REFERENCES datasets(id) ON DELETE CASCADE,
-  tag_id      INT NOT NULL REFERENCES tags(id)     ON DELETE RESTRICT,
-  PRIMARY KEY (dataset_id, tag_id)
+    dataset_id INT NOT NULL REFERENCES datasets(id) ON DELETE CASCADE,
+    tag_id INT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+    PRIMARY KEY (dataset_id, tag_id)
 );
 
-CREATE TABLE IF NOT EXISTS sheet_metadata (
-  id                       SERIAL      PRIMARY KEY,
-  sheet_id                 INT         NOT NULL REFERENCES sheets(id)   ON DELETE CASCADE,
-  metadata                 JSONB       NOT NULL,
-  profiling_report_file_id INT         REFERENCES files(id)            ON DELETE SET NULL
-);
+-- 8. Sampling & Exploration Runs
+-- (No changes in this section)
 
--- EXPERIMENTS tables
-
-CREATE TABLE IF NOT EXISTS data_exploration_configs (
-  id         SERIAL      PRIMARY KEY,
-  user_id    INT          NOT NULL REFERENCES users(id),
-  name       VARCHAR(255) NOT NULL,
-  config     JSONB       NOT NULL,
-  created_at TIMESTAMP    NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS data_exploration_runs (
-  id                 SERIAL      PRIMARY KEY,
-  dataset_version_id INT         NOT NULL REFERENCES dataset_versions(id),
-  sheet_id           INT            REFERENCES sheets(id),
-  user_id            INT         NOT NULL REFERENCES users(id),
-  exploration_config JSONB       NOT NULL,
-  run_timestamp      TIMESTAMP    NOT NULL DEFAULT NOW(),
-  output_summary     JSONB
+CREATE TABLE IF NOT EXISTS sampling_configurations (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    method VARCHAR(100) NOT NULL,
+    parameters JSONB NOT NULL,
+    created_by INT REFERENCES users(id),
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS sampling_runs (
-  id                  SERIAL      PRIMARY KEY,
-  dataset_version_id  INT         NOT NULL REFERENCES dataset_versions(id),
-  sheet_id            INT            REFERENCES sheets(id),
-  user_id             INT         NOT NULL REFERENCES users(id),
-  sampling_method     VARCHAR(100) NOT NULL,
-  sampling_parameters JSONB,
-  run_timestamp       TIMESTAMP    NOT NULL DEFAULT NOW(),
-  status              VARCHAR(20)
+    id SERIAL PRIMARY KEY,
+    dataset_version_id INT NOT NULL REFERENCES dataset_versions(id),
+    user_id INT NOT NULL REFERENCES users(id),
+    config_id INT REFERENCES sampling_configurations(id),
+    sampling_method VARCHAR(100) NOT NULL,
+    sampling_parameters JSONB,
+    sample_size BIGINT,
+    execution_time_ms INT,
+    notes TEXT,
+    run_timestamp TIMESTAMP NOT NULL DEFAULT NOW(),
+    status VARCHAR(20) NOT NULL DEFAULT 'running',
+    output_file_id INT REFERENCES files(id)
 );
 
--- OUTPUTS
-
--- sampling outputs
-CREATE TABLE IF NOT EXISTS sampling_outputs (
-  id                 SERIAL      PRIMARY KEY,
-  sampling_run_id    INT         NOT NULL REFERENCES sampling_runs(id) ON DELETE CASCADE,
-  output_index       INT         NOT NULL,
-  file_id            INT         NOT NULL REFERENCES files(id)        ON DELETE RESTRICT,
-  created_by         INT         NOT NULL REFERENCES users(id),
-  created_at         TIMESTAMP    NOT NULL DEFAULT NOW(),
-  output_name        VARCHAR(255),
-  metadata           JSONB,
-  CONSTRAINT uq_sampling_output_per_run UNIQUE (sampling_run_id, output_index)
+CREATE TABLE IF NOT EXISTS exploration_runs (
+    id SERIAL PRIMARY KEY,
+    dataset_version_id INT NOT NULL REFERENCES dataset_versions(id),
+    user_id INT NOT NULL REFERENCES users(id),
+    config JSONB NOT NULL,
+    execution_time_ms INT,
+    output_summary JSONB,
+    output_file_id INT REFERENCES files(id),
+    run_timestamp TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
--- exploration outputs
-CREATE TABLE IF NOT EXISTS exploration_outputs (
-  id                    SERIAL      PRIMARY KEY,
-  exploration_run_id    INT         NOT NULL REFERENCES data_exploration_runs(id) ON DELETE CASCADE,
-  output_index          INT         NOT NULL,
-  file_id               INT         NOT NULL REFERENCES files(id)               ON DELETE RESTRICT,
-  created_by            INT         NOT NULL REFERENCES users(id),
-  created_at            TIMESTAMP    NOT NULL DEFAULT NOW(),
-  metadata              JSONB,
-  CONSTRAINT uq_exploration_output_per_run UNIQUE (exploration_run_id, output_index)
+-- 9. Dataset Statistics (for monitoring & compaction)
+-- (No changes in this section)
+
+CREATE TABLE IF NOT EXISTS dataset_statistics (
+    version_id INT PRIMARY KEY REFERENCES dataset_versions(id) ON DELETE CASCADE,
+    row_count BIGINT,
+    column_count INT,
+    size_bytes BIGINT,
+    statistics JSONB, -- per-column stats (min/max/nulls/etc.)
+    computed_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
--- SCHEMA CAPTURE
 
--- Schema snapshots for dataset versions
-CREATE TABLE IF NOT EXISTS dataset_schema_versions (
-  id                    SERIAL      PRIMARY KEY,
-  dataset_version_id    INT         NOT NULL REFERENCES dataset_versions(id),
-  schema_json           JSONB       NOT NULL,
-  created_at            TIMESTAMP    NOT NULL DEFAULT NOW()
-);
-
--- Index for schema version lookups
-CREATE INDEX IF NOT EXISTS idx_schema_versions_dataset ON dataset_schema_versions(dataset_version_id);
-
--- MULTI-FILE SUPPORT
-
--- Junction table for version-file relationships
-CREATE TABLE IF NOT EXISTS dataset_version_files (
-  version_id        INT         NOT NULL REFERENCES dataset_versions(id),
-  file_id           INT         NOT NULL REFERENCES files(id),
-  component_type    VARCHAR(50) NOT NULL,
-  component_name    TEXT,
-  component_index   INT,
-  metadata          JSONB,
-  PRIMARY KEY (version_id, file_id)
-);
-
--- Index for version file lookups
-CREATE INDEX IF NOT EXISTS idx_version_files_version ON dataset_version_files(version_id);
-
--- BRANCH AND TAG SUPPORT
-
--- Pointers table for branches and tags
-CREATE TABLE IF NOT EXISTS dataset_pointers (
-  id                  SERIAL       PRIMARY KEY,
-  dataset_id          INT          NOT NULL REFERENCES datasets(id),
-  pointer_name        VARCHAR(255) NOT NULL,
-  dataset_version_id  INT          NOT NULL REFERENCES dataset_versions(id),
-  is_tag              BOOLEAN      NOT NULL DEFAULT FALSE,
-  created_at          TIMESTAMP    NOT NULL DEFAULT NOW(),
-  updated_at          TIMESTAMP    NOT NULL DEFAULT NOW(),
-  UNIQUE (dataset_id, pointer_name)
-);
-
--- Index for dataset pointer lookups
-CREATE INDEX IF NOT EXISTS idx_pointers_dataset ON dataset_pointers(dataset_id);
-
--- PERMISSIONS
-
--- Permissions table for dataset and file access control
-CREATE TABLE IF NOT EXISTS permissions (
-  id                SERIAL      PRIMARY KEY,
-  resource_type     VARCHAR(50) NOT NULL, -- 'dataset' or 'file'
-  resource_id       INT         NOT NULL,
-  user_id           INT         NOT NULL REFERENCES users(id),
-  permission_type   VARCHAR(20) NOT NULL, -- 'read', 'write', 'admin'
-  granted_at        TIMESTAMP   NOT NULL DEFAULT NOW(),
-  granted_by        INT         NOT NULL REFERENCES users(id),
-  UNIQUE (resource_type, resource_id, user_id, permission_type)
-);
-
--- Index for permission lookups
-CREATE INDEX IF NOT EXISTS idx_permissions_lookup ON permissions(resource_type, resource_id, user_id);
+-- 10. (Optional) Fine-grained Transformation Log
+-- REMOVED: The `transformations` table has been removed for simplicity as requested.
+-- The commit message in `dataset_versions.message` should be used to describe changes.

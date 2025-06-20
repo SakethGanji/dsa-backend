@@ -4,7 +4,6 @@ from pydantic import BaseModel, Field
 
 class TagBase(BaseModel):
     name: str
-    description: Optional[str] = None
 
 class TagCreate(TagBase):
     pass
@@ -22,14 +21,17 @@ class FileBase(BaseModel):
     mime_type: Optional[str] = None
     file_path: Optional[str] = None
     file_size: Optional[int] = None
+    content_hash: Optional[str] = None
+    reference_count: Optional[int] = 0
+    compression_type: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 class FileCreate(FileBase):
-    file_data: Optional[bytes] = None
+    pass
 
 class File(FileBase):
     id: int
     created_at: datetime
-    file_data: Optional[bytes] = None
 
     class Config:
         from_attributes = True
@@ -37,23 +39,30 @@ class File(FileBase):
 # Sheet functionality now uses dataset_version_files table
 # with component_type='sheet'
 
+from enum import Enum
+
+class VersionStatus(str, Enum):
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+    DELETED = "deleted"
+
 class DatasetVersionBase(BaseModel):
     dataset_id: int
     version_number: int
-    file_id: int
-    uploaded_by: int
-    parent_version_id: Optional[int] = None
-    message: Optional[str] = None
-    overlay_file_id: Optional[int] = None
+    overlay_file_id: int
+    created_by: int
 
 class DatasetVersionCreate(DatasetVersionBase):
-    pass
+    message: Optional[str] = None
+    status: Optional[VersionStatus] = VersionStatus.ACTIVE
 
 class DatasetVersion(DatasetVersionBase):
     id: int
-    ingestion_timestamp: datetime
-    last_updated_timestamp: datetime
-    uploaded_by_soeid: Optional[str] = None
+    materialized_file_id: Optional[int] = None
+    message: Optional[str] = None
+    status: VersionStatus = VersionStatus.ACTIVE
+    created_at: datetime
+    updated_at: datetime
     file_type: Optional[str] = None
     file_size: Optional[int] = None
     # Sheets are now retrieved via dataset_version_files
@@ -94,7 +103,6 @@ class DatasetUploadRequest(BaseModel):
     name: str
     description: Optional[str] = None
     tags: Optional[List[str]] = None
-    branch_name: Optional[str] = Field("main", description="Target branch for the upload")
 
 class SheetInfo(BaseModel):
     """Represents a sheet as a component in dataset_version_files"""
@@ -139,25 +147,21 @@ class VersionFile(VersionFileBase):
     class Config:
         from_attributes = True
 
-class DatasetPointerBase(BaseModel):
-    dataset_id: int
-    pointer_name: str = Field(..., max_length=255, description="Branch or tag name")
-    dataset_version_id: int
-    is_tag: bool = Field(False, description="True for immutable tags, False for branches")
 
-class DatasetPointerCreate(DatasetPointerBase):
+class VersionTagBase(BaseModel):
+    dataset_id: int
+    tag_name: str = Field(..., description="Tag name e.g. 'v1.0', 'latest-stable'")
+    dataset_version_id: int
+
+class VersionTagCreate(VersionTagBase):
     pass
 
-class DatasetPointerUpdate(BaseModel):
-    dataset_version_id: int
-
-class DatasetPointer(DatasetPointerBase):
+class VersionTag(VersionTagBase):
     id: int
-    created_at: datetime
-    updated_at: datetime
 
     class Config:
         from_attributes = True
+
 
 class DatasetListParams(BaseModel):
     limit: Optional[int] = Field(10, ge=1, le=100)

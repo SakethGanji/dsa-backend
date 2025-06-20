@@ -10,7 +10,7 @@ from app.datasets.service import DatasetsService
 from app.datasets.repository import DatasetsRepository
 from app.datasets.models import (
     Dataset, DatasetUploadResponse, DatasetUpdate,
-    DatasetVersion, Tag, SheetInfo, SchemaVersion, VersionFile, DatasetPointer
+    DatasetVersion, Tag, SheetInfo, SchemaVersion, VersionFile, VersionTag
 )
 from app.users.models import DatasetPermission, PermissionGrant, DatasetPermissionType
 from app.datasets.constants import DEFAULT_PAGE_SIZE, MAX_ROWS_PER_PAGE
@@ -52,9 +52,6 @@ async def upload_dataset(
     name: str = Form(..., description="Name of the dataset"),
     description: Optional[str] = Form(None, description="Description of the dataset"),
     tags: Optional[str] = Form(None, description="Tags as JSON array or comma-separated string"),
-    parent_version_id: Optional[int] = Form(None, description="Parent version ID for branching"),
-    message: Optional[str] = Form(None, description="Version message/description"),
-    branch_name: Optional[str] = Form("main", description="Target branch for the upload"),
     controller: ControllerDep = None,
     current_user: UserDep = None
 ) -> DatasetUploadResponse:
@@ -66,9 +63,6 @@ async def upload_dataset(
         name=name,
         description=description,
         tags=tags,
-        parent_version_id=parent_version_id,
-        message=message,
-        branch_name=branch_name
     )
 
 
@@ -179,19 +173,6 @@ async def list_dataset_versions(
     return await controller.list_dataset_versions(dataset_id)
 
 
-@router.get(
-    "/{dataset_id}/versions/tree",
-    response_model=Dict[str, Any],
-    summary="Get version tree",
-    description="Get version tree/DAG structure showing parent-child relationships"
-)
-async def get_version_tree(
-    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
-    controller: ControllerDep = None,
-    current_user: UserDep = None
-) -> Dict[str, Any]:
-    """Get version tree structure showing branching and parent relationships."""
-    return await controller.get_version_tree(dataset_id)
 
 
 @router.get(
@@ -428,192 +409,6 @@ async def get_version_file(
     return await controller.get_version_file(version_id, component_type, component_name)
 
 
-# Branch and Tag operations
-@router.post(
-    "/{dataset_id}/branches",
-    response_model=DatasetPointer,
-    summary="Create branch",
-    description="Create a new branch pointing to a specific version"
-)
-async def create_branch(
-    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
-    request: Dict[str, Any] = Body(..., example={"branch_name": "feature-branch", "from_version_id": 1}),
-    controller: ControllerDep = None,
-    current_user: UserDep = None
-) -> DatasetPointer:
-    """Create a new branch from an existing version."""
-    branch_name = request.get("branch_name")
-    from_version_id = request.get("from_version_id")
-    
-    if not branch_name or not from_version_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Both branch_name and from_version_id are required"
-        )
-    
-    return await controller.create_branch(dataset_id, branch_name, from_version_id, current_user)
-
-
-@router.post(
-    "/{dataset_id}/tags",
-    response_model=DatasetPointer,
-    summary="Create tag",
-    description="Create an immutable tag pointing to a specific version"
-)
-async def create_tag(
-    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
-    request: Dict[str, Any] = Body(..., example={"tag_name": "v1.0", "version_id": 1}),
-    controller: ControllerDep = None,
-    current_user: UserDep = None
-) -> DatasetPointer:
-    """Create an immutable tag for a specific version."""
-    tag_name = request.get("tag_name")
-    version_id = request.get("version_id")
-    
-    if not tag_name or not version_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Both tag_name and version_id are required"
-        )
-    
-    return await controller.create_tag(dataset_id, tag_name, version_id, current_user)
-
-
-@router.patch(
-    "/{dataset_id}/branches/{branch_name:path}",
-    response_model=Dict[str, Any],
-    summary="Update branch",
-    description="Update a branch to point to a different version"
-)
-async def update_branch(
-    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
-    branch_name: str = Path(..., description="Branch name to update"),
-    request: Dict[str, int] = Body(..., example={"to_version_id": 2}),
-    controller: ControllerDep = None,
-    current_user: UserDep = None
-) -> Dict[str, Any]:
-    """Move a branch pointer to a different version."""
-    to_version_id = request.get("to_version_id")
-    
-    if not to_version_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="to_version_id is required"
-        )
-    
-    return await controller.update_branch(dataset_id, branch_name, to_version_id, current_user)
-
-
-@router.get(
-    "/{dataset_id}/pointers",
-    response_model=List[DatasetPointer],
-    summary="List pointers",
-    description="List all branches and tags for a dataset"
-)
-async def list_dataset_pointers(
-    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
-    controller: ControllerDep = None,
-    current_user: UserDep = None
-) -> List[DatasetPointer]:
-    """Get all branches and tags for a dataset."""
-    return await controller.list_dataset_pointers(dataset_id)
-
-
-@router.get(
-    "/{dataset_id}/pointers/{pointer_name}",
-    response_model=DatasetPointer,
-    summary="Get pointer",
-    description="Get details of a specific branch or tag"
-)
-async def get_pointer(
-    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
-    pointer_name: str = Path(..., description="Pointer name (branch or tag)"),
-    controller: ControllerDep = None,
-    current_user: UserDep = None
-) -> DatasetPointer:
-    """Get information about a specific branch or tag."""
-    return await controller.get_pointer(dataset_id, pointer_name)
-
-
-@router.delete(
-    "/{dataset_id}/pointers/{pointer_name}",
-    response_model=Dict[str, Any],
-    summary="Delete pointer",
-    description="Delete a branch or tag"
-)
-async def delete_pointer(
-    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
-    pointer_name: str = Path(..., description="Pointer name to delete"),
-    controller: ControllerDep = None,
-    current_user: UserDep = None
-) -> Dict[str, Any]:
-    """Delete a branch or tag (cannot delete 'main' branch)."""
-    return await controller.delete_pointer(dataset_id, pointer_name, current_user)
-
-
-@router.get(
-    "/{dataset_id}/branches",
-    response_model=List[DatasetPointer],
-    summary="List branches",
-    description="List all branches for a dataset"
-)
-async def list_branches(
-    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
-    controller: ControllerDep = None,
-    current_user: UserDep = None
-) -> List[DatasetPointer]:
-    """Get all branches (not tags) for a dataset."""
-    return await controller.list_branches(dataset_id)
-
-
-@router.get(
-    "/{dataset_id}/branches/{branch_name:path}/head",
-    response_model=DatasetVersion,
-    summary="Get branch head",
-    description="Get the latest version on a branch"
-)
-async def get_branch_head(
-    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
-    branch_name: str = Path(..., description="Branch name"),
-    controller: ControllerDep = None,
-    current_user: UserDep = None
-) -> DatasetVersion:
-    """Get the latest version on a specific branch."""
-    return await controller.get_branch_head(dataset_id, branch_name)
-
-
-@router.get(
-    "/{dataset_id}/branches/{branch_name:path}/history",
-    response_model=List[DatasetVersion],
-    summary="Get branch history",
-    description="Get commit history for a branch"
-)
-async def get_branch_history(
-    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
-    branch_name: str = Path(..., description="Branch name"),
-    controller: ControllerDep = None,
-    current_user: UserDep = None
-) -> List[DatasetVersion]:
-    """Get the commit history for a branch by following parent links."""
-    return await controller.get_branch_history(dataset_id, branch_name)
-
-
-@router.post(
-    "/{dataset_id}/branches/{branch_name:path}/commit",
-    response_model=DatasetUploadResponse,
-    summary="Commit to branch",
-    description="Create a new version on a specific branch"
-)
-async def commit_to_branch(
-    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
-    branch_name: str = Path(..., description="Target branch"),
-    file: UploadFile = File(..., description="The dataset file to commit"),
-    message: Optional[str] = Form(None, description="Commit message"),
-    controller: ControllerDep = None,
-    current_user: UserDep = None
-) -> DatasetUploadResponse:
-    """Create a new version on a specific branch."""
-    return await controller.commit_to_branch(dataset_id, branch_name, file, message, current_user)
 
 
 # Permission operations
@@ -736,3 +531,84 @@ async def revoke_dataset_permission(
         )
     
     return {"message": f"Permission {permission_type} revoked from user {user_id}"}
+
+
+# Version Tag Routes
+@router.post(
+    "/{dataset_id}/tags/{tag_name}",
+    response_model=Dict[str, Any],
+    summary="Create version tag",
+    description="Create a named tag for a specific dataset version"
+)
+async def create_version_tag(
+    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
+    tag_name: str = Path(..., description="Tag name (e.g., 'v1.0', 'stable')"),
+    version_id: int = Body(..., description="Version ID to tag"),
+    controller: ControllerDep = None,
+    current_user: UserDep = None
+) -> Dict[str, Any]:
+    """Create a version tag pointing to a specific version."""
+    return await controller.create_version_tag(
+        dataset_id=dataset_id,
+        tag_name=tag_name,
+        version_id=version_id,
+        current_user=current_user
+    )
+
+
+@router.get(
+    "/{dataset_id}/tags",
+    response_model=List[VersionTag],
+    summary="List version tags",
+    description="List all version tags for a dataset"
+)
+async def list_version_tags(
+    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
+    controller: ControllerDep = None,
+    current_user: UserDep = None
+) -> List[VersionTag]:
+    """List all version tags for a dataset."""
+    return await controller.list_version_tags(
+        dataset_id=dataset_id,
+        current_user=current_user
+    )
+
+
+@router.get(
+    "/{dataset_id}/tags/{tag_name}",
+    response_model=VersionTag,
+    summary="Get version tag",
+    description="Get a specific version tag"
+)
+async def get_version_tag(
+    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
+    tag_name: str = Path(..., description="Tag name"),
+    controller: ControllerDep = None,
+    current_user: UserDep = None
+) -> VersionTag:
+    """Get a specific version tag."""
+    return await controller.get_version_tag(
+        dataset_id=dataset_id,
+        tag_name=tag_name,
+        current_user=current_user
+    )
+
+
+@router.delete(
+    "/{dataset_id}/tags/{tag_name}",
+    response_model=Dict[str, str],
+    summary="Delete version tag",
+    description="Delete a version tag"
+)
+async def delete_version_tag(
+    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
+    tag_name: str = Path(..., description="Tag name"),
+    controller: ControllerDep = None,
+    current_user: UserDep = None
+) -> Dict[str, str]:
+    """Delete a version tag."""
+    return await controller.delete_version_tag(
+        dataset_id=dataset_id,
+        tag_name=tag_name,
+        current_user=current_user
+    )

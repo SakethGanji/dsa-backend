@@ -63,8 +63,9 @@ class ExploreService:
         if version.dataset_id != dataset_id:
             raise ValueError(f"Version {version_id} does not belong to dataset {dataset_id}")
             
-        # Get file data
-        file_info = await self.repository.get_file(version.file_id)
+        # Get file data - prefer materialized file if available
+        file_id = version.materialized_file_id or version.overlay_file_id
+        file_info = await self.repository.get_file(file_id)
         if not file_info or not file_info.file_path:
             raise ValueError("File path not found")
             

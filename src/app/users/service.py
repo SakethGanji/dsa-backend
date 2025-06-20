@@ -47,11 +47,19 @@ class UserService:
                     detail="Failed to create user",
                 )
             return UserOut.model_validate(user)
-        except IntegrityError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="User with this SOEID already exists",
-            )
+        except IntegrityError as e:
+            # Check if it's a foreign key violation or unique constraint violation
+            error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
+            if 'foreign key' in error_msg.lower():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid role_id. Role does not exist.",
+                )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="User with this SOEID already exists",
+                )
 
     async def list_users(self) -> List[UserOut]:
         # TODO: Implement actual user listing logic

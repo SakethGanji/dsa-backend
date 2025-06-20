@@ -8,7 +8,7 @@ import sqlalchemy as sa
 from app.datasets.models import (
     Dataset, DatasetCreate, DatasetUpdate, DatasetVersion, DatasetVersionCreate,
     File, FileCreate, SheetInfo, Tag, SchemaVersion, SchemaVersionCreate,
-    VersionFile, VersionFileCreate, DatasetPointer, DatasetPointerCreate, DatasetPointerUpdate
+    VersionFile, VersionFileCreate, VersionTag, VersionTagCreate
 )
 
 
@@ -67,7 +67,7 @@ class DatasetsRepository:
             d.created_at,
             d.updated_at,
             array_agg(DISTINCT t.id) FILTER (WHERE t.id IS NOT NULL) AS tag_ids,
-            array_agg(DISTINCT t.name) FILTER (WHERE t.name IS NOT NULL) AS tag_names
+            array_agg(DISTINCT t.tag_name) FILTER (WHERE t.tag_name IS NOT NULL) AS tag_names
         FROM 
             datasets d
         LEFT JOIN dataset_tags dt ON d.id = dt.dataset_id
@@ -92,20 +92,20 @@ class DatasetsRepository:
             dv.id,
             dv.dataset_id,
             dv.version_number,
-            dv.file_id,
-            dv.uploaded_by,
-            dv.ingestion_timestamp,
-            dv.last_updated_timestamp,
-            dv.parent_version_id,
-            dv.message,
             dv.overlay_file_id,
+            dv.materialized_file_id,
+            dv.message,
+            dv.status,
+            dv.created_by,
+            dv.created_at,
+            dv.updated_at,
             f.storage_type,
             f.file_type,
             f.mime_type,
             f.file_size
         FROM 
             dataset_versions dv
-        JOIN files f ON dv.file_id = f.id
+        JOIN files f ON dv.overlay_file_id = f.id
         WHERE 
             dv.dataset_id = :dataset_id
         ORDER BY 
@@ -119,16 +119,15 @@ class DatasetsRepository:
                 id=v_dict["id"],
                 dataset_id=v_dict["dataset_id"],
                 version_number=v_dict["version_number"],
-                file_id=v_dict["file_id"],
-                uploaded_by=v_dict["uploaded_by"],
-                ingestion_timestamp=v_dict["ingestion_timestamp"],
-                last_updated_timestamp=v_dict["last_updated_timestamp"],
-                parent_version_id=v_dict.get("parent_version_id"),
+                overlay_file_id=v_dict["overlay_file_id"],
+                materialized_file_id=v_dict["materialized_file_id"],
                 message=v_dict.get("message"),
-                overlay_file_id=v_dict.get("overlay_file_id"),
+                status=v_dict.get("status", "active"),
+                created_by=v_dict["created_by"],
+                created_at=v_dict["created_at"],
+                updated_at=v_dict["updated_at"],
                 file_type=v_dict.get("file_type"),
-                file_size=v_dict.get("file_size"),
-                sheets=None
+                file_size=v_dict.get("file_size")
             ))
         
         tag_objects: List[Tag] = []
@@ -159,6 +158,16 @@ class DatasetsRepository:
             file_type=latest_file_type,
             file_size=latest_file_size
         )
+    
+    async def get_dataset_by_name_and_user(self, name: str, user_id: int) -> Optional[int]:
+        """Get dataset ID by name and user"""
+        query = sa.text("""
+        SELECT id FROM datasets 
+        WHERE name = :name AND created_by = :user_id;
+        """)
+        result = await self.session.execute(query, {"name": name, "user_id": user_id})
+        row = result.scalar_one_or_none()
+        return row if row else None
     
     async def update_dataset(self, dataset_id: int, data: DatasetUpdate) -> Optional[int]:
         query = sa.text("""
@@ -221,7 +230,7 @@ class DatasetsRepository:
                 d.created_at,
                 d.updated_at,
                 array_agg(DISTINCT t.id) FILTER (WHERE t.id IS NOT NULL) AS tag_ids,
-                array_agg(DISTINCT t.name) FILTER (WHERE t.name IS NOT NULL) AS tag_names
+                array_agg(DISTINCT t.tag_name) FILTER (WHERE t.tag_name IS NOT NULL) AS tag_names
             FROM 
                 datasets d
             LEFT JOIN dataset_tags dt ON d.id = dt.dataset_id
@@ -249,7 +258,7 @@ class DatasetsRepository:
                 SELECT 1 FROM dataset_tags dt2 
                 JOIN tags t2 ON dt2.tag_id = t2.id 
                 WHERE dt2.dataset_id = d.id 
-                AND t2.name = ANY(:tags)
+                AND t2.tag_name = ANY(:tags)
             )"""
             params["tags"] = tags
         
@@ -272,13 +281,15 @@ class DatasetsRepository:
         FROM 
             dataset_data dd
         LEFT JOIN LATERAL (
-            SELECT version_number, file_id
+            SELECT version_number, 
+                   overlay_file_id,
+                   materialized_file_id
             FROM dataset_versions
             WHERE dataset_id = dd.id
             ORDER BY version_number DESC
             LIMIT 1
         ) dv ON true
-        LEFT JOIN files f ON dv.file_id = f.id
+        LEFT JOIN files f ON COALESCE(dv.materialized_file_id, dv.overlay_file_id) = f.id
         """
         
         # Add sorting
@@ -338,23 +349,20 @@ class DatasetsRepository:
     async def create_dataset_version(self, version: DatasetVersionCreate) -> int:
         query = sa.text("""
         INSERT INTO dataset_versions (
-            dataset_id, version_number, file_id, uploaded_by,
-            parent_version_id, message, overlay_file_id
+            dataset_id, version_number, overlay_file_id, created_by, message, status
         )
         VALUES (
-            :dataset_id, :version_number, :file_id, :uploaded_by,
-            :parent_version_id, :message, :overlay_file_id
+            :dataset_id, :version_number, :overlay_file_id, :created_by, :message, :status
         )
         RETURNING id;
         """)
         values = {
             "dataset_id": version.dataset_id,
             "version_number": version.version_number,
-            "file_id": version.file_id,
-            "uploaded_by": version.uploaded_by,
-            "parent_version_id": version.parent_version_id,
-            "message": version.message,
-            "overlay_file_id": version.overlay_file_id
+            "overlay_file_id": version.overlay_file_id,
+            "created_by": version.created_by,
+            "message": getattr(version, 'message', f'Version {version.version_number}'),
+            "status": getattr(version, 'status', 'active')
         }
         result = await self.session.execute(query, values)
         await self.session.commit()
@@ -366,20 +374,20 @@ class DatasetsRepository:
             dv.id,
             dv.dataset_id,
             dv.version_number,
-            dv.file_id,
-            dv.uploaded_by,
-            dv.ingestion_timestamp,
-            dv.last_updated_timestamp,
-            dv.parent_version_id,
-            dv.message,
             dv.overlay_file_id,
+            dv.materialized_file_id,
+            dv.message,
+            dv.status,
+            dv.created_by,
+            dv.created_at,
+            dv.updated_at,
             f.storage_type,
             f.file_type,
             f.mime_type,
             f.file_size
         FROM 
             dataset_versions dv
-        JOIN files f ON dv.file_id = f.id
+        JOIN files f ON COALESCE(dv.materialized_file_id, dv.overlay_file_id) = f.id
         WHERE 
             dv.dataset_id = :dataset_id
         ORDER BY 
@@ -395,16 +403,15 @@ class DatasetsRepository:
                 id=row_dict["id"],
                 dataset_id=row_dict["dataset_id"],
                 version_number=row_dict["version_number"],
-                file_id=row_dict["file_id"],
-                uploaded_by=row_dict["uploaded_by"],
-                ingestion_timestamp=row_dict["ingestion_timestamp"],
-                last_updated_timestamp=row_dict["last_updated_timestamp"],
-                parent_version_id=row_dict.get("parent_version_id"),
+                overlay_file_id=row_dict["overlay_file_id"],
+                materialized_file_id=row_dict["materialized_file_id"],
                 message=row_dict.get("message"),
-                overlay_file_id=row_dict.get("overlay_file_id"),
+                status=row_dict.get("status", "active"),
+                created_by=row_dict["created_by"],
+                created_at=row_dict["created_at"],
+                updated_at=row_dict["updated_at"],
                 file_type=row_dict.get("file_type"),
-                file_size=row_dict.get("file_size"),
-                sheets=None
+                file_size=row_dict.get("file_size")
             ))
         return versions_list
     
@@ -414,20 +421,20 @@ class DatasetsRepository:
             dv.id,
             dv.dataset_id,
             dv.version_number,
-            dv.file_id,
-            dv.uploaded_by,
-            dv.ingestion_timestamp,
-            dv.last_updated_timestamp,
-            dv.parent_version_id,
-            dv.message,
             dv.overlay_file_id,
+            dv.materialized_file_id,
+            dv.message,
+            dv.status,
+            dv.created_by,
+            dv.created_at,
+            dv.updated_at,
             f.storage_type,
             f.file_type,
             f.mime_type,
             f.file_size
         FROM 
             dataset_versions dv
-        JOIN files f ON dv.file_id = f.id
+        JOIN files f ON COALESCE(dv.materialized_file_id, dv.overlay_file_id) = f.id
         WHERE 
             dv.id = :version_id;
         """)
@@ -463,15 +470,15 @@ class DatasetsRepository:
             id=version_dict["id"],
             dataset_id=version_dict["dataset_id"],
             version_number=version_dict["version_number"],
-            file_id=version_dict["file_id"],
-            uploaded_by=version_dict["uploaded_by"],
-            ingestion_timestamp=version_dict["ingestion_timestamp"],
-            last_updated_timestamp=version_dict["last_updated_timestamp"],
-            parent_version_id=version_dict.get("parent_version_id"),
+            overlay_file_id=version_dict["overlay_file_id"],
+            materialized_file_id=version_dict["materialized_file_id"],
             message=version_dict.get("message"),
-            overlay_file_id=version_dict.get("overlay_file_id"),
+            status=version_dict.get("status", "active"),
+            created_by=version_dict["created_by"],
+            created_at=version_dict["created_at"],
+            updated_at=version_dict["updated_at"],
             file_type=version_dict.get("file_type"),
-            file_size=version_dict.get("file_size"),
+            file_size=version_dict.get("file_size")
             # sheets field removed - use list_version_sheets() separately
         )
     
@@ -489,17 +496,26 @@ class DatasetsRepository:
     # File operations
     async def create_file(self, file: FileCreate) -> int:
         query = sa.text("""
-        INSERT INTO files (storage_type, file_type, mime_type, file_data, file_path, file_size)
-        VALUES (:storage_type, :file_type, :mime_type, :file_data, :file_path, :file_size)
+        INSERT INTO files (
+            storage_type, file_type, mime_type, file_path, file_size,
+            content_hash, reference_count, compression_type, metadata
+        )
+        VALUES (
+            :storage_type, :file_type, :mime_type, :file_path, :file_size,
+            :content_hash, :reference_count, :compression_type, :metadata
+        )
         RETURNING id;
         """)
         values = {
             "storage_type": file.storage_type,
             "file_type": file.file_type,
             "mime_type": file.mime_type,
-            "file_data": file.file_data,
             "file_path": file.file_path,
-            "file_size": file.file_size
+            "file_size": file.file_size,
+            "content_hash": file.content_hash,
+            "reference_count": file.reference_count or 0,
+            "compression_type": file.compression_type,
+            "metadata": json.dumps(file.metadata) if file.metadata else None
         }
         result = await self.session.execute(query, values)
         await self.session.commit()
@@ -507,12 +523,19 @@ class DatasetsRepository:
     
     async def get_file(self, file_id: int) -> Optional[File]:
         query = sa.text("""
-        SELECT id, storage_type, file_type, mime_type, file_path, file_size, file_data, created_at 
+        SELECT 
+            id, storage_type, file_type, mime_type, file_path, file_size,
+            content_hash, reference_count, compression_type, metadata, created_at 
         FROM files 
         WHERE id = :file_id;
         """)
         result = await self.session.execute(query, {"file_id": file_id})
         row = result.mappings().first()
+        if row and row.get('metadata'):
+            # Parse JSON metadata if it exists
+            row_dict = dict(row)
+            row_dict['metadata'] = json.loads(row_dict['metadata']) if row_dict['metadata'] else None
+            return File.model_validate(row_dict)
         return File.model_validate(row) if row else None
     
     async def update_file_path(self, file_id: int, new_path: str) -> None:
@@ -587,15 +610,14 @@ class DatasetsRepository:
     # Tag operations
     async def upsert_tag(self, tag_name: str, description: Optional[str] = None) -> int:
         query = sa.text("""
-        INSERT INTO tags (name, description)
-        VALUES (:name, :description)
-        ON CONFLICT (name) DO UPDATE 
-        SET description = :description
+        INSERT INTO tags (tag_name)
+        VALUES (:tag_name)
+        ON CONFLICT (tag_name) DO UPDATE 
+        SET tag_name = EXCLUDED.tag_name
         RETURNING id;
         """)
         values = {
-            "name": tag_name,
-            "description": description
+            "tag_name": tag_name
         }
         result = await self.session.execute(query, values)
         await self.session.commit()
@@ -624,16 +646,15 @@ class DatasetsRepository:
         query = sa.text("""
         SELECT 
             t.id,
-            t.name,
-            t.description,
+            t.tag_name AS name,
             COUNT(dt.dataset_id) AS usage_count
         FROM 
             tags t
         LEFT JOIN dataset_tags dt ON t.id = dt.tag_id
         GROUP BY 
-            t.id, t.name, t.description
+            t.id, t.tag_name
         ORDER BY 
-            t.name;
+            t.tag_name;
         """)
         result = await self.session.execute(query)
         return [Tag.model_validate(row) for row in result.mappings()]
@@ -897,121 +918,80 @@ class DatasetsRepository:
             file=file_obj
         )
     
-    # Pointer operations (branches and tags)
-    async def create_pointer(self, pointer: DatasetPointerCreate) -> int:
-        """Create a new pointer (branch or tag)"""
+    # Version tag operations
+    async def create_version_tag(self, tag: VersionTagCreate) -> int:
+        """Create a version tag"""
         query = sa.text("""
-        INSERT INTO dataset_pointers (
-            dataset_id, pointer_name, dataset_version_id, is_tag
-        )
-        VALUES (
-            :dataset_id, :pointer_name, :dataset_version_id, :is_tag
-        )
-        ON CONFLICT (dataset_id, pointer_name) DO UPDATE
-        SET dataset_version_id = :dataset_version_id,
-            updated_at = NOW()
-        WHERE dataset_pointers.is_tag = FALSE
+        INSERT INTO version_tags (dataset_id, tag_name, dataset_version_id)
+        VALUES (:dataset_id, :tag_name, :dataset_version_id)
         RETURNING id;
         """)
         values = {
-            "dataset_id": pointer.dataset_id,
-            "pointer_name": pointer.pointer_name,
-            "dataset_version_id": pointer.dataset_version_id,
-            "is_tag": pointer.is_tag
+            "dataset_id": tag.dataset_id,
+            "tag_name": tag.tag_name,
+            "dataset_version_id": tag.dataset_version_id
         }
         result = await self.session.execute(query, values)
         await self.session.commit()
         return result.scalar_one()
     
-    async def update_pointer(self, dataset_id: int, pointer_name: str, version_id: int) -> bool:
-        """Update a branch pointer to point to a new version"""
+    async def get_version_tag(self, dataset_id: int, tag_name: str) -> Optional[VersionTag]:
+        """Get a version tag by dataset and tag name"""
         query = sa.text("""
-        UPDATE dataset_pointers
-        SET dataset_version_id = :version_id,
-            updated_at = NOW()
-        WHERE dataset_id = :dataset_id 
-            AND pointer_name = :pointer_name
-            AND is_tag = FALSE
-        RETURNING id;
+        SELECT id, dataset_id, tag_name, dataset_version_id
+        FROM version_tags
+        WHERE dataset_id = :dataset_id AND tag_name = :tag_name;
         """)
         values = {
             "dataset_id": dataset_id,
-            "pointer_name": pointer_name,
-            "version_id": version_id
-        }
-        result = await self.session.execute(query, values)
-        await self.session.commit()
-        return result.scalar_one_or_none() is not None
-    
-    async def get_pointer(self, dataset_id: int, pointer_name: str) -> Optional[DatasetPointer]:
-        """Get a pointer by name"""
-        query = sa.text("""
-        SELECT 
-            id,
-            dataset_id,
-            pointer_name,
-            dataset_version_id,
-            is_tag,
-            created_at,
-            updated_at
-        FROM 
-            dataset_pointers
-        WHERE 
-            dataset_id = :dataset_id
-            AND pointer_name = :pointer_name;
-        """)
-        values = {
-            "dataset_id": dataset_id,
-            "pointer_name": pointer_name
+            "tag_name": tag_name
         }
         result = await self.session.execute(query, values)
         row = result.mappings().first()
         
         if not row:
             return None
-        
-        return DatasetPointer(**dict(row))
+            
+        return VersionTag(
+            id=row["id"],
+            dataset_id=row["dataset_id"],
+            tag_name=row["tag_name"],
+            dataset_version_id=row["dataset_version_id"]
+        )
     
-    async def list_dataset_pointers(self, dataset_id: int) -> List[DatasetPointer]:
-        """List all pointers for a dataset"""
+    async def list_version_tags(self, dataset_id: int) -> List[VersionTag]:
+        """List all version tags for a dataset"""
         query = sa.text("""
-        SELECT 
-            id,
-            dataset_id,
-            pointer_name,
-            dataset_version_id,
-            is_tag,
-            created_at,
-            updated_at
-        FROM 
-            dataset_pointers
-        WHERE 
-            dataset_id = :dataset_id
-        ORDER BY 
-            is_tag, pointer_name;
+        SELECT vt.id, vt.dataset_id, vt.tag_name, vt.dataset_version_id
+        FROM version_tags vt
+        WHERE vt.dataset_id = :dataset_id
+        ORDER BY vt.tag_name;
         """)
         values = {"dataset_id": dataset_id}
         result = await self.session.execute(query, values)
         
-        return [DatasetPointer(**dict(row)) for row in result.mappings()]
+        tags: List[VersionTag] = []
+        for row in result.mappings():
+            tags.append(VersionTag(
+                id=row["id"],
+                dataset_id=row["dataset_id"],
+                tag_name=row["tag_name"],
+                dataset_version_id=row["dataset_version_id"]
+            ))
+        return tags
     
-    async def delete_pointer(self, dataset_id: int, pointer_name: str) -> bool:
-        """Delete a pointer"""
+    async def delete_version_tag(self, dataset_id: int, tag_name: str) -> Optional[int]:
+        """Delete a version tag"""
         query = sa.text("""
-        DELETE FROM dataset_pointers
-        WHERE dataset_id = :dataset_id 
-            AND pointer_name = :pointer_name
+        DELETE FROM version_tags
+        WHERE dataset_id = :dataset_id AND tag_name = :tag_name
         RETURNING id;
         """)
         values = {
             "dataset_id": dataset_id,
-            "pointer_name": pointer_name
+            "tag_name": tag_name
         }
         result = await self.session.execute(query, values)
         await self.session.commit()
-        return result.scalar_one_or_none() is not None
+        return result.scalar_one_or_none()
     
-    async def resolve_pointer_to_version(self, dataset_id: int, pointer_name: str) -> Optional[int]:
-        """Resolve a pointer name to a version ID"""
-        pointer = await self.get_pointer(dataset_id, pointer_name)
-        return pointer.dataset_version_id if pointer else None
