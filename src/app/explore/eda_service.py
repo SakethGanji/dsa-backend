@@ -283,9 +283,50 @@ class EDAService:
                     filtered_stats[col['name']] = common_stats_results[col['name']]
             common_stats_results = filtered_stats
             
+        # Improve text vs categorical distinction for string columns
+        text_threshold_query_parts = []
+        for col in columns_to_analyze:
+            if col['var_type'] == VariableType.CATEGORICAL and col['type'].upper() in ['VARCHAR', 'CHAR', 'TEXT', 'STRING']:
+                q_col = quote_identifier(col['name'])
+                text_threshold_query_parts.append(f"""
+                    SELECT 
+                        '{col['name']}' as col_name,
+                        AVG(LENGTH({q_col})) as avg_length,
+                        MAX(LENGTH({q_col})) as max_length
+                    FROM dataset
+                    WHERE {q_col} IS NOT NULL
+                """)
+        
+        if text_threshold_query_parts:
+            text_threshold_query = "\nUNION ALL\n".join(text_threshold_query_parts)
+            text_threshold_results = conn.execute(text_threshold_query).fetchall()
+            
+            # Re-categorize based on heuristics
+            for row in text_threshold_results:
+                col_name = row[0]
+                avg_length = row[1] or 0
+                max_length = row[2] or 0
+                distinct_ratio = common_stats_results.get(col_name, {}).get("Distinct (%)", 0) / 100.0
+                
+                # Heuristics for text classification:
+                # - Average length > 50 characters
+                # - Max length > 200 characters
+                # - High cardinality (distinct ratio > 0.5)
+                if avg_length > 50 or max_length > 200 or distinct_ratio > 0.5:
+                    # Find and update the column type
+                    for col in columns_to_analyze:
+                        if col['name'] == col_name:
+                            col['var_type'] = VariableType.TEXT
+                            # Move from categorical to text list
+                            categorical_cols[:] = [c for c in categorical_cols if c['name'] != col_name]
+                            text_cols.append(col)
+                            break
+            
         numeric_stats_results = self._execute_batch_numeric_stats(conn, numeric_cols, total_rows)
         categorical_freq_results = self._execute_batch_categorical_freq(conn, categorical_cols, total_rows, config.alerts.frequency_table_limit)
-        # (Add other batch executions for datetime, text, etc. as needed here)
+        datetime_stats_results = self._execute_batch_datetime_stats(conn, datetime_cols, total_rows)
+        boolean_stats_results = self._execute_batch_boolean_stats(conn, boolean_cols, total_rows)
+        text_stats_results = self._execute_batch_text_stats(conn, text_cols, total_rows)
 
         # 3. Assemble results into VariableAnalysis objects
         variables = {}
@@ -320,7 +361,25 @@ class EDAService:
                 if freq_data['chart']:
                     analyses.append(AnalysisBlock(title="Top 10 Values Distribution", render_as=RenderType.BAR_CHART, data=freq_data['chart']))
             
-            # (Add similar blocks for other types: datetime, text, bool)
+            elif var_type == VariableType.DATETIME and col_name in datetime_stats_results:
+                stats = datetime_stats_results[col_name]
+                analyses.append(AnalysisBlock(title="Date Range", render_as=RenderType.KEY_VALUE_PAIRS, data=stats['range']))
+                if stats.get('temporal_patterns'):
+                    analyses.append(AnalysisBlock(title="Temporal Patterns", render_as=RenderType.TABLE, data=stats['temporal_patterns']))
+                if stats.get('monthly_distribution'):
+                    analyses.append(AnalysisBlock(title="Monthly Distribution", render_as=RenderType.BAR_CHART, data=stats['monthly_distribution']))
+                    
+            elif var_type == VariableType.BOOLEAN and col_name in boolean_stats_results:
+                stats = boolean_stats_results[col_name]
+                analyses.append(AnalysisBlock(title="Boolean Distribution", render_as=RenderType.KEY_VALUE_PAIRS, data=stats['distribution']))
+                if stats.get('chart'):
+                    analyses.append(AnalysisBlock(title="True/False Distribution", render_as=RenderType.BAR_CHART, data=stats['chart']))
+                    
+            elif var_type == VariableType.TEXT and col_name in text_stats_results:
+                stats = text_stats_results[col_name]
+                analyses.append(AnalysisBlock(title="Text Statistics", render_as=RenderType.KEY_VALUE_PAIRS, data=stats['statistics']))
+                if stats.get('length_histogram'):
+                    analyses.append(AnalysisBlock(title="Length Distribution", render_as=RenderType.HISTOGRAM, data=stats['length_histogram']))
 
             variables[col_name] = VariableAnalysis(common_info=var_info, analyses=analyses)
         
@@ -451,6 +510,215 @@ class EDAService:
             processed_map[col_name] = {'table': table, 'chart': chart}
 
         return processed_map
+    
+    def _execute_batch_datetime_stats(self, conn: duckdb.DuckDBPyConnection, columns: List[Dict], total_rows: int) -> Dict:
+        if not columns: return {}
+        
+        query_parts = []
+        for col in columns:
+            q_col = quote_identifier(col['name'])
+            query_parts.append(f"""
+                SELECT
+                    '{col['name']}' as col_name,
+                    MIN({q_col}) as min_date,
+                    MAX({q_col}) as max_date,
+                    COUNT(DISTINCT DATE_TRUNC('day', {q_col})) as unique_days,
+                    COUNT(DISTINCT DATE_TRUNC('month', {q_col})) as unique_months,
+                    COUNT(DISTINCT DATE_TRUNC('year', {q_col})) as unique_years
+                FROM dataset
+                WHERE {q_col} IS NOT NULL
+            """)
+        
+        query = "\nUNION ALL\n".join(query_parts)
+        results = conn.execute(query).fetchall()
+        
+        stats_map = {}
+        for row in results:
+            col_name = row[0]
+            min_date = row[1]
+            max_date = row[2]
+            
+            # Calculate date range statistics
+            range_stats = {
+                "Min Date": str(min_date) if min_date else None,
+                "Max Date": str(max_date) if max_date else None,
+                "Unique Days": row[3],
+                "Unique Months": row[4],
+                "Unique Years": row[5]
+            }
+            
+            # Get temporal patterns (day of week, month distribution)
+            temporal_data = None
+            monthly_data = None
+            
+            try:
+                q_col = quote_identifier(col_name)
+                
+                # Day of week distribution
+                dow_query = f"""
+                    SELECT 
+                        DAYNAME({q_col}) as day_name,
+                        DAYOFWEEK({q_col}) as day_num,
+                        COUNT(*) as count
+                    FROM dataset
+                    WHERE {q_col} IS NOT NULL
+                    GROUP BY 1, 2
+                    ORDER BY 2
+                """
+                dow_results = conn.execute(dow_query).fetchall()
+                
+                if dow_results:
+                    temporal_data = TableData(
+                        columns=["Day of Week", "Count", "Percentage (%)"],
+                        rows=[[day, count, round(100.0 * count / total_rows, 2)] 
+                              for day, _, count in dow_results]
+                    )
+                
+                # Monthly distribution (for recent data)
+                month_query = f"""
+                    SELECT 
+                        MONTHNAME({q_col}) as month_name,
+                        MONTH({q_col}) as month_num,
+                        COUNT(*) as count
+                    FROM dataset
+                    WHERE {q_col} IS NOT NULL
+                    GROUP BY 1, 2
+                    ORDER BY 2
+                    LIMIT 12
+                """
+                month_results = conn.execute(month_query).fetchall()
+                
+                if month_results:
+                    categories = [row[0] for row in month_results]
+                    values = [row[2] for row in month_results]
+                    monthly_data = BarChartData(categories=categories, values=values)
+                    
+            except Exception as e:
+                logger.warning(f"Failed to get temporal patterns for {col_name}: {e}")
+            
+            stats_map[col_name] = {
+                'range': range_stats,
+                'temporal_patterns': temporal_data,
+                'monthly_distribution': monthly_data
+            }
+            
+        return stats_map
+    
+    def _execute_batch_boolean_stats(self, conn: duckdb.DuckDBPyConnection, columns: List[Dict], total_rows: int) -> Dict:
+        if not columns: return {}
+        
+        query_parts = []
+        for col in columns:
+            q_col = quote_identifier(col['name'])
+            query_parts.append(f"""
+                SELECT
+                    '{col['name']}' as col_name,
+                    SUM(CASE WHEN {q_col} = true THEN 1 ELSE 0 END) as true_count,
+                    SUM(CASE WHEN {q_col} = false THEN 1 ELSE 0 END) as false_count,
+                    SUM(CASE WHEN {q_col} IS NULL THEN 1 ELSE 0 END) as null_count
+                FROM dataset
+            """)
+        
+        query = "\nUNION ALL\n".join(query_parts)
+        results = conn.execute(query).fetchall()
+        
+        stats_map = {}
+        for row in results:
+            col_name = row[0]
+            true_count = row[1] or 0
+            false_count = row[2] or 0
+            null_count = row[3] or 0
+            
+            non_null_total = true_count + false_count
+            
+            distribution = {
+                "True Count": true_count,
+                "True (%)": round(100.0 * true_count / total_rows, 2) if total_rows > 0 else 0,
+                "False Count": false_count,
+                "False (%)": round(100.0 * false_count / total_rows, 2) if total_rows > 0 else 0,
+                "Null Count": null_count,
+                "Null (%)": round(100.0 * null_count / total_rows, 2) if total_rows > 0 else 0,
+                "True Ratio (excl. nulls)": round(100.0 * true_count / non_null_total, 2) if non_null_total > 0 else 0
+            }
+            
+            # Create bar chart data
+            chart = BarChartData(
+                categories=["True", "False", "Null"],
+                values=[true_count, false_count, null_count]
+            )
+            
+            stats_map[col_name] = {
+                'distribution': distribution,
+                'chart': chart
+            }
+            
+        return stats_map
+    
+    def _execute_batch_text_stats(self, conn: duckdb.DuckDBPyConnection, columns: List[Dict], total_rows: int) -> Dict:
+        if not columns: return {}
+        
+        query_parts = []
+        for col in columns:
+            q_col = quote_identifier(col['name'])
+            query_parts.append(f"""
+                SELECT
+                    '{col['name']}' as col_name,
+                    MIN(LENGTH({q_col})) as min_length,
+                    MAX(LENGTH({q_col})) as max_length,
+                    AVG(LENGTH({q_col})) as avg_length,
+                    MEDIAN(LENGTH({q_col})) as median_length,
+                    COUNT(CASE WHEN {q_col} = '' THEN 1 END) as empty_count,
+                    COUNT(CASE WHEN {q_col} IS NULL THEN 1 END) as null_count,
+                    COUNT(DISTINCT {q_col}) as distinct_count
+                FROM dataset
+            """)
+        
+        query = "\nUNION ALL\n".join(query_parts)
+        results = conn.execute(query).fetchall()
+        
+        stats_map = {}
+        for row in results:
+            col_name = row[0]
+            
+            statistics = {
+                "Min Length": int(row[1]) if row[1] is not None else 0,
+                "Max Length": int(row[2]) if row[2] is not None else 0,
+                "Avg Length": round(row[3], 2) if row[3] is not None else 0,
+                "Median Length": int(row[4]) if row[4] is not None else 0,
+                "Empty Strings": row[5] or 0,
+                "Empty Strings (%)": round(100.0 * (row[5] or 0) / total_rows, 2) if total_rows > 0 else 0,
+                "Null Count": row[6] or 0,
+                "Null (%)": round(100.0 * (row[6] or 0) / total_rows, 2) if total_rows > 0 else 0,
+                "Distinct Count": row[7] or 0
+            }
+            
+            # Get length histogram
+            length_histogram = None
+            try:
+                q_col = quote_identifier(col_name)
+                hist_query = f"""
+                    SELECT HISTOGRAM(LENGTH({q_col}))
+                    FROM dataset
+                    WHERE {q_col} IS NOT NULL
+                """
+                hist_result = conn.execute(hist_query).fetchone()[0]
+                
+                if hist_result:
+                    bins = []
+                    for bin_range, count in hist_result.items():
+                        min_v, max_v = self._parse_histogram_bin(bin_range)
+                        bins.append(HistogramBin(min=min_v, max=max_v, count=count))
+                    length_histogram = HistogramData(bins=bins, total_count=total_rows - (row[6] or 0))
+                    
+            except Exception as e:
+                logger.warning(f"Failed to get length histogram for {col_name}: {e}")
+            
+            stats_map[col_name] = {
+                'statistics': statistics,
+                'length_histogram': length_histogram
+            }
+            
+        return stats_map
 
 
     def _analyze_interactions(
@@ -601,18 +869,36 @@ class EDAService:
                             upper_bound = q3 + 1.5 * iqr if q3 is not None else row[5]
 
                             # Get outliers
-                            outlier_query = f"""
-                                SELECT {quoted_num}
-                                FROM dataset
-                                WHERE {quoted_cat} = $1 
-                                AND {quoted_num} IS NOT NULL
-                                AND ({quoted_num} < $2 OR {quoted_num} > $3)
-                                LIMIT 100  -- Limit outliers for performance
-                            """
-
-                            # For now, we'll just use empty outliers list
-                            # In a real implementation, you'd execute the outlier query
                             outliers = []
+                            if lower_bound is not None and upper_bound is not None:
+                                try:
+                                    # Handle NULL categories properly
+                                    if row[0] is None:
+                                        outlier_query = f"""
+                                            SELECT {quoted_num}
+                                            FROM dataset
+                                            WHERE {quoted_cat} IS NULL
+                                            AND {quoted_num} IS NOT NULL
+                                            AND ({quoted_num} < {lower_bound} OR {quoted_num} > {upper_bound})
+                                            LIMIT 100  -- Limit outliers for performance
+                                        """
+                                        outlier_results = conn.execute(outlier_query).fetchall()
+                                    else:
+                                        outlier_query = f"""
+                                            SELECT {quoted_num}
+                                            FROM dataset
+                                            WHERE {quoted_cat} = '{str(row[0]).replace("'", "''")}'
+                                            AND {quoted_num} IS NOT NULL
+                                            AND ({quoted_num} < {lower_bound} OR {quoted_num} > {upper_bound})
+                                            LIMIT 100  -- Limit outliers for performance
+                                        """
+                                        outlier_results = conn.execute(outlier_query).fetchall()
+                                    
+                                    # Convert results to list of floats
+                                    outliers = [float(item[0]) for item in outlier_results if item[0] is not None]
+                                except Exception as e:
+                                    logger.warning(f"Could not calculate outliers for {num_var} by {cat_var}: {e}")
+                                    outliers = []
 
                             data.append({
                                 "min": float(row[1]) if row[1] is not None else 0,
@@ -828,8 +1114,7 @@ class EDAService:
         elif 'BOOL' in dtype_upper:
             return VariableType.BOOLEAN
         elif any(t in dtype_upper for t in ['VARCHAR', 'CHAR', 'TEXT', 'STRING']):
-            # Could be categorical or text - for now default to categorical
-            # In production, might want to check cardinality
+            # We'll improve this in _batch_analyze_columns to distinguish text vs categorical
             return VariableType.CATEGORICAL
         else:
             return VariableType.UNKNOWN
