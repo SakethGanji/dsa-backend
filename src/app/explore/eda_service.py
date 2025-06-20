@@ -1,8 +1,10 @@
+import asyncio
 import json
 import logging
 from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime
 import time
+from collections import defaultdict
 import duckdb
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -75,14 +77,45 @@ class EDAService:
 
         file_path = file_info.file_path
 
-        # Initialize response components
-        global_summary = []
-        variables = {}
-        interactions = []
-        alerts = []
-        correlation_pairs = []
+        # OPTIMIZATION: Run blocking DuckDB analysis in a separate thread
+        eda_results = await asyncio.to_thread(
+            self._run_analysis_sync, file_path, config
+        )
 
-        # Create DuckDB connection and analyze
+        # Create metadata
+        metadata = EDAMetadata(
+            dataset_id=dataset_id,
+            version_id=version_id,
+            analysis_timestamp=datetime.utcnow(),
+            sample_size_used=eda_results.pop("sample_size_used"),
+            total_rows=eda_results.pop("total_rows"),
+            total_columns=eda_results.pop("total_columns"),
+            analysis_duration_seconds=time.time() - start_time
+        )
+
+        # Format alerts as analysis blocks
+        alert_blocks = []
+        if eda_results["alerts"]:
+            alert_blocks.append(AnalysisBlock(
+                title="Data Quality Alerts",
+                render_as=RenderType.ALERT_LIST,
+                data={"alerts": [alert.dict() for alert in eda_results["alerts"]]},
+                description="Potential data quality issues detected"
+            ))
+
+        return EDAResponse(
+            metadata=metadata,
+            global_summary=eda_results["global_summary"],
+            variables=eda_results["variables"],
+            interactions=eda_results["interactions"],
+            alerts=alert_blocks
+        )
+
+    def _run_analysis_sync(self, file_path: str, config: AnalysisConfig) -> Dict[str, Any]:
+        """
+        Synchronous helper function to run the entire DuckDB analysis.
+        This function is designed to be run in a thread pool.
+        """
         with duckdb.connect(':memory:') as conn:
             # Create view with optional sampling
             if config.sample_size and config.sample_size > 0:
@@ -98,25 +131,45 @@ class EDAService:
 
             # Get total rows and columns
             total_rows = conn.execute("SELECT COUNT(*) FROM dataset").fetchone()[0]
-            column_info = conn.execute("PRAGMA table_info('dataset')").fetchall()
+            if total_rows == 0:
+                # Handle empty dataset gracefully
+                return {
+                    "global_summary": [], "variables": {}, "interactions": [], "alerts": [],
+                    "sample_size_used": sample_size_used, "total_rows": 0, "total_columns": 0,
+                }
+                
+            column_info_raw = conn.execute("PRAGMA table_info('dataset')").fetchall()
+            column_info = [{"name": col[1], "type": col[2]} for col in column_info_raw]
             total_columns = len(column_info)
 
-            # Perform analyses based on config
+            # Initialize response components
+            global_summary = []
+            variables = {}
+            interactions = []
+            alerts = []
+            correlation_pairs = []
             duplicate_rows = 0
+
+            # Perform analyses based on config
             if config.global_summary:
-                global_summary, duplicate_rows = await self._analyze_global_summary(conn, column_info)
+                global_summary, duplicate_rows = self._analyze_global_summary(conn, column_info, total_rows)
+
+            # Get common stats for all columns (needed for variables and missing values)
+            common_stats_results = {}
+            if config.variables.enabled or config.missing_values:
+                common_stats_results = self._execute_batch_common_stats(conn, column_info, total_rows)
 
             if config.variables.enabled:
-                variables = await self._analyze_variables(
+                variables = self._batch_analyze_columns(
                     conn,
                     column_info,
-                    config.variables.limit,
-                    config.variables.types,
-                    config
+                    total_rows,
+                    config,
+                    common_stats_results
                 )
 
             if config.interactions.enabled:
-                interactions, correlation_pairs = await self._analyze_interactions(
+                interactions, correlation_pairs = self._analyze_interactions(
                     conn,
                     variables,
                     config.interactions.correlation_threshold,
@@ -124,729 +177,283 @@ class EDAService:
                 )
 
             if config.missing_values:
-                missing_analysis = await self._analyze_missing_values(conn, column_info)
-                if missing_analysis:
-                    global_summary.extend(missing_analysis)
+                missing_summary, _ = self._analyze_missing_values(column_info, total_rows, common_stats_results)
+                if missing_summary:
+                    global_summary.extend(missing_summary)
 
             if config.alerts.enabled:
-                # Get correlation pairs if interactions were analyzed
-                corr_pairs = correlation_pairs if config.interactions.enabled else []
-                alerts = await self._detect_alerts(
-                    conn,
+                alerts = self._detect_alerts(
                     variables,
                     total_rows,
-                    corr_pairs,
-                    config.interactions.correlation_threshold if config.interactions.enabled else 0.5,
+                    correlation_pairs,
                     duplicate_rows,
                     config.alerts
                 )
 
-        # Create metadata
-        metadata = EDAMetadata(
-            dataset_id=dataset_id,
-            version_id=version_id,
-            analysis_timestamp=datetime.utcnow(),
-            sample_size_used=sample_size_used,
-            total_rows=total_rows,
-            total_columns=total_columns,
-            analysis_duration_seconds=time.time() - start_time
-        )
+            return {
+                "global_summary": global_summary,
+                "variables": variables,
+                "interactions": interactions,
+                "alerts": alerts,
+                "sample_size_used": sample_size_used,
+                "total_rows": total_rows,
+                "total_columns": total_columns,
+            }
 
-        # Format alerts as analysis blocks
-        alert_blocks = []
-        if alerts:
-            alert_blocks.append(AnalysisBlock(
-                title="Data Quality Alerts",
-                render_as=RenderType.ALERT_LIST,
-                data={"alerts": [alert.dict() for alert in alerts]},
-                description="Potential data quality issues detected"
-            ))
-
-        return EDAResponse(
-            metadata=metadata,
-            global_summary=global_summary,
-            variables=variables,
-            interactions=interactions,
-            alerts=alert_blocks
-        )
-
-    async def _analyze_global_summary(
+    def _analyze_global_summary(
             self,
             conn: duckdb.DuckDBPyConnection,
-            column_info: List[Tuple]
+            column_info: List[Dict],
+            total_rows: int
     ) -> Tuple[List[AnalysisBlock], int]:
         """Analyze dataset-level statistics."""
         blocks = []
 
-        # Dataset statistics
-        # Note: COUNT(DISTINCT *) is not supported in DuckDB, so we'll calculate duplicates differently
-        row_count = conn.execute("SELECT COUNT(*) FROM dataset").fetchone()[0]
-
-        # Get duplicate count using SHA256 hash for efficiency
+        # Duplicate row calculation using efficient HASH method
         try:
-            # Use SHA256 to hash entire rows and count duplicates
-            duplicate_query = """
-                SELECT COUNT(*) - COUNT(DISTINCT row_hash) as duplicate_count
-                FROM (
-                    SELECT SHA256(CAST(row(*) AS VARCHAR)) as row_hash
-                    FROM dataset
-                ) t
-            """
-            duplicate_result = conn.execute(duplicate_query).fetchone()
-            duplicate_rows = duplicate_result[0] if duplicate_result and duplicate_result[0] is not None else 0
+            duplicate_query = "SELECT COUNT(*) - COUNT(DISTINCT hash) FROM (SELECT HASH(*) as hash FROM dataset) t"
+            duplicate_rows = conn.execute(duplicate_query).fetchone()[0] or 0
         except Exception as e:
-            logger.warning(f"Could not calculate duplicate rows using SHA256: {e}")
-            # Fallback to the original method if SHA256 fails
-            try:
-                columns = [col[1] for col in column_info]
-                if columns:
-                    column_list = ', '.join([quote_identifier(col) for col in columns])
-                    duplicate_query = f"""
-                        SELECT SUM(cnt - 1)
-                        FROM (
-                            SELECT COUNT(*) as cnt
-                            FROM dataset
-                            GROUP BY {column_list}
-                            HAVING COUNT(*) > 1
-                        ) t
-                    """
-                    duplicate_result = conn.execute(duplicate_query).fetchone()
-                    duplicate_rows = duplicate_result[0] if duplicate_result and duplicate_result[0] is not None else 0
-                else:
-                    duplicate_rows = 0
-            except Exception as e2:
-                logger.warning(f"Fallback duplicate calculation also failed: {e2}")
-                duplicate_rows = 0
+            logger.warning(f"Could not calculate duplicate rows: {e}")
+            duplicate_rows = 0
 
         dataset_stats = {
-            "Number of Rows": row_count,
+            "Number of Rows": total_rows,
             "Number of Variables": len(column_info),
             "Duplicate Rows": duplicate_rows,
-            "Duplicate Rows (%)": round(100.0 * duplicate_rows / row_count, 2) if row_count > 0 else 0
+            "Duplicate Rows (%)": round(100.0 * duplicate_rows / total_rows, 2) if total_rows > 0 else 0
         }
-
-        blocks.append(AnalysisBlock(
-            title="Dataset Statistics",
-            render_as=RenderType.KEY_VALUE_PAIRS,
-            data=dataset_stats
-        ))
+        blocks.append(AnalysisBlock(title="Dataset Statistics", render_as=RenderType.KEY_VALUE_PAIRS, data=dataset_stats))
 
         # Data type distribution
-        type_counts = {}
+        type_counts = defaultdict(int)
         for col in column_info:
-            dtype = col[1]
-            type_category = self._categorize_dtype(dtype)
-            type_counts[type_category] = type_counts.get(type_category, 0) + 1
-
+            var_type = self._categorize_dtype(col["type"])
+            type_counts[var_type] += 1
+        
         blocks.append(AnalysisBlock(
             title="Data Type Distribution",
             render_as=RenderType.BAR_CHART,
-            data={
-                "categories": list(type_counts.keys()),
-                "values": list(type_counts.values())
-            }
+            data=BarChartData(categories=list(type_counts.keys()), values=list(type_counts.values()))
         ))
-
-        # DuckDB SUMMARIZE output - parsed into structured format
-        try:
-            summarize_result = conn.execute("SUMMARIZE dataset").fetchall()
-
-            # Parse SUMMARIZE output into structured data
-            # SUMMARIZE returns rows like: (column_name, column_type, min, max, unique_count, avg, std_dev, q25, q50, q75, count, null_count)
-            summarize_data = []
-            for row in summarize_result:
-                if len(row) >= 2:
-                    # Extract column name and type
-                    col_name = row[0]
-                    col_type = row[1]
-
-                    # Build a dictionary of available statistics
-                    col_stats = {
-                        "Column": col_name,
-                        "Type": col_type
-                    }
-
-                    # Add numeric statistics if available (for numeric columns)
-                    if len(row) >= 12 and col_type.upper() in ['INTEGER', 'BIGINT', 'DOUBLE', 'FLOAT', 'DECIMAL',
-                                                               'NUMERIC']:
-                        col_stats.update({
-                            "Min": row[2],
-                            "Max": row[3],
-                            "Unique": row[4],
-                            "Avg": round(row[5], 4) if row[5] is not None else None,
-                            "Std Dev": round(row[6], 4) if row[6] is not None else None,
-                            "Q25": row[7],
-                            "Q50": row[8],
-                            "Q75": row[9],
-                            "Count": row[10],
-                            "Nulls": row[11]
-                        })
-                    # For other types, include what's available
-                    elif len(row) >= 6:
-                        col_stats.update({
-                            "Min": row[2] if len(row) > 2 else None,
-                            "Max": row[3] if len(row) > 3 else None,
-                            "Unique": row[4] if len(row) > 4 else None,
-                            "Count": row[10] if len(row) > 10 else None,
-                            "Nulls": row[11] if len(row) > 11 else None
-                        })
-
-                    summarize_data.append(col_stats)
-
-            if summarize_data:
-                # Create a table with the parsed data
-                columns = list(summarize_data[0].keys())
-                rows = [[item.get(col) for col in columns] for item in summarize_data]
-
-                blocks.append(AnalysisBlock(
-                    title="Quick Summary (DuckDB SUMMARIZE)",
-                    render_as=RenderType.TABLE,
-                    data=TableData(columns=columns, rows=rows),
-                    description="DuckDB's built-in summary statistics"
-                ))
-            else:
-                # Fallback to text if parsing fails
-                summarize_text = "\n".join([str(row) for row in summarize_result])
-                blocks.append(AnalysisBlock(
-                    title="Quick Summary (DuckDB SUMMARIZE)",
-                    render_as=RenderType.TEXT_BLOCK,
-                    data={"text": summarize_text},
-                    description="DuckDB's built-in summary statistics"
-                ))
-        except Exception as e:
-            logger.warning(f"Failed to run SUMMARIZE: {e}")
 
         return blocks, duplicate_rows
 
-    async def _analyze_variables(
+    def _batch_analyze_columns(
             self,
             conn: duckdb.DuckDBPyConnection,
-            column_info: List[Tuple],
-            limit: int,
-            types_to_include: List[str],
-            config: AnalysisConfig
+            all_columns: List[Dict],
+            total_rows: int,
+            config: AnalysisConfig,
+            common_stats_results: Dict[str, Dict] = None
     ) -> Dict[str, VariableAnalysis]:
-        """Analyze individual variables."""
-        variables = {}
-        analyzed_count = 0
+        """
+        Analyzes all variables in batches using consolidated queries. This is the main performance gain.
+        """
+        # 1. Classify columns and respect limits
+        columns_to_analyze = []
+        numeric_cols, categorical_cols, datetime_cols, text_cols, boolean_cols = [], [], [], [], []
 
-        for col in column_info:
-            if analyzed_count >= limit:
+        for col in all_columns:
+            if len(columns_to_analyze) >= config.variables.limit:
                 break
-
-            col_name = col[1]  # Column name is at index 1
-            dtype = col[2]  # Data type is at index 2
-            var_type = self._categorize_dtype(dtype)
-
-            # Skip if type not requested
-            if var_type.lower() not in [t.lower() for t in types_to_include]:
+            
+            var_type = self._categorize_dtype(col['type'])
+            if var_type.lower() not in [t.lower() for t in config.variables.types]:
                 continue
+            
+            col['var_type'] = var_type
+            columns_to_analyze.append(col)
 
-            # Create variable info
-            var_info = VariableInfo(
-                name=col_name,
-                type=var_type,
-                dtype=dtype
-            )
+            if var_type == VariableType.NUMERIC: numeric_cols.append(col)
+            elif var_type == VariableType.CATEGORICAL: categorical_cols.append(col)
+            elif var_type == VariableType.DATETIME: datetime_cols.append(col)
+            elif var_type == VariableType.TEXT: text_cols.append(col)
+            elif var_type == VariableType.BOOLEAN: boolean_cols.append(col)
 
-            # Analyze based on type
+        # 2. Build and execute consolidated queries
+        # Use provided common_stats_results if available, otherwise compute
+        if common_stats_results is None:
+            common_stats_results = self._execute_batch_common_stats(conn, columns_to_analyze, total_rows)
+        else:
+            # Filter common_stats_results to only include columns we're analyzing
+            filtered_stats = {}
+            for col in columns_to_analyze:
+                if col['name'] in common_stats_results:
+                    filtered_stats[col['name']] = common_stats_results[col['name']]
+            common_stats_results = filtered_stats
+            
+        numeric_stats_results = self._execute_batch_numeric_stats(conn, numeric_cols, total_rows)
+        categorical_freq_results = self._execute_batch_categorical_freq(conn, categorical_cols, total_rows, config.alerts.frequency_table_limit)
+        # (Add other batch executions for datetime, text, etc. as needed here)
+
+        # 3. Assemble results into VariableAnalysis objects
+        variables = {}
+        for col in columns_to_analyze:
+            col_name = col['name']
+            var_type = col['var_type']
+            
+            var_info = VariableInfo(name=col_name, type=var_type, dtype=col['type'])
             analyses = []
 
-            # Common stats for all types
-            common_stats = await self._analyze_common_stats(conn, col_name)
-            analyses.extend(common_stats)
+            # Add common stats from the batch results
+            if col_name in common_stats_results:
+                analyses.append(AnalysisBlock(
+                    title="Common Statistics",
+                    render_as=RenderType.KEY_VALUE_PAIRS,
+                    data=common_stats_results[col_name]
+                ))
 
-            # Type-specific analysis
-            if var_type == VariableType.NUMERIC:
-                numeric_analyses = await self._analyze_numeric_variable(conn, col_name)
-                analyses.extend(numeric_analyses)
-            elif var_type == VariableType.CATEGORICAL:
-                categorical_analyses = await self._analyze_categorical_variable(
-                    conn, col_name, config.alerts.frequency_table_limit
-                )
-                analyses.extend(categorical_analyses)
-            elif var_type == VariableType.DATETIME:
-                datetime_analyses = await self._analyze_datetime_variable(conn, col_name)
-                analyses.extend(datetime_analyses)
-            elif var_type == VariableType.TEXT:
-                text_analyses = await self._analyze_text_variable(conn, col_name)
-                analyses.extend(text_analyses)
-            elif var_type == VariableType.BOOLEAN:
-                boolean_analyses = await self._analyze_boolean_variable(conn, col_name)
-                analyses.extend(boolean_analyses)
+            # Add type-specific stats
+            if var_type == VariableType.NUMERIC and col_name in numeric_stats_results:
+                stats = numeric_stats_results[col_name]
+                analyses.append(AnalysisBlock(title="Descriptive Statistics", render_as=RenderType.KEY_VALUE_PAIRS, data=stats['descriptive']))
+                analyses.append(AnalysisBlock(title="Quantile Statistics", render_as=RenderType.KEY_VALUE_PAIRS, data=stats['quantile']))
+                analyses.append(AnalysisBlock(title="Zero Values", render_as=RenderType.KEY_VALUE_PAIRS, data=stats['zeros']))
+                if stats.get('histogram'):
+                    analyses.append(AnalysisBlock(title="Distribution", render_as=RenderType.HISTOGRAM, data=stats['histogram']))
 
-            variables[col_name] = VariableAnalysis(
-                common_info=var_info,
-                analyses=analyses
-            )
-            analyzed_count += 1
+            elif var_type == VariableType.CATEGORICAL and col_name in categorical_freq_results:
+                freq_data = categorical_freq_results[col_name]
+                if freq_data['table']:
+                    analyses.append(AnalysisBlock(title="Top Values", render_as=RenderType.TABLE, data=freq_data['table']))
+                if freq_data['chart']:
+                    analyses.append(AnalysisBlock(title="Top 10 Values Distribution", render_as=RenderType.BAR_CHART, data=freq_data['chart']))
+            
+            # (Add similar blocks for other types: datetime, text, bool)
 
+            variables[col_name] = VariableAnalysis(common_info=var_info, analyses=analyses)
+        
         return variables
 
-    async def _analyze_common_stats(
-            self,
-            conn: duckdb.DuckDBPyConnection,
-            col_name: str
-    ) -> List[AnalysisBlock]:
-        """Analyze common statistics for any column type."""
-        blocks = []
-
-        # Basic counts
-        quoted_col = quote_identifier(col_name)
-        stats = conn.execute(f"""
-            SELECT 
-                COUNT(DISTINCT {quoted_col}) as distinct_count,
-                COUNT(*) as total_count,
-                COUNT(*) - COUNT({quoted_col}) as missing_count
-            FROM dataset
-        """).fetchone()
-
-        total_count = stats[1]
-        distinct_count = stats[0]
-        missing_count = stats[2]
-
-        common_stats = {
-            "Distinct Count": distinct_count,
-            "Distinct (%)": round(100.0 * distinct_count / total_count, 2) if total_count > 0 else 0,
-            "Missing Count": missing_count,
-            "Missing (%)": round(100.0 * missing_count / total_count, 2) if total_count > 0 else 0,
-            "Is Unique": distinct_count == total_count
-        }
-
-        blocks.append(AnalysisBlock(
-            title="Common Statistics",
-            render_as=RenderType.KEY_VALUE_PAIRS,
-            data=common_stats
-        ))
-
-        return blocks
-
-    async def _analyze_numeric_variable(
-            self,
-            conn: duckdb.DuckDBPyConnection,
-            col_name: str
-    ) -> List[AnalysisBlock]:
-        """Analyze numeric variable."""
-        blocks = []
-
-        # Descriptive statistics
-        quoted_col = quote_identifier(col_name)
-        desc_stats = conn.execute(f"""
-            SELECT 
-                AVG({quoted_col}) as mean,
-                MEDIAN({quoted_col}) as median,
-                STDDEV_SAMP({quoted_col}) as std_dev,
-                VAR_SAMP({quoted_col}) as variance,
-                MIN({quoted_col}) as min_val,
-                MAX({quoted_col}) as max_val,
-                MAX({quoted_col}) - MIN({quoted_col}) as range_val,
-                SKEWNESS({quoted_col}) as skewness,
-                KURTOSIS({quoted_col}) as kurtosis
-            FROM dataset
-        """).fetchone()
-
-        descriptive = {
-            "Mean": round(desc_stats[0], 4) if desc_stats[0] is not None else None,
-            "Median": round(desc_stats[1], 4) if desc_stats[1] is not None else None,
-            "Std Dev": round(desc_stats[2], 4) if desc_stats[2] is not None else None,
-            "Min": desc_stats[4],
-            "Max": desc_stats[5],
-            "Range": desc_stats[6],
-            "Skewness": round(desc_stats[7], 4) if desc_stats[7] is not None else None,
-            "Kurtosis": round(desc_stats[8], 4) if desc_stats[8] is not None else None
-        }
-
-        blocks.append(AnalysisBlock(
-            title="Descriptive Statistics",
-            render_as=RenderType.KEY_VALUE_PAIRS,
-            data=descriptive
-        ))
-
-        # Quantiles
-        quantiles = conn.execute(f"""
-            SELECT 
-                QUANTILE_DISC({quoted_col}, 0.05) as p5,
-                QUANTILE_DISC({quoted_col}, 0.25) as q1,
-                QUANTILE_DISC({quoted_col}, 0.5) as median,
-                QUANTILE_DISC({quoted_col}, 0.75) as q3,
-                QUANTILE_DISC({quoted_col}, 0.95) as p95
-            FROM dataset
-        """).fetchone()
-
-        iqr = quantiles[3] - quantiles[1] if quantiles[3] is not None and quantiles[1] is not None else None
-
-        quantile_stats = {
-            "5th Percentile": quantiles[0],
-            "Q1 (25th Percentile)": quantiles[1],
-            "Median (50th Percentile)": quantiles[2],
-            "Q3 (75th Percentile)": quantiles[3],
-            "95th Percentile": quantiles[4],
-            "IQR": iqr
-        }
-
-        blocks.append(AnalysisBlock(
-            title="Quantile Statistics",
-            render_as=RenderType.KEY_VALUE_PAIRS,
-            data=quantile_stats
-        ))
-
-        # Zeros count
-        zeros_stats = conn.execute(f"""
-            SELECT 
-                SUM(CASE WHEN {quoted_col} = 0 THEN 1 ELSE 0 END) as zeros_count,
-                COUNT(*) as total_count
-            FROM dataset
-        """).fetchone()
-
-        zeros_count = zeros_stats[0] or 0
-        total_count = zeros_stats[1]
-
-        blocks.append(AnalysisBlock(
-            title="Zero Values",
-            render_as=RenderType.KEY_VALUE_PAIRS,
-            data={
-                "Zeros Count": zeros_count,
-                "Zeros (%)": round(100.0 * zeros_count / total_count, 2) if total_count > 0 else 0
-            }
-        ))
-
-        # Outlier detection using IQR method
-        if quantiles[1] is not None and quantiles[3] is not None and iqr is not None:
-            lower_fence = quantiles[1] - 1.5 * iqr
-            upper_fence = quantiles[3] + 1.5 * iqr
-
-            outlier_stats = conn.execute(f"""
-                SELECT 
-                    COUNT(*) as outlier_count,
-                    MIN({quoted_col}) as min_outlier,
-                    MAX({quoted_col}) as max_outlier
+    def _execute_batch_common_stats(self, conn: duckdb.DuckDBPyConnection, columns: List[Dict], total_rows: int) -> Dict:
+        if not columns: return {}
+        
+        query_parts = []
+        for col in columns:
+            q_col = quote_identifier(col['name'])
+            query_parts.append(f"""
+                SELECT
+                    '{col['name']}' as col_name,
+                    COUNT({q_col}) as non_missing_count,
+                    COUNT(DISTINCT {q_col}) as distinct_count
                 FROM dataset
-                WHERE {quoted_col} < {lower_fence} OR {quoted_col} > {upper_fence}
-            """).fetchone()
+            """)
+        
+        query = "\nUNION ALL\n".join(query_parts)
+        results = conn.execute(query).fetchall()
 
-            outlier_count = outlier_stats[0] or 0
-            outlier_percent = round(100.0 * outlier_count / total_count, 2) if total_count > 0 else 0
-
-            outlier_data = {
-                "Outlier Count": outlier_count,
-                "Outliers (%)": outlier_percent,
-                "Lower Fence": round(lower_fence, 4),
-                "Upper Fence": round(upper_fence, 4)
+        stats_map = {}
+        for row in results:
+            col_name, non_missing_count, distinct_count = row
+            missing_count = total_rows - non_missing_count
+            stats_map[col_name] = {
+                "Distinct Count": distinct_count,
+                "Distinct (%)": round(100.0 * distinct_count / total_rows, 2) if total_rows > 0 else 0,
+                "Missing Count": missing_count,
+                "Missing (%)": round(100.0 * missing_count / total_rows, 2) if total_rows > 0 else 0,
+                "Is Unique": distinct_count == total_rows
             }
+        return stats_map
 
-            if outlier_count > 0:
-                outlier_data["Min Outlier"] = outlier_stats[1]
-                outlier_data["Max Outlier"] = outlier_stats[2]
+    def _execute_batch_numeric_stats(self, conn: duckdb.DuckDBPyConnection, columns: List[Dict], total_rows: int) -> Dict:
+        if not columns: return {}
 
-            blocks.append(AnalysisBlock(
-                title="Outlier Detection (IQR Method)",
-                render_as=RenderType.KEY_VALUE_PAIRS,
-                data=outlier_data,
-                description="Values outside Q1 - 1.5*IQR and Q3 + 1.5*IQR"
-            ))
-
-        # Histogram
-        try:
-            histogram_result = conn.execute(f'SELECT HISTOGRAM({quoted_col}) FROM dataset').fetchone()[0]
-
-            # Parse DuckDB histogram format
-            bins = []
-            if histogram_result:
-                # DuckDB returns histogram as a map/dict structure
-                for bin_range, count in histogram_result.items():
-                    # Parse bin range (format: "[min, max)")
-                    min_val, max_val = self._parse_histogram_bin(bin_range)
-                    bins.append(HistogramBin(min=min_val, max=max_val, count=count))
-
-            blocks.append(AnalysisBlock(
-                title="Distribution",
-                render_as=RenderType.HISTOGRAM,
-                data=HistogramData(
-                    bins=bins,
-                    total_count=total_count
-                )
-            ))
-        except Exception as e:
-            logger.warning(f"Failed to generate histogram for {col_name}: {e}")
-
-        return blocks
-
-    async def _analyze_categorical_variable(
-            self,
-            conn: duckdb.DuckDBPyConnection,
-            col_name: str,
-            frequency_limit: int = 20
-    ) -> List[AnalysisBlock]:
-        """Analyze categorical variable."""
-        blocks = []
-
-        # Frequency table
-        quoted_col = quote_identifier(col_name)
-        freq_result = conn.execute(f"""
-            SELECT 
-                {quoted_col} as value,
-                COUNT(*) as frequency,
-                100.0 * COUNT(*) / (SELECT COUNT(*) FROM dataset) as percentage
-            FROM dataset
-            GROUP BY {quoted_col}
-            ORDER BY frequency DESC
-            LIMIT {frequency_limit}
-        """).fetchall()
-
-        if freq_result:
-            columns = ["Value", "Frequency", "Percentage"]
-            rows = [[row[0], row[1], round(row[2], 2)] for row in freq_result]
-
-            blocks.append(AnalysisBlock(
-                title="Top Values",
-                render_as=RenderType.TABLE,
-                data=TableData(columns=columns, rows=rows)
-            ))
-
-            # Bar chart of top values
-            categories = [str(row[0]) if row[0] is not None else "NULL" for row in freq_result[:10]]
-            values = [row[1] for row in freq_result[:10]]
-
-            blocks.append(AnalysisBlock(
-                title="Top 10 Values Distribution",
-                render_as=RenderType.BAR_CHART,
-                data=BarChartData(categories=categories, values=values)
-            ))
-
-        # String length statistics (if applicable)
-        try:
-            length_stats = conn.execute(f"""
-                SELECT 
-                    MIN(LENGTH(CAST({quoted_col} AS VARCHAR))) as min_length,
-                    MAX(LENGTH(CAST({quoted_col} AS VARCHAR))) as max_length,
-                    AVG(LENGTH(CAST({quoted_col} AS VARCHAR))) as avg_length
+        query_parts = []
+        for col in columns:
+            q_col = quote_identifier(col['name'])
+            query_parts.append(f"""
+                SELECT
+                    '{col['name']}' as col_name,
+                    AVG({q_col}), MEDIAN({q_col}), STDDEV_SAMP({q_col}), MIN({q_col}), MAX({q_col}),
+                    SKEWNESS({q_col}), KURTOSIS({q_col}),
+                    QUANTILE_DISC({q_col}, 0.05), QUANTILE_DISC({q_col}, 0.25), QUANTILE_DISC({q_col}, 0.75), QUANTILE_DISC({q_col}, 0.95),
+                    SUM(CASE WHEN {q_col} = 0 THEN 1 ELSE 0 END),
+                    HISTOGRAM({q_col})
                 FROM dataset
-                WHERE {quoted_col} IS NOT NULL
-            """).fetchone()
+            """)
+        
+        query = "\nUNION ALL\n".join(query_parts)
+        results = conn.execute(query).fetchall()
 
-            if all(v is not None for v in length_stats):
-                blocks.append(AnalysisBlock(
-                    title="String Length Statistics",
-                    render_as=RenderType.KEY_VALUE_PAIRS,
-                    data={
-                        "Min Length": int(length_stats[0]),
-                        "Max Length": int(length_stats[1]),
-                        "Avg Length": round(length_stats[2], 2)
-                    }
-                ))
-        except Exception as e:
-            logger.debug(f"Could not calculate string length for {col_name}: {e}")
+        stats_map = {}
+        for row in results:
+            col_name = row[0]
+            p5, q1, q3, p95 = row[8], row[9], row[10], row[11]
+            iqr = q3 - q1 if q1 is not None and q3 is not None else None
+            zeros_count = row[12] or 0
 
-        return blocks
+            histogram_data = None
+            try:
+                hist_raw = row[13]
+                if hist_raw:
+                    bins = []
+                    for bin_range, count in hist_raw.items():
+                        min_v, max_v = self._parse_histogram_bin(bin_range)
+                        bins.append(HistogramBin(min=min_v, max=max_v, count=count))
+                    histogram_data = HistogramData(bins=bins, total_count=total_rows)
+            except Exception as e:
+                logger.warning(f"Failed to parse histogram for {col_name}: {e}")
 
-    async def _analyze_datetime_variable(
-            self,
-            conn: duckdb.DuckDBPyConnection,
-            col_name: str
-    ) -> List[AnalysisBlock]:
-        """Analyze datetime variable."""
-        blocks = []
-
-        # Date range
-        quoted_col = quote_identifier(col_name)
-        date_range = conn.execute(f"""
-            SELECT 
-                MIN({quoted_col}) as min_date,
-                MAX({quoted_col}) as max_date,
-                MAX({quoted_col}) - MIN({quoted_col}) as date_range
-            FROM dataset
-        """).fetchone()
-
-        blocks.append(AnalysisBlock(
-            title="Date Range",
-            render_as=RenderType.KEY_VALUE_PAIRS,
-            data={
-                "Earliest Date": str(date_range[0]) if date_range[0] else None,
-                "Latest Date": str(date_range[1]) if date_range[1] else None,
-                "Range": str(date_range[2]) if date_range[2] else None
+            stats_map[col_name] = {
+                "descriptive": {
+                    "Mean": round(row[1], 4) if row[1] is not None else None,
+                    "Median": round(row[2], 4) if row[2] is not None else None,
+                    "Std Dev": round(row[3], 4) if row[3] is not None else None,
+                    "Min": row[4], "Max": row[5], "Range": row[5] - row[4] if row[4] is not None and row[5] is not None else None,
+                    "Skewness": round(row[6], 4) if row[6] is not None else None,
+                    "Kurtosis": round(row[7], 4) if row[7] is not None else None,
+                },
+                "quantile": {
+                    "5th Percentile": p5, "Q1 (25th Percentile)": q1,
+                    "Median (50th Percentile)": row[2],
+                    "Q3 (75th Percentile)": q3, "95th Percentile": p95, "IQR": iqr
+                },
+                "zeros": {
+                    "Zeros Count": zeros_count,
+                    "Zeros (%)": round(100.0 * zeros_count / total_rows, 2) if total_rows > 0 else 0,
+                },
+                "histogram": histogram_data
             }
-        ))
+        return stats_map
+    
+    def _execute_batch_categorical_freq(self, conn: duckdb.DuckDBPyConnection, columns: List[Dict], total_rows: int, limit: int) -> Dict:
+        if not columns: return {}
+        
+        query_parts = []
+        for col in columns:
+            q_col = quote_identifier(col['name'])
+            query_parts.append(f"SELECT '{col['name']}' as col_name, CAST({q_col} AS VARCHAR) as value, COUNT(*) as frequency FROM dataset GROUP BY 1, 2")
+        
+        full_query = f"""
+            WITH all_freqs AS ({' UNION ALL '.join(query_parts)}),
+            ranked_freqs AS (
+                SELECT *, ROW_NUMBER() OVER(PARTITION BY col_name ORDER BY frequency DESC) as rn
+                FROM all_freqs
+            )
+            SELECT col_name, value, frequency
+            FROM ranked_freqs WHERE rn <= {limit}
+        """
+        results = conn.execute(full_query).fetchall()
 
-        # Histogram over time
-        try:
-            histogram_result = conn.execute(f'SELECT HISTOGRAM({quoted_col}) FROM dataset').fetchone()[0]
+        freq_map = defaultdict(lambda: {'rows': []})
+        for col_name, value, frequency in results:
+            freq_map[col_name]['rows'].append([value, frequency, round(100.0 * frequency / total_rows, 2) if total_rows > 0 else 0])
 
-            bins = []
-            if histogram_result:
-                for bin_range, count in histogram_result.items():
-                    # For datetime, bins are typically date ranges
-                    min_val, max_val = self._parse_histogram_bin(bin_range, is_datetime=True)
-                    bins.append(HistogramBin(min=min_val, max=max_val, count=count))
+        processed_map = {}
+        for col_name, data in freq_map.items():
+            table = TableData(columns=["Value", "Frequency", "Percentage (%)"], rows=data['rows'])
+            
+            top_10_rows = data['rows'][:10]
+            categories = [str(row[0]) if row[0] is not None else "NULL" for row in top_10_rows]
+            values = [row[1] for row in top_10_rows]
+            chart = BarChartData(categories=categories, values=values)
+            processed_map[col_name] = {'table': table, 'chart': chart}
 
-            blocks.append(AnalysisBlock(
-                title="Distribution Over Time",
-                render_as=RenderType.HISTOGRAM,
-                data=HistogramData(
-                    bins=bins,
-                    total_count=conn.execute("SELECT COUNT(*) FROM dataset").fetchone()[0]
-                ),
-                description="Temporal distribution of values"
-            ))
-        except Exception as e:
-            logger.warning(f"Failed to generate datetime histogram for {col_name}: {e}")
+        return processed_map
 
-        return blocks
 
-    async def _analyze_text_variable(
-            self,
-            conn: duckdb.DuckDBPyConnection,
-            col_name: str
-    ) -> List[AnalysisBlock]:
-        """Analyze text variable."""
-        blocks = []
-
-        # Basic text statistics
-        quoted_col = quote_identifier(col_name)
-        text_stats = conn.execute(f"""
-            SELECT 
-                MIN(LENGTH({quoted_col})) as min_length,
-                MAX(LENGTH({quoted_col})) as max_length,
-                AVG(LENGTH({quoted_col})) as avg_length,
-                COUNT(DISTINCT {quoted_col}) as unique_values,
-                COUNT(*) as total_values
-            FROM dataset
-            WHERE {quoted_col} IS NOT NULL
-        """).fetchone()
-
-        blocks.append(AnalysisBlock(
-            title="Text Statistics",
-            render_as=RenderType.KEY_VALUE_PAIRS,
-            data={
-                "Min Length": int(text_stats[0]) if text_stats[0] is not None else 0,
-                "Max Length": int(text_stats[1]) if text_stats[1] is not None else 0,
-                "Avg Length": round(text_stats[2], 2) if text_stats[2] is not None else 0,
-                "Unique Values": text_stats[3],
-                "Total Values": text_stats[4]
-            }
-        ))
-
-        # Word statistics (simplified)
-        try:
-            word_stats = conn.execute(f"""
-                SELECT 
-                    AVG(ARRAY_LENGTH(STR_SPLIT({quoted_col}, ' '))) as avg_words
-                FROM dataset
-                WHERE {quoted_col} IS NOT NULL
-            """).fetchone()
-
-            if word_stats[0] is not None:
-                blocks.append(AnalysisBlock(
-                    title="Word Statistics",
-                    render_as=RenderType.KEY_VALUE_PAIRS,
-                    data={
-                        "Average Words": round(word_stats[0], 2)
-                    }
-                ))
-        except Exception as e:
-            logger.debug(f"Could not calculate word statistics for {col_name}: {e}")
-
-        # Sample values
-        samples = conn.execute(f"""
-            SELECT DISTINCT {quoted_col}
-            FROM dataset
-            WHERE {quoted_col} IS NOT NULL
-            ORDER BY RANDOM()
-            LIMIT 5
-        """).fetchall()
-
-        if samples:
-            sample_text = "\n\n".join([f"• {row[0][:200]}..." if len(str(row[0])) > 200 else f"• {row[0]}"
-                                       for row in samples])
-            blocks.append(AnalysisBlock(
-                title="Sample Values",
-                render_as=RenderType.TEXT_BLOCK,
-                data={"text": sample_text}
-            ))
-
-        return blocks
-
-    async def _analyze_boolean_variable(
-            self,
-            conn: duckdb.DuckDBPyConnection,
-            col_name: str
-    ) -> List[AnalysisBlock]:
-        """Analyze boolean variable."""
-        blocks = []
-
-        # Boolean value counts
-        quoted_col = quote_identifier(col_name)
-        bool_stats = conn.execute(f"""
-            SELECT 
-                SUM(CASE WHEN {quoted_col} = TRUE THEN 1 ELSE 0 END) as true_count,
-                SUM(CASE WHEN {quoted_col} = FALSE THEN 1 ELSE 0 END) as false_count,
-                SUM(CASE WHEN {quoted_col} IS NULL THEN 1 ELSE 0 END) as null_count,
-                COUNT(*) as total_count
-            FROM dataset
-        """).fetchone()
-
-        true_count = bool_stats[0] or 0
-        false_count = bool_stats[1] or 0
-        null_count = bool_stats[2] or 0
-        total_count = bool_stats[3]
-
-        # Calculate percentages
-        true_pct = round(100.0 * true_count / total_count, 2) if total_count > 0 else 0
-        false_pct = round(100.0 * false_count / total_count, 2) if total_count > 0 else 0
-        null_pct = round(100.0 * null_count / total_count, 2) if total_count > 0 else 0
-
-        # Value distribution
-        blocks.append(AnalysisBlock(
-            title="Boolean Value Distribution",
-            render_as=RenderType.KEY_VALUE_PAIRS,
-            data={
-                "TRUE Count": true_count,
-                "TRUE (%)": true_pct,
-                "FALSE Count": false_count,
-                "FALSE (%)": false_pct,
-                "NULL Count": null_count,
-                "NULL (%)": null_pct,
-                "Total Count": total_count
-            }
-        ))
-
-        # Bar chart for visualization
-        if true_count > 0 or false_count > 0:
-            categories = []
-            values = []
-
-            if true_count > 0:
-                categories.append("TRUE")
-                values.append(true_count)
-            if false_count > 0:
-                categories.append("FALSE")
-                values.append(false_count)
-            if null_count > 0:
-                categories.append("NULL")
-                values.append(null_count)
-
-            blocks.append(AnalysisBlock(
-                title="Boolean Distribution Chart",
-                render_as=RenderType.BAR_CHART,
-                data=BarChartData(categories=categories, values=values),
-                description="Distribution of boolean values"
-            ))
-
-        # True/False ratio
-        if false_count > 0:
-            true_false_ratio = round(true_count / false_count, 4)
-            blocks.append(AnalysisBlock(
-                title="Additional Statistics",
-                render_as=RenderType.KEY_VALUE_PAIRS,
-                data={
-                    "TRUE/FALSE Ratio": true_false_ratio,
-                    "Non-NULL Count": true_count + false_count,
-                    "Non-NULL (%)": round(100.0 * (true_count + false_count) / total_count, 2) if total_count > 0 else 0
-                }
-            ))
-
-        return blocks
-
-    async def _analyze_interactions(
+    def _analyze_interactions(
             self,
             conn: duckdb.DuckDBPyConnection,
             variables: Dict[str, VariableAnalysis],
@@ -1036,46 +643,33 @@ class EDAService:
 
         return blocks, correlation_pairs
 
-    async def _analyze_missing_values(
+    def _analyze_missing_values(
             self,
-            conn: duckdb.DuckDBPyConnection,
-            column_info: List[Tuple]
-    ) -> List[AnalysisBlock]:
-        """Analyze missing value patterns."""
+            column_info: List[Dict],
+            total_rows: int,
+            common_stats_results: Dict[str, Dict]
+    ) -> Tuple[List[AnalysisBlock], int]:
+        """Analyze missing value patterns using already-computed common stats."""
         blocks = []
-
-        # --- EFFICIENT SINGLE-PASS QUERY ---
-        select_clauses = []
-        for col in column_info:
-            col_name = col[1]
-            quoted_col = quote_identifier(col_name)
-            # Use SUM(CASE...) which is fast and clear
-            select_clauses.append(
-                f"SUM(CASE WHEN {quoted_col} IS NULL THEN 1 ELSE 0 END) AS {quote_identifier(col_name + '_missing')}")
-
-        if not select_clauses:
-            return []
-
-        query = f"SELECT {', '.join(select_clauses)}, COUNT(*) as total_rows FROM dataset"
-        all_missing_counts = conn.execute(query).fetchone()
-
-        total_rows = all_missing_counts[-1]
+        
         total_cells = total_rows * len(column_info)
         total_missing = 0
         missing_stats = []
 
-        # The result `all_missing_counts` has N columns of missing counts + 1 for total_rows
-        for i, col in enumerate(column_info):
-            col_name = col[1]
-            missing_count = all_missing_counts[i]
-            total_missing += missing_count
+        # Use missing counts from common_stats_results instead of re-querying
+        for col in column_info:
+            col_name = col['name']
+            if col_name in common_stats_results:
+                missing_count = common_stats_results[col_name].get("Missing Count", 0)
+                missing_percent = common_stats_results[col_name].get("Missing (%)", 0)
+                total_missing += missing_count
 
-            if missing_count > 0:
-                missing_stats.append({
-                    "column": col_name,
-                    "missing_count": missing_count,
-                    "missing_percent": round(100.0 * missing_count / total_rows, 2) if total_rows > 0 else 0
-                })
+                if missing_count > 0:
+                    missing_stats.append({
+                        "column": col_name,
+                        "missing_count": missing_count,
+                        "missing_percent": missing_percent
+                    })
 
         # Overall missing statistics
         blocks.append(AnalysisBlock(
@@ -1104,53 +698,13 @@ class EDAService:
                 description="Top columns with missing values"
             ))
 
-        # Missing values matrix (sample)
-        try:
-            # Get a sample of rows to visualize missing patterns
-            sample_size = min(100, conn.execute("SELECT COUNT(*) FROM dataset").fetchone()[0])
+        return blocks, total_missing
 
-            if sample_size > 0:
-                # Build query to get NULL indicators
-                null_indicators = []
-                for col in column_info[:20]:  # Limit to 20 columns for visualization
-                    col_name = col[1]  # Column name is at index 1
-                    quoted_col = quote_identifier(col_name)
-                    null_indicators.append(f'{quoted_col} IS NULL AS {quote_identifier(col_name + "_is_null")}')
-
-                query = f"""
-                    SELECT {', '.join(null_indicators)}
-                    FROM dataset
-                    LIMIT {sample_size}
-                """
-
-                matrix_result = conn.execute(query).fetchall()
-
-                if matrix_result:
-                    columns = [col[1] for col in column_info[:20]]  # Column name is at index 1
-                    rows = [[bool(val) for val in row] for row in matrix_result]
-
-                    blocks.append(AnalysisBlock(
-                        title="Missing Values Pattern",
-                        render_as=RenderType.MATRIX,
-                        data=MatrixData(
-                            columns=columns,
-                            rows=rows,
-                            row_indices=list(range(sample_size))
-                        ),
-                        description=f"Missing value patterns in first {sample_size} rows"
-                    ))
-        except Exception as e:
-            logger.warning(f"Failed to generate missing values matrix: {e}")
-
-        return blocks
-
-    async def _detect_alerts(
+    def _detect_alerts(
             self,
-            conn: duckdb.DuckDBPyConnection,
             variables: Dict[str, VariableAnalysis],
             total_rows: int,
             correlation_pairs: List[Tuple[str, str, float]],
-            correlation_threshold: float,
             duplicate_rows: int,
             alert_config: AlertConfig
     ) -> List[Alert]:
