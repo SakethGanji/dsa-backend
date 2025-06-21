@@ -1,6 +1,7 @@
 from typing import Dict, List, Any, Optional
 from fastapi import HTTPException, status
 import logging
+from datetime import datetime
 
 from app.sampling.service import SamplingService
 from app.sampling.models import (
@@ -91,31 +92,29 @@ class SamplingController:
             logger.info(f"User {user_id} creating multi-round sampling job for dataset {dataset_id}, version {version_id}")
             
             # Call service method to create job
-            job = await self.service.create_multi_round_sampling_job(
+            result = await self.service.create_multi_round_sampling_job(
                 dataset_id=dataset_id,
                 version_id=version_id,
                 request=request,
                 user_id=user_id
             )
             
-            logger.info(f"Created multi-round sampling job {job.id} for dataset {dataset_id}, version {version_id}")
+            logger.info(f"Created multi-round sampling job {result['run_id']} for dataset {dataset_id}, version {version_id}")
             
             # Return response
             return MultiRoundSamplingJobResponse(
-                run_id=job.id,
-                status=job.status,
-                message=f"Multi-round sampling job created with {len(request.rounds)} rounds",
-                total_rounds=job.total_rounds,
-                completed_rounds=job.completed_rounds,
-                current_round=job.current_round,
-                round_results=job.round_results,
-                residual_uri=job.residual_uri,
-                residual_size=job.residual_size,
-                residual_summary=job.residual_summary,
-                error_message=job.error_message,
-                created_at=job.created_at,
-                started_at=job.started_at,
-                completed_at=job.completed_at
+                run_id=str(result["run_id"]),  # Convert to string for consistency
+                status=JobStatus(result["status"]),
+                message=result.get("message", f"Multi-round sampling job created with {len(request.rounds)} rounds"),
+                total_rounds=len(request.rounds),
+                completed_rounds=0,
+                current_round=None,
+                round_results=[],
+                residual_uri=None,
+                residual_size=None,
+                residual_summary=None,
+                error_message=None,
+                created_at=datetime.now()
             )
             
         except ValueError as e:
@@ -150,40 +149,48 @@ class SamplingController:
             logger.info(f"Getting multi-round job details for job {job_id}")
             
             # Call service method
-            job = await self.service.get_multi_round_job(job_id)
+            job_data = await self.service.get_multi_round_job(job_id)
             
-            if not job:
+            if not job_data:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"Multi-round sampling job with ID {job_id} not found"
                 )
             
+            # Extract data from dict response
+            status_str = job_data.get("status", "pending")
+            status_enum = JobStatus(status_str)
+            completed_rounds = job_data.get("completed_rounds", 0)
+            total_rounds = job_data.get("total_rounds", 0)
+            current_round = job_data.get("current_round")
+            error_message = job_data.get("error_message")
+            
             # Build status message
-            if job.status == JobStatus.COMPLETED:
-                message = f"Multi-round sampling completed. {job.completed_rounds} rounds processed."
-            elif job.status == JobStatus.RUNNING:
-                message = f"Processing round {job.current_round} of {job.total_rounds}"
-            elif job.status == JobStatus.FAILED:
-                message = f"Multi-round sampling failed: {job.error_message}"
+            if status_enum == JobStatus.COMPLETED:
+                message = f"Multi-round sampling completed. {completed_rounds} rounds processed."
+            elif status_enum == JobStatus.RUNNING:
+                message = f"Processing round {current_round} of {total_rounds}"
+            elif status_enum == JobStatus.FAILED:
+                message = f"Multi-round sampling failed: {error_message}"
             else:
                 message = "Multi-round sampling job is queued"
             
             # Return response
             return MultiRoundSamplingJobResponse(
-                run_id=job.id,
-                status=job.status,
+                run_id=job_data.get("id", job_id),
+                status=status_enum,
                 message=message,
-                total_rounds=job.total_rounds,
-                completed_rounds=job.completed_rounds,
-                current_round=job.current_round,
-                round_results=job.round_results,
-                residual_uri=job.residual_uri,
-                residual_size=job.residual_size,
-                residual_summary=job.residual_summary,
-                error_message=job.error_message,
-                created_at=job.created_at,
-                started_at=job.started_at,
-                completed_at=job.completed_at
+                total_rounds=total_rounds,
+                completed_rounds=completed_rounds,
+                current_round=current_round,
+                round_results=job_data.get("round_results", []),
+                residual_uri=job_data.get("residual_uri"),
+                residual_size=job_data.get("residual_size"),
+                residual_summary=job_data.get("residual_summary"),
+                error_message=error_message,
+                created_at=job_data.get("created_at", datetime.now()),
+                started_at=job_data.get("started_at"),
+                completed_at=job_data.get("completed_at")
             )
             
         except HTTPException:
@@ -205,9 +212,9 @@ class SamplingController:
         """Get preview data from a specific sampling round"""
         try:
             # Get job details
-            job = await self.service.get_multi_round_job(job_id)
+            job_data = await self.service.get_multi_round_job(job_id)
             
-            if not job:
+            if not job_data:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"Multi-round sampling job with ID {job_id} not found"
@@ -215,8 +222,8 @@ class SamplingController:
             
             # Find the round result
             round_result = None
-            for result in job.round_results:
-                if result.round_number == round_number:
+            for result in job_data.get("round_results", []):
+                if result.get("round_number") == round_number:
                     round_result = result
                     break
             
@@ -228,7 +235,7 @@ class SamplingController:
             
             # For now, return the preview data from the round result
             # In a full implementation, you would load the actual file and paginate
-            preview_data = round_result.preview or []
+            preview_data = round_result.get("preview", [])
             
             # Apply pagination
             total_items = len(preview_data)
@@ -241,10 +248,10 @@ class SamplingController:
             return {
                 "data": paginated_data,
                 "round_info": {
-                    "round_number": round_result.round_number,
-                    "method": round_result.method,
-                    "sample_size": round_result.sample_size,
-                    "output_uri": round_result.output_uri
+                    "round_number": round_result.get("round_number"),
+                    "method": round_result.get("method"),
+                    "sample_size": round_result.get("sample_size"),
+                    "output_uri": round_result.get("output_uri")
                 },
                 "pagination": {
                     "page": page,
@@ -274,21 +281,23 @@ class SamplingController:
         """Get preview data from the residual dataset"""
         try:
             # Get job details
-            job = await self.service.get_multi_round_job(job_id)
+            job_data = await self.service.get_multi_round_job(job_id)
             
-            if not job:
+            if not job_data:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"Multi-round sampling job with ID {job_id} not found"
                 )
             
-            if job.status != JobStatus.COMPLETED:
+            status_str = job_data.get("status", "pending")
+            if JobStatus(status_str) != JobStatus.COMPLETED:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Job must be completed to view residual data"
                 )
             
-            if not job.residual_uri:
+            residual_uri = job_data.get("residual_uri")
+            if not residual_uri:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="No residual dataset available (export_residual was false or all data was sampled)"
@@ -299,9 +308,9 @@ class SamplingController:
             return {
                 "data": [],
                 "residual_info": {
-                    "size": job.residual_size,
-                    "uri": job.residual_uri,
-                    "summary": job.residual_summary
+                    "size": job_data.get("residual_size"),
+                    "uri": residual_uri,
+                    "summary": job_data.get("residual_summary")
                 },
                 "pagination": {
                     "page": page,
@@ -435,5 +444,63 @@ class SamplingController:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Error executing multi-round sampling: {str(e)}"
+            )
+    
+    async def get_merged_sample_data(
+        self,
+        job_id: str,
+        page: int = 1,
+        page_size: int = 100,
+        columns: Optional[List[str]] = None,
+        export_format: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Get paginated data from the merged sample file
+        
+        Args:
+            job_id: The multi-round sampling job ID
+            page: Page number (1-indexed)
+            page_size: Number of items per page
+            columns: Optional list of columns to return
+            export_format: Optional export format (csv, json)
+            
+        Returns:
+            Dictionary containing paginated data and metadata
+            
+        Raises:
+            HTTPException: If job not found or data retrieval fails
+        """
+        try:
+            logger.info(f"Getting merged sample data for job {job_id}, page {page}")
+            
+            # Call service method to get the paginated data
+            result = await self.service.get_merged_sample_data(
+                job_id=job_id,
+                page=page,
+                page_size=page_size,
+                columns=columns,
+                export_format=export_format
+            )
+            
+            return result
+            
+        except ValueError as e:
+            # Handle validation errors
+            logger.warning(f"Validation error getting merged sample: {str(e)}")
+            if "not found" in str(e).lower():
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=str(e)
+                )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+        except Exception as e:
+            # Handle all other errors
+            logger.error(f"Error getting merged sample data: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error retrieving merged sample data: {str(e)}"
             )
 

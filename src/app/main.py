@@ -42,6 +42,40 @@ app.include_router(datasets_router)
 app.include_router(explore_router)
 app.include_router(sampling_router)
 
+# Startup event to recover running jobs
+@app.on_event("startup")
+async def startup_event():
+    """Recover any sampling jobs that were running when the server shut down"""
+    try:
+        logger.info("Starting up application...")
+        
+        # Get the sampling service instance with database session
+        from app.db.connection import AsyncSessionLocal
+        from app.sampling.service import SamplingService
+        from app.datasets.repository import DatasetsRepository
+        from app.sampling.repository import SamplingRepository
+        from app.storage.factory import StorageFactory
+        
+        async with AsyncSessionLocal() as session:
+            datasets_repository = DatasetsRepository(session)
+            sampling_repo = SamplingRepository()
+            storage_backend = StorageFactory.get_instance()
+            
+            # Create service with database session to enable recovery
+            service = SamplingService(
+                datasets_repository, 
+                sampling_repo, 
+                storage_backend, 
+                db_session=session
+            )
+            
+            # Recover any running jobs
+            await service.recover_running_jobs()
+            
+        logger.info("Application startup complete")
+    except Exception as e:
+        logger.error(f"Error during startup: {str(e)}", exc_info=True)
+
 @app.get("/")
 async def root():
     return {"message": "Data Science API is running"}

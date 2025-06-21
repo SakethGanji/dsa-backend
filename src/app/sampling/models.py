@@ -289,3 +289,34 @@ class MultiRoundSamplingJob(BaseModel):
     error_message: Optional[str] = None
     # Track residual dataset path internally
     residual_table_name: Optional[str] = None
+
+# Database integration models
+class AnalysisRunCreate(BaseModel):
+    """Model for creating analysis runs in the database"""
+    dataset_version_id: int
+    user_id: int
+    run_type: str = "sampling"
+    run_parameters: Dict[str, Any]
+    status: str = "pending"
+
+class AnalysisRunUpdate(BaseModel):
+    """Model for updating analysis runs in the database"""
+    status: Optional[str] = None
+    execution_time_ms: Optional[int] = None
+    notes: Optional[str] = None
+    output_file_id: Optional[int] = None
+    output_summary: Optional[Dict[str, Any]] = None
+
+class AnalysisRunResponse(BaseModel):
+    """Response model for analysis run data"""
+    id: int
+    dataset_id: int
+    dataset_version_id: int
+    user_id: int
+    status: str
+    run_timestamp: datetime
+    run_parameters: Dict[str, Any]
+    execution_time_ms: Optional[int] = None
+    notes: Optional[str] = None
+    output_file_id: Optional[int] = None
+    output_summary: Optional[Dict[str, Any]] = None

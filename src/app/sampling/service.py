@@ -13,8 +13,10 @@ from app.sampling.models import (
     SystematicSamplingParams, ClusterSamplingParams, CustomSamplingParams,
     WeightedSamplingParams, DataFilters, DataSelection, FilterCondition, DataSummary,
     MultiRoundSamplingRequest, MultiRoundSamplingJob,
-    SamplingRoundConfig, RoundResult
+    SamplingRoundConfig, RoundResult,
+    AnalysisRunResponse
 )
+from app.sampling.db_repository import SamplingDBRepository
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -22,10 +24,14 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 class SamplingService:
-    def __init__(self, datasets_repository, sampling_repository, storage_backend: StorageBackend):
+    def __init__(self, datasets_repository, sampling_repository, storage_backend: StorageBackend, db_session=None):
         self.datasets_repository = datasets_repository
-        self.sampling_repository = sampling_repository
+        self.sampling_repository = sampling_repository  # Keep for backward compatibility
         self.storage = storage_backend
+        self.db_session = db_session  # For database operations
+        self.db_repository = None
+        if db_session:
+            self.db_repository = SamplingDBRepository(db_session)
         
     
     async def get_dataset_columns(self, dataset_id: int, version_id: int) -> Dict[str, Any]:
@@ -667,7 +673,7 @@ class SamplingService:
         version_id: int,
         request: MultiRoundSamplingRequest,
         user_id: int
-    ) -> MultiRoundSamplingJob:
+    ) -> Dict[str, Any]:
         """
         Create and enqueue a new multi-round sampling job
         
@@ -678,28 +684,75 @@ class SamplingService:
             user_id: ID of the user creating the job
             
         Returns:
-            A MultiRoundSamplingJob object with a unique ID
+            Dictionary with job ID and status information
         """
-        # Create a new job
-        job = MultiRoundSamplingJob(
-            dataset_id=dataset_id,
-            version_id=version_id,
-            user_id=user_id,
-            request=request,
-            total_rounds=len(request.rounds)
-        )
-        
-        # Store the job
-        await self.sampling_repository.create_multi_round_job(job)
-        
-        # Start the job in the background
-        asyncio.create_task(self._process_multi_round_job(job.id))
-        
-        return job
+        # Use database repository if available, otherwise fall back to in-memory
+        if self.db_repository:
+            # Create analysis run in database
+            run_id = await self.db_repository.create_analysis_run(
+                dataset_version_id=version_id,
+                user_id=user_id,
+                request=request
+            )
+            
+            # Start the job in the background
+            asyncio.create_task(self._process_multi_round_job_db(run_id))
+            
+            return {
+                "run_id": run_id,
+                "status": "pending",
+                "message": "Multi-round sampling job created successfully"
+            }
+        else:
+            # Fallback to in-memory repository for backward compatibility
+            job = MultiRoundSamplingJob(
+                dataset_id=dataset_id,
+                version_id=version_id,
+                user_id=user_id,
+                request=request,
+                total_rounds=len(request.rounds)
+            )
+            
+            # Store the job
+            await self.sampling_repository.create_multi_round_job(job)
+            
+            # Start the job in the background
+            asyncio.create_task(self._process_multi_round_job(job.id))
+            
+            return {
+                "run_id": job.id,
+                "status": "pending",
+                "message": "Multi-round sampling job created successfully",
+                "job": job  # Include for backward compatibility
+            }
     
-    async def get_multi_round_job(self, job_id: str) -> Optional[MultiRoundSamplingJob]:
+    async def get_multi_round_job(self, job_id: str) -> Optional[Dict[str, Any]]:
         """Get multi-round job details by ID"""
-        return await self.sampling_repository.get_multi_round_job(job_id)
+        if self.db_repository:
+            # Try to parse job_id as integer for database
+            try:
+                run_id = int(job_id)
+                logger.debug(f"Looking for job {run_id} in database")
+                run_data = await self.db_repository.get_analysis_run(run_id)
+                logger.debug(f"Database returned: {run_data is not None}")
+                if run_data:
+                    transformed = self._transform_db_run_to_job_response(run_data)
+                    logger.debug(f"Transformed data: {transformed is not None}")
+                    return transformed
+            except ValueError:
+                # Not an integer ID, might be a UUID from in-memory
+                logger.debug(f"Job ID {job_id} is not an integer, skipping database lookup")
+                pass
+            except Exception as e:
+                logger.error(f"Error getting job from database: {str(e)}", exc_info=True)
+                raise
+        
+        # Fallback to in-memory repository
+        job = await self.sampling_repository.get_multi_round_job(job_id)
+        if job:
+            return job.dict()
+        
+        return None
     
     async def _process_multi_round_job(self, job_id: str) -> None:
         """
@@ -1182,3 +1235,635 @@ class SamplingService:
                     os.unlink(temp_db_path)
                 except Exception as e:
                     logger.warning(f"Failed to delete temporary DB file: {e}")
+
+    # Database-based multi-round sampling methods
+    async def _process_multi_round_job_db(self, run_id: int) -> None:
+        """
+        Process a multi-round sampling job using database persistence
+        
+        This method executes each sampling round progressively,
+        tracking residuals after each round and persisting state to database.
+        """
+        start_time = datetime.now()
+        conn = None
+        temp_db_path = None
+        
+        # Create a new, independent database session for this background task
+        from app.db.connection import AsyncSessionLocal
+        from app.datasets.repository import DatasetsRepository
+        from app.datasets.models import FileCreate
+        
+        async with AsyncSessionLocal() as session:
+            # Create repository instances with the new session
+            db_repository = SamplingDBRepository(session)
+            datasets_repo = DatasetsRepository(session)
+            
+            try:
+                # Update job status to running using the new session
+                await db_repository.update_analysis_run(
+                    run_id=run_id,
+                    status="running"
+                )
+                
+                # Get job details from database
+                run_data = await db_repository.get_analysis_run(run_id)
+                if not run_data:
+                    logger.error(f"Analysis run {run_id} not found after starting.")
+                    return
+            
+                # Extract request from run_parameters
+                request = MultiRoundSamplingRequest(**run_data["run_parameters"]["request"])
+                dataset_version_id = run_data["dataset_version_id"]
+                
+                # Get dataset version
+                version = await datasets_repo.get_dataset_version(dataset_version_id)
+                if not version:
+                    raise ValueError(f"Dataset version with ID {dataset_version_id} not found")
+                
+                # Get file data
+                file_id = version.overlay_file_id
+                file_info = await datasets_repo.get_file(file_id)
+                if not file_info or not file_info.file_path:
+                    raise ValueError("File path not found")
+                
+                # Create file-backed DuckDB connection
+                temp_db_fd, temp_db_path = tempfile.mkstemp(suffix=".duckdb")
+                os.close(temp_db_fd)
+                os.unlink(temp_db_path)
+                
+                conn = duckdb.connect(database=temp_db_path, read_only=False)
+                
+                # Create initial view from dataset
+                conn.execute(f"CREATE VIEW original_data AS SELECT * FROM read_parquet('{file_info.file_path}')")
+                
+                # Add unique row identifier for tracking
+                conn.execute("""
+                    CREATE VIEW data_with_id AS 
+                    SELECT *, ROW_NUMBER() OVER () AS __row_id__ 
+                    FROM original_data
+                """)
+                
+                # Initialize residual as full dataset
+                conn.execute("CREATE TABLE residual_data AS SELECT * FROM data_with_id")
+                
+                # SIMPLIFIED: Create ONE table to collect all sampled IDs
+                conn.execute("CREATE TABLE all_sampled_ids (__row_id__ BIGINT)")
+                
+                # Process each round
+                round_results = []
+                for round_config in request.rounds:
+                    # Update current round in database
+                    await db_repository.update_round_progress(
+                        run_id=run_id,
+                        current_round=round_config.round_number,
+                        completed_rounds=len(round_results),
+                        round_results=round_results
+                    )
+                    
+                    # Execute sampling for this round (simplified)
+                    round_result = await self._execute_sampling_round_simplified(
+                        conn, round_config
+                    )
+                    
+                    # Add to results
+                    round_results.append(round_result)
+                
+                # Export final residual if requested
+                residual_info = None
+                if request.export_residual:
+                    residual_info = await self._export_residual_dataset_db(
+                        conn, run_data, request.residual_output_name or "residual"
+                    )
+                
+                # Create final merged sample file
+                merged_info = await self._create_merged_sample_db(
+                    conn, run_data
+                )
+                
+                # Register the output file in the database
+                file_create = FileCreate(
+                    storage_type="filesystem",
+                    file_type="parquet",
+                    mime_type="application/parquet",
+                    file_path=merged_info["merged_path"],
+                    file_size=os.path.getsize(merged_info["merged_path"])
+                )
+                
+                output_file_id = await datasets_repo.create_file(file_create)
+                
+                # Calculate execution time
+                execution_time_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+                
+                # Prepare output summary
+                output_summary = {
+                    "total_rounds": len(request.rounds),
+                    "completed_rounds": len(round_results),
+                    "round_results": round_results,
+                    "total_samples": merged_info["sample_count"],
+                    "residual_info": residual_info
+                }
+                
+                # Update job as completed
+                await db_repository.update_analysis_run(
+                    run_id=run_id,
+                    status="completed",
+                    output_file_id=output_file_id,
+                    output_summary=output_summary,
+                    execution_time_ms=execution_time_ms
+                )
+                
+                logger.info(f"Multi-round sampling job {run_id} completed successfully")
+                
+            except Exception as e:
+                logger.error(f"Error processing multi-round job {run_id}: {str(e)}", exc_info=True)
+                
+                # Use the same db_repository instance to update the status to failed
+                await db_repository.update_analysis_run(
+                    run_id=run_id,
+                    status="failed",
+                    notes=f"An unexpected error occurred: {str(e)}",
+                    execution_time_ms=int((datetime.now() - start_time).total_seconds() * 1000)
+                )
+            
+            finally:
+                # Clean up
+                if conn:
+                    conn.close()
+                if temp_db_path and os.path.exists(temp_db_path):
+                    os.unlink(temp_db_path)
+    
+    async def _execute_sampling_round_db(
+        self,
+        conn: duckdb.DuckDBPyConnection,
+        run_data: dict,
+        round_config: SamplingRoundConfig,
+        original_file_path: str
+    ) -> RoundResult:
+        """Execute a single sampling round for database-backed job"""
+        started_at = datetime.now()
+        
+        try:
+            # Create view for current residual
+            conn.execute("CREATE OR REPLACE VIEW current_residual AS SELECT * FROM residual_data")
+            
+            # Build base query from residual with filters
+            base_query, query_params = self._build_base_query_for_round(conn, round_config)
+            
+            # Create sampling request for this round
+            sampling_request = SamplingRequest(
+                method=round_config.method,
+                parameters=round_config.parameters,
+                output_name=round_config.output_name,
+                filters=round_config.filters,
+                selection=round_config.selection
+            )
+            
+            # Apply sampling to get sample query
+            sample_query = await self._apply_sampling_sql(conn, base_query, query_params, sampling_request)
+            
+            # Create temporary table with sampled IDs
+            conn.execute(f"""
+                CREATE TEMPORARY TABLE round_{round_config.round_number}_sample AS
+                SELECT __row_id__ FROM ({sample_query})
+            """)
+            
+            # Get sample size
+            sample_size = conn.execute(f"SELECT COUNT(*) FROM round_{round_config.round_number}_sample").fetchone()[0]
+            
+            # Save sample data (without __row_id__)
+            dataset_id = run_data["dataset_id"]
+            version_id = run_data["dataset_version_id"]
+            sample_path = self.storage.get_multi_round_sample_path(
+                dataset_id=dataset_id,
+                version_id=version_id,
+                job_id=str(run_data["id"]),
+                round_number=round_config.round_number
+            )
+            
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(sample_path), exist_ok=True)
+            
+            # Export sample without internal row ID
+            conn.execute(f"""
+                COPY (
+                    SELECT * EXCLUDE (__row_id__)
+                    FROM ({sample_query})
+                ) TO '{sample_path}' (FORMAT PARQUET)
+            """)
+            
+            # Get preview data
+            preview_result = conn.execute(f"""
+                SELECT * EXCLUDE (__row_id__)
+                FROM ({sample_query})
+                LIMIT 10
+            """).fetchall()
+            columns = [desc[0] for desc in conn.description]
+            preview_data = [dict(zip(columns, row)) for row in preview_result]
+            
+            # Get sample summary
+            conn.execute(f"CREATE OR REPLACE TEMPORARY VIEW sample_view AS {sample_query}")
+            sample_summary = self._get_data_summary(conn, 'sample_view')
+            
+            # Update residual by creating new table without sampled rows
+            conn.execute(f"""
+                CREATE TABLE new_residual_data AS
+                SELECT * FROM residual_data
+                WHERE __row_id__ NOT IN (
+                    SELECT __row_id__ FROM round_{round_config.round_number}_sample
+                )
+            """)
+            conn.execute("DROP TABLE residual_data")
+            conn.execute("ALTER TABLE new_residual_data RENAME TO residual_data")
+            
+            # Clean up temporary table
+            conn.execute(f"DROP TABLE round_{round_config.round_number}_sample")
+            
+            completed_at = datetime.now()
+            
+            return RoundResult(
+                round_number=round_config.round_number,
+                method=round_config.method,
+                sample_size=sample_size,
+                output_uri=f"file://{sample_path}",
+                preview=preview_data,
+                summary=sample_summary,
+                started_at=started_at,
+                completed_at=completed_at
+            )
+            
+        except Exception as e:
+            logger.error(f"Error in round {round_config.round_number}: {str(e)}")
+            raise
+    
+    async def _create_merged_sample_db(
+        self, conn: duckdb.DuckDBPyConnection, 
+        run_data: dict
+    ) -> Dict[str, Any]:
+        """Create a single merged sample file from all rounds for database-backed job"""
+        # Check if we have any sampled IDs
+        sample_count = conn.execute("SELECT COUNT(*) FROM all_sampled_ids").fetchone()[0]
+        
+        if sample_count > 0:
+            # FIXED: Use correct join logic with data_with_id
+            conn.execute("""
+                CREATE VIEW final_merged_sample AS
+                SELECT * EXCLUDE (__row_id__)
+                FROM data_with_id
+                WHERE __row_id__ IN (SELECT __row_id__ FROM all_sampled_ids)
+            """)
+        else:
+            # No samples collected
+            conn.execute("""
+                CREATE VIEW final_merged_sample AS
+                SELECT * FROM original_data LIMIT 0
+            """)
+        
+        # Export merged sample
+        dataset_id = run_data["dataset_id"]
+        version_id = run_data["dataset_version_id"]
+        merged_path = self.storage.get_multi_round_sample_path(
+            dataset_id, version_id, str(run_data["id"]), 0  # Use 0 for merged sample
+        )
+        
+        os.makedirs(os.path.dirname(merged_path), exist_ok=True)
+        conn.execute(f"COPY final_merged_sample TO '{merged_path}' (FORMAT PARQUET)")
+        
+        return {"merged_path": merged_path, "sample_count": sample_count}
+    
+    async def _execute_sampling_round_simplified(
+        self,
+        conn: duckdb.DuckDBPyConnection,
+        round_config: SamplingRoundConfig
+    ) -> dict:
+        """
+        Execute a single sampling round and update residual (simplified version)
+        
+        This method:
+        1. Samples from current residual
+        2. Adds sampled IDs directly to all_sampled_ids table
+        3. Updates residual data
+        4. Returns summary information
+        """
+        started_at = datetime.now()
+        
+        try:
+            # Create view for current residual
+            conn.execute("CREATE OR REPLACE VIEW current_residual AS SELECT * FROM residual_data")
+            
+            # Build base query from residual with filters
+            base_query, query_params = self._build_base_query_for_round(conn, round_config)
+            
+            # Create sampling request for this round
+            sampling_request = SamplingRequest(
+                method=round_config.method,
+                parameters=round_config.parameters,
+                output_name=round_config.output_name,
+                filters=round_config.filters,
+                selection=round_config.selection
+            )
+            
+            # Apply sampling to get sample query
+            sample_query = await self._apply_sampling_sql(conn, base_query, query_params, sampling_request)
+            
+            # SIMPLIFIED: Insert sampled IDs directly into accumulator table
+            conn.execute(f"""
+                INSERT INTO all_sampled_ids (__row_id__)
+                SELECT __row_id__ FROM ({sample_query})
+            """)
+            
+            # Get count of samples in this round
+            round_sample_count = conn.execute(f"""
+                SELECT COUNT(*) FROM ({sample_query})
+            """).fetchone()[0]
+            
+            # Update residual by removing sampled rows
+            conn.execute(f"""
+                CREATE TABLE new_residual_data AS
+                SELECT * FROM residual_data
+                WHERE __row_id__ NOT IN (SELECT __row_id__ FROM ({sample_query}))
+            """)
+            conn.execute("DROP TABLE residual_data")
+            conn.execute("ALTER TABLE new_residual_data RENAME TO residual_data")
+            
+            completed_at = datetime.now()
+            
+            # Return summary info for this round
+            return {
+                "round_number": round_config.round_number,
+                "method": round_config.method.value,
+                "sample_size": round_sample_count,
+                "started_at": started_at.isoformat(),
+                "completed_at": completed_at.isoformat()
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in round {round_config.round_number}: {str(e)}")
+            raise
+    
+    async def _export_residual_dataset_db(
+        self, conn: duckdb.DuckDBPyConnection, 
+        run_data: dict, output_name: str
+    ) -> Dict[str, Any]:
+        """Export the final residual dataset for database-backed job"""
+        # Get residual count
+        residual_count = conn.execute("SELECT COUNT(*) FROM residual_data").fetchone()[0]
+        
+        # Export residual
+        dataset_id = run_data["dataset_id"]
+        version_id = run_data["dataset_version_id"]
+        residual_path = self.storage.get_multi_round_residual_path(
+            dataset_id, version_id, str(run_data["id"])
+        )
+        
+        os.makedirs(os.path.dirname(residual_path), exist_ok=True)
+        
+        # Export without the __row_id__ column
+        conn.execute(f"""
+            COPY (SELECT * EXCLUDE (__row_id__) FROM residual_data) 
+            TO '{residual_path}' (FORMAT PARQUET)
+        """)
+        
+        # Calculate summary statistics
+        residual_summary = self._get_data_summary(conn, 'residual_data')
+        
+        return {
+            "path": residual_path,
+            "size": residual_count,
+            "summary": residual_summary.dict() if residual_summary else None
+        }
+    
+    def _transform_db_run_to_job_response(self, run_data: dict) -> dict:
+        """Transform database analysis run to job response format"""
+        if not run_data:
+            return None
+        run_params = run_data.get("run_parameters", {})
+        
+        # Extract round results and other info from run_parameters
+        round_results = run_params.get("round_results", [])
+        completed_rounds = run_params.get("completed_rounds", 0)
+        current_round = run_params.get("current_round")
+        
+        # Check if round results are in output_summary instead
+        if run_data.get("output_summary") and "round_results" in run_data["output_summary"]:
+            raw_round_results = run_data["output_summary"]["round_results"]
+            completed_rounds = run_data["output_summary"].get("completed_rounds", len(raw_round_results))
+            
+            # Transform round results to include required fields
+            round_results = []
+            for rr in raw_round_results:
+                # Add default output_uri if missing
+                if "output_uri" not in rr:
+                    dataset_id = run_data["dataset_id"]
+                    version_id = run_data["dataset_version_id"]
+                    run_id = run_data["id"]
+                    round_number = rr.get("round_number", 1)
+                    # Construct expected path
+                    rr["output_uri"] = f"file:///data/samples/{dataset_id}/{version_id}/multi_round/{run_id}/{round_number}.parquet"
+                
+                # Ensure all required fields are present
+                if "preview" not in rr:
+                    rr["preview"] = None
+                if "summary" not in rr:
+                    rr["summary"] = None
+                    
+                round_results.append(rr)
+        
+        # Build response
+        response = {
+            "id": str(run_data["id"]),  # Convert to string for consistency
+            "dataset_id": run_data["dataset_id"],
+            "version_id": run_data["dataset_version_id"],
+            "user_id": run_data["user_id"],
+            "status": run_data["status"],
+            "created_at": run_data["run_timestamp"],
+            "total_rounds": run_params.get("total_rounds", 0),
+            "completed_rounds": completed_rounds,
+            "current_round": current_round,
+            "round_results": round_results,
+            "request": run_params.get("request", {})
+        }
+        
+        # Add optional fields if present
+        if run_data.get("execution_time_ms"):
+            response["execution_time_ms"] = run_data["execution_time_ms"]
+            
+        if run_data.get("notes"):
+            response["error_message"] = run_data["notes"]
+            
+        if run_data.get("output_summary"):
+            summary = run_data["output_summary"]
+            if "residual_info" in summary and summary["residual_info"] is not None:
+                residual_info = summary["residual_info"]
+                response["residual_uri"] = residual_info.get("path")
+                response["residual_size"] = residual_info.get("size")
+                response["residual_summary"] = residual_info.get("summary")
+        
+        return response
+    
+    async def recover_running_jobs(self) -> None:
+        """
+        Recover jobs that were running when the server shut down.
+        Called on startup to handle interrupted jobs.
+        """
+        if not self.db_repository:
+            return
+            
+        try:
+            running_jobs = await self.db_repository.get_running_jobs()
+            
+            for job_data in running_jobs:
+                run_id = job_data["id"]
+                logger.info(f"Recovering running job {run_id}")
+                
+                # Check how long the job has been running
+                run_timestamp = job_data["run_timestamp"]
+                time_since_start = datetime.now() - run_timestamp
+                
+                # If job has been running for more than 1 hour, mark as failed
+                if time_since_start.total_seconds() > 3600:
+                    await self.db_repository.update_analysis_run(
+                        run_id=run_id,
+                        status="failed",
+                        notes="Job interrupted by server restart and exceeded recovery timeout"
+                    )
+                else:
+                    # Restart the job
+                    asyncio.create_task(self._process_multi_round_job_db(run_id))
+        except Exception as e:
+            logger.error(f"Error recovering running jobs: {str(e)}", exc_info=True)
+    
+    async def get_merged_sample_data(
+        self,
+        job_id: str,
+        page: int = 1,
+        page_size: int = 100,
+        columns: Optional[List[str]] = None,
+        export_format: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Get paginated data from the merged sample file using DuckDB
+        
+        Args:
+            job_id: The multi-round sampling job ID
+            page: Page number (1-indexed)
+            page_size: Number of items per page
+            columns: Optional list of columns to return
+            export_format: Optional export format (csv, json)
+            
+        Returns:
+            Dictionary containing paginated data and metadata
+        """
+        # Get the job details from the database
+        if not self.db_session:
+            raise ValueError("Database session not available")
+            
+        db_repository = SamplingDBRepository(self.db_session)
+        run_data = await db_repository.get_analysis_run(int(job_id))
+        
+        if not run_data:
+            raise ValueError(f"Job {job_id} not found")
+            
+        if run_data["status"] != "completed":
+            raise ValueError(f"Job {job_id} is not completed yet (status: {run_data['status']})")
+            
+        if not run_data["output_file_path"]:
+            raise ValueError(f"Job {job_id} has no output file")
+        
+        # Get the merged sample file path
+        merged_file_path = run_data["output_file_path"]
+        
+        if not os.path.exists(merged_file_path):
+            raise ValueError(f"Merged sample file not found at {merged_file_path}")
+        
+        # Use DuckDB to efficiently query the parquet file
+        conn = None
+        try:
+            conn = duckdb.connect()
+            
+            # Read the parquet file
+            conn.execute(f"CREATE VIEW merged_sample AS SELECT * FROM '{merged_file_path}'")
+            
+            # Get total count
+            total_count = conn.execute("SELECT COUNT(*) FROM merged_sample").fetchone()[0]
+            
+            # Calculate pagination
+            total_pages = (total_count + page_size - 1) // page_size
+            offset = (page - 1) * page_size
+            
+            # Build column selection
+            if columns:
+                # Validate columns exist
+                available_columns = [col[0] for col in conn.execute("DESCRIBE merged_sample").fetchall()]
+                invalid_columns = [col for col in columns if col not in available_columns]
+                if invalid_columns:
+                    raise ValueError(f"Invalid columns: {invalid_columns}")
+                column_list = ", ".join(columns)
+            else:
+                column_list = "*"
+            
+            # Query with pagination
+            query = f"""
+                SELECT {column_list}
+                FROM merged_sample
+                LIMIT {page_size}
+                OFFSET {offset}
+            """
+            
+            result = conn.execute(query).fetchall()
+            
+            # Get column names
+            if columns:
+                column_names = columns
+            else:
+                column_names = [col[0] for col in conn.execute("DESCRIBE merged_sample").fetchall()]
+            
+            # Convert to list of dicts
+            data = [dict(zip(column_names, row)) for row in result]
+            
+            # Handle export formats
+            if export_format:
+                if export_format.lower() == "csv":
+                    import csv
+                    import io
+                    output = io.StringIO()
+                    writer = csv.DictWriter(output, fieldnames=column_names)
+                    writer.writeheader()
+                    writer.writerows(data)
+                    return {
+                        "format": "csv",
+                        "data": output.getvalue(),
+                        "filename": f"job_{job_id}_page_{page}.csv"
+                    }
+                elif export_format.lower() == "json":
+                    return {
+                        "format": "json",
+                        "data": data,
+                        "filename": f"job_{job_id}_page_{page}.json"
+                    }
+                else:
+                    raise ValueError(f"Unsupported export format: {export_format}")
+            
+            # Get summary statistics if on first page
+            summary = None
+            if page == 1:
+                summary = run_data.get("output_summary", {})
+            
+            return {
+                "data": data,
+                "pagination": {
+                    "page": page,
+                    "page_size": page_size,
+                    "total_items": total_count,
+                    "total_pages": total_pages,
+                    "has_next": page < total_pages,
+                    "has_previous": page > 1
+                },
+                "columns": column_names,
+                "summary": summary,
+                "file_path": merged_file_path,
+                "job_id": job_id
+            }
+            
+        finally:
+            if conn:
+                conn.close()

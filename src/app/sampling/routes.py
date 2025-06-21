@@ -25,7 +25,8 @@ sampling_repo = SamplingRepository()
 def get_sampling_controller(session: AsyncSession = Depends(get_session)):
     datasets_repository = DatasetsRepository(session)
     storage_backend = StorageFactory.get_instance()
-    service = SamplingService(datasets_repository, sampling_repo, storage_backend)
+    # Pass the database session to enable database persistence
+    service = SamplingService(datasets_repository, sampling_repo, storage_backend, db_session=session)
     controller = SamplingController(service)
     return controller
 
@@ -136,6 +137,44 @@ async def get_multi_round_job(
 ):
     """Get status and results of a multi-round sampling job"""
     return await controller.get_multi_round_job(job_id)
+
+@router.get(
+    "/multi-round/jobs/{job_id}/merged-sample",
+    response_model=Dict[str, Any],
+    summary="Get merged sample data with pagination",
+    description="""
+    Retrieve the final merged sample file that combines all sampling rounds.
+    
+    This endpoint returns the consolidated parquet file containing all sampled
+    data from all rounds of a multi-round sampling job.
+    
+    Features:
+    - Efficient pagination using DuckDB for parquet files
+    - Column selection support
+    - Optional filtering capabilities
+    - Export options (CSV, JSON)
+    
+    The merged sample file is stored at:
+    /data/samples/{dataset_id}/{version_id}/multi_round/{run_id}/0.parquet
+    """
+)
+async def get_merged_sample_data(
+    job_id: str = Path(..., description="The multi-round job ID"),
+    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
+    page_size: int = Query(100, ge=1, le=10000, description="Number of items per page"),
+    columns: List[str] = Query(None, description="Specific columns to return"),
+    export_format: str = Query(None, description="Export format (csv, json)"),
+    controller: SamplingController = Depends(get_sampling_controller),
+    current_user: CurrentUser = Depends(get_current_user_info)
+):
+    """Get paginated data from the merged sample file"""
+    return await controller.get_merged_sample_data(
+        job_id=job_id,
+        page=page,
+        page_size=page_size,
+        columns=columns,
+        export_format=export_format
+    )
 
 @router.get(
     "/multi-round/jobs/{job_id}/round/{round_number}/preview",
