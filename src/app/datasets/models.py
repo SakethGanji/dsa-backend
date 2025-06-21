@@ -36,8 +36,6 @@ class File(FileBase):
     class Config:
         from_attributes = True
 
-# Sheet functionality now uses dataset_version_files table
-# with component_type='sheet'
 
 from enum import Enum
 
@@ -45,6 +43,27 @@ class VersionStatus(str, Enum):
     ACTIVE = "active"
     ARCHIVED = "archived"
     DELETED = "deleted"
+
+
+class FileOperation(str, Enum):
+    ADD = "add"
+    REMOVE = "remove"
+    UPDATE = "update"
+
+class OverlayFileAction(BaseModel):
+    operation: FileOperation
+    file_id: int
+    component_name: str
+    component_type: Optional[str] = "primary"
+    metadata: Optional[Dict[str, Any]] = None
+
+class OverlayData(BaseModel):
+    parent_version: Optional[int] = None
+    version_number: int
+    actions: List[OverlayFileAction]
+    created_at: datetime
+    created_by: int
+    message: Optional[str] = None
 
 class DatasetVersionBase(BaseModel):
     dataset_id: int
@@ -58,15 +77,12 @@ class DatasetVersionCreate(DatasetVersionBase):
 
 class DatasetVersion(DatasetVersionBase):
     id: int
-    materialized_file_id: Optional[int] = None
     message: Optional[str] = None
     status: VersionStatus = VersionStatus.ACTIVE
     created_at: datetime
     updated_at: datetime
     file_type: Optional[str] = None
     file_size: Optional[int] = None
-    # Sheets are now retrieved via dataset_version_files
-    # sheets: Optional[List[Sheet]] = None
 
     class Config:
         from_attributes = True
@@ -161,6 +177,26 @@ class VersionTag(VersionTagBase):
 
     class Config:
         from_attributes = True
+
+class VersionResolutionType(str, Enum):
+    NUMBER = "number"
+    TAG = "tag"
+    LATEST = "latest"
+
+class VersionResolution(BaseModel):
+    type: VersionResolutionType
+    value: Optional[Union[int, str]] = None
+
+class VersionCreateRequest(BaseModel):
+    dataset_id: int
+    file_changes: List[OverlayFileAction]
+    message: Optional[str] = None
+    parent_version: Optional[int] = None
+
+class VersionCreateResponse(BaseModel):
+    version_id: int
+    version_number: int
+    overlay_file_id: int
 
 
 class DatasetListParams(BaseModel):

@@ -5,7 +5,8 @@ import logging
 
 from app.datasets.service import DatasetsService
 from app.datasets.models import (
-    DatasetUploadRequest, DatasetUploadResponse, DatasetUpdate, Dataset, DatasetVersion, File, Tag, SheetInfo, SchemaVersion, VersionFile, VersionTag
+    DatasetUploadRequest, DatasetUploadResponse, DatasetUpdate, Dataset, DatasetVersion, File, Tag, SheetInfo, SchemaVersion, VersionFile, VersionTag,
+    VersionCreateRequest, VersionCreateResponse
 )
 from app.datasets.exceptions import (
     DatasetNotFound, DatasetVersionNotFound, FileProcessingError, StorageError
@@ -601,3 +602,144 @@ class DatasetsController:
         
         return {"message": f"Tag '{tag_name}' deleted successfully"}
     
+    # Advanced versioning operations
+    async def create_version_from_changes(
+        self,
+        request: VersionCreateRequest,
+        current_user: Any
+    ) -> VersionCreateResponse:
+        """Create a new version using overlay-based file changes"""
+        # Check permission
+        user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User not found"
+            )
+        
+        has_permission = await self.service.check_dataset_permission(request.dataset_id, user_id, "write")
+        if not has_permission:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Write permission required to create versions"
+            )
+        
+        try:
+            return await self.service.create_version_from_changes(request, user_id)
+        except DatasetNotFound:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Dataset {request.dataset_id} not found"
+            )
+        except Exception as e:
+            logger.error(f"Error creating version: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create version"
+            )
+    
+    async def get_latest_version(
+        self,
+        dataset_id: int,
+        current_user: Any
+    ) -> DatasetVersion:
+        """Get the latest version of a dataset"""
+        # Check permission
+        user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User not found"
+            )
+        
+        has_permission = await self.service.check_dataset_permission(dataset_id, user_id, "read")
+        if not has_permission:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Read permission required to view versions"
+            )
+        
+        version = await self.service.get_latest_version(dataset_id)
+        if not version:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No versions found for dataset {dataset_id}"
+            )
+        
+        return version
+    
+    async def get_version_by_number(
+        self,
+        dataset_id: int,
+        version_number: int,
+        current_user: Any
+    ) -> DatasetVersion:
+        """Get a version by its number"""
+        # Check permission
+        user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User not found"
+            )
+        
+        has_permission = await self.service.check_dataset_permission(dataset_id, user_id, "read")
+        if not has_permission:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Read permission required to view versions"
+            )
+        
+        version = await self.service.get_dataset_version_by_number(dataset_id, version_number)
+        if not version:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Version {version_number} not found for dataset {dataset_id}"
+            )
+        
+        return version
+    
+    async def get_version_by_tag(
+        self,
+        dataset_id: int,
+        tag_name: str,
+        current_user: Any
+    ) -> DatasetVersion:
+        """Get a version by its tag"""
+        # Check permission
+        user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User not found"
+            )
+        
+        has_permission = await self.service.check_dataset_permission(dataset_id, user_id, "read")
+        if not has_permission:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Read permission required to view versions"
+            )
+        
+        version = await self.service.get_version_by_tag(dataset_id, tag_name)
+        if not version:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Version with tag '{tag_name}' not found for dataset {dataset_id}"
+            )
+        
+        return version
+    
+    # Removed get_version_files_smart method - service method no longer exists
+    
+    # Removed trigger_materialization method - service method no longer exists
+    
+    # Removed background job management operations - background_jobs.py will be deleted
+    
+    # Removed run_gc_cycle method - background_jobs.py will be deleted
+    
+    # Removed get_background_job_status method - background_jobs.py will be deleted
+    
+    # Removed _count_pending_materializations method - background_jobs.py will be deleted
+    
+    # Removed _count_gc_candidates method - background_jobs.py will be deleted

@@ -6,12 +6,15 @@ from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
 from fastapi import UploadFile
 import duckdb
+from sqlalchemy import text
 
 from app.datasets.models import (
     Dataset, DatasetCreate, DatasetUpdate, DatasetUploadRequest, DatasetUploadResponse,
     DatasetVersion, DatasetVersionCreate, File, FileCreate, Tag, SheetInfo,
     SchemaVersion, SchemaVersionCreate, VersionFile, VersionFileCreate,
-    VersionTag, VersionTagCreate
+    VersionTag, VersionTagCreate, OverlayData, OverlayFileAction, FileOperation,
+    VersionResolution, VersionResolutionType,
+    VersionCreateRequest, VersionCreateResponse
 )
 from app.datasets.exceptions import DatasetNotFound, DatasetVersionNotFound, FileProcessingError, StorageError
 from app.datasets.validators import DatasetValidator
@@ -86,12 +89,23 @@ class DatasetsService:
         # Save file to storage
         file_id, file_path = await self._save_file(file, dataset_id, file_type)
         
-        # Create dataset version
-        version_id = await self._create_dataset_version(
-            dataset_id=dataset_id,
+        # Create dataset version using overlay-based approach for consistency
+        file_changes = [OverlayFileAction(
+            operation=FileOperation.ADD,
             file_id=file_id,
-            user_id=user_id
+            component_name="main",
+            component_type="primary"
+        )]
+        
+        version_request = VersionCreateRequest(
+            dataset_id=dataset_id,
+            file_changes=file_changes,
+            message=f"Uploaded {file.filename}",
+            parent_version=None
         )
+        
+        version_response = await self.create_version_from_changes(version_request, user_id)
+        version_id = version_response.version_id
         
         # Create version-file association
         await self._attach_file_to_version(
@@ -211,8 +225,8 @@ class DatasetsService:
         if primary_file and primary_file.file:
             return primary_file.file
         
-        # Fallback to overlay/materialized file if no primary file in version_files
-        file_id = version.materialized_file_id or version.overlay_file_id
+        # Use overlay file if no primary file in version_files
+        file_id = version.overlay_file_id
         if file_id:
             return await self.repository.get_file(file_id)
         
@@ -260,9 +274,7 @@ class DatasetsService:
         # Delete version-file associations first
         await self.repository.delete_version_files(version_id)
         
-        # Decrement reference counts for all files
-        for vf in version_files:
-            await self._decrement_file_reference_count(vf.file_id)
+        # Note: File reference counting removed as part of EDA simplification
         
         # Delete the version itself
         deleted_id = await self.repository.delete_dataset_version(version_id)
@@ -310,8 +322,8 @@ class DatasetsService:
         if not version:
             return [], [], False
         
-        # Get file info - prefer materialized file if available
-        file_id = version.materialized_file_id or version.overlay_file_id
+        # Get file info using overlay file
+        file_id = version.overlay_file_id
         file_info = await self.repository.get_file(file_id)
         if not file_info:
             logger.error(f"File not found for version {version_id}, file_id: {file_id}")
@@ -385,27 +397,6 @@ class DatasetsService:
             logger.error(f"Error saving file: {str(e)}")
             raise StorageError("save_file", str(e))
     
-    async def _create_dataset_version(
-        self,
-        dataset_id: int,
-        file_id: int,
-        user_id: int
-    ) -> int:
-        """Create a new dataset version"""
-        # Get next version number in sequence
-        version_number = await self.repository.get_next_version_number(dataset_id)
-        
-        version_create = DatasetVersionCreate(
-            dataset_id=dataset_id,
-            version_number=version_number,
-            overlay_file_id=file_id,
-            created_by=user_id
-        )
-        
-        version_id = await self.repository.create_dataset_version(version_create)
-        await self.repository.update_dataset_timestamp(dataset_id)
-        
-        return version_id
     
     async def _process_tags(self, dataset_id: int, tags: List[str]) -> None:
         """Process and associate tags with dataset"""
@@ -474,25 +465,6 @@ class DatasetsService:
             ))
             
         return sheet_infos
-    
-    async def _create_error_sheet(
-        self,
-        file_path: str,
-        version_id: int,
-        file_type: str,
-        error_msg: str,
-        original_filename: str
-    ) -> List[SheetInfo]:
-        """Create a sheet entry for a file parsing error"""
-        filename = os.path.basename(original_filename)
-        
-        # For now, just return error sheet info without persisting
-        return [SheetInfo(
-            file_id=None,
-            name=filename,
-            index=0,
-            description="Error parsing file"
-        )]
     
     async def _read_parquet_data(
         self,
@@ -631,9 +603,6 @@ class DatasetsService:
             metadata={"original_filename": file.filename}
         )
         
-        # Update reference count for the file
-        await self._increment_file_reference_count(file_id)
-        
         return file_id
     
     async def list_version_files(self, version_id: int) -> List[VersionFile]:
@@ -659,17 +628,6 @@ class DatasetsService:
             version_id, component_type, component_name
         )
     
-    async def _increment_file_reference_count(self, file_id: int) -> None:
-        """Increment reference count for a file (for Phase 1 compatibility)"""
-        # This would be implemented if Phase 1 reference counting is in place
-        # For now, we'll log it
-        logger.info(f"Reference count increment needed for file {file_id}")
-    
-    async def _decrement_file_reference_count(self, file_id: int) -> None:
-        """Decrement reference count for a file (for Phase 1 compatibility)"""
-        # This would be implemented if Phase 1 reference counting is in place
-        # For now, we'll log it
-        logger.info(f"Reference count decrement needed for file {file_id}")
     
     
     # Permission helpers
@@ -739,3 +697,108 @@ class DatasetsService:
         """Delete a version tag"""
         deleted_id = await self.repository.delete_version_tag(dataset_id, tag_name)
         return deleted_id is not None
+    
+    # Advanced versioning operations
+    async def create_version_from_changes(
+        self, 
+        request: VersionCreateRequest, 
+        user_id: int
+    ) -> VersionCreateResponse:
+        """Create a new version using overlay-based file changes"""
+        # Validate dataset exists
+        dataset = await self.get_dataset(request.dataset_id)
+        if not dataset:
+            raise DatasetNotFound(request.dataset_id)
+        
+        # Get parent version (latest if not specified)
+        if request.parent_version:
+            parent_version = await self.get_dataset_version_by_number(
+                request.dataset_id, request.parent_version
+            )
+        else:
+            # Get latest version
+            resolution = VersionResolution(type=VersionResolutionType.LATEST)
+            parent_version = await self.repository.resolve_version(request.dataset_id, resolution)
+        
+        parent_version_number = parent_version.version_number if parent_version else 0
+        
+        # Get next version number
+        next_version_number = await self.repository.get_next_version_number(request.dataset_id)
+        
+        # Create overlay data
+        overlay_data = OverlayData(
+            parent_version=parent_version_number,
+            version_number=next_version_number,
+            actions=request.file_changes,
+            created_at=datetime.now(),
+            created_by=user_id,
+            message=request.message
+        )
+        
+        # Create overlay file
+        overlay_file_id = await self.repository.create_overlay_file(overlay_data)
+        
+        # Create version record
+        version_create = DatasetVersionCreate(
+            dataset_id=request.dataset_id,
+            version_number=next_version_number,
+            overlay_file_id=overlay_file_id,
+            created_by=user_id,
+            message=request.message
+        )
+        
+        version_id = await self.repository.create_dataset_version(version_create)
+        
+        # Note: File reference counting removed as part of EDA simplification
+        
+        # Update dataset timestamp
+        await self.repository.update_dataset_timestamp(request.dataset_id)
+        
+        return VersionCreateResponse(
+            version_id=version_id,
+            version_number=next_version_number,
+            overlay_file_id=overlay_file_id,
+        )
+    
+    async def get_version_by_resolution(
+        self, 
+        dataset_id: int, 
+        resolution: VersionResolution
+    ) -> Optional[DatasetVersion]:
+        """Get a version using flexible resolution (number, tag, latest)"""
+        # Validate dataset exists
+        dataset = await self.get_dataset(dataset_id)
+        if not dataset:
+            raise DatasetNotFound(dataset_id)
+        
+        return await self.repository.resolve_version(dataset_id, resolution)
+    
+    async def get_dataset_version_by_number(
+        self, 
+        dataset_id: int, 
+        version_number: int
+    ) -> Optional[DatasetVersion]:
+        """Get a specific version by number"""
+        resolution = VersionResolution(
+            type=VersionResolutionType.NUMBER, 
+            value=version_number
+        )
+        return await self.get_version_by_resolution(dataset_id, resolution)
+    
+    async def get_latest_version(self, dataset_id: int) -> Optional[DatasetVersion]:
+        """Get the latest version of a dataset"""
+        resolution = VersionResolution(type=VersionResolutionType.LATEST)
+        return await self.get_version_by_resolution(dataset_id, resolution)
+    
+    async def get_version_by_tag(
+        self, 
+        dataset_id: int, 
+        tag_name: str
+    ) -> Optional[DatasetVersion]:
+        """Get a version by tag name"""
+        resolution = VersionResolution(
+            type=VersionResolutionType.TAG, 
+            value=tag_name
+        )
+        return await self.get_version_by_resolution(dataset_id, resolution)
+    

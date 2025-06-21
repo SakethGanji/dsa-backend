@@ -10,7 +10,8 @@ from app.datasets.service import DatasetsService
 from app.datasets.repository import DatasetsRepository
 from app.datasets.models import (
     Dataset, DatasetUploadResponse, DatasetUpdate,
-    DatasetVersion, Tag, SheetInfo, SchemaVersion, VersionFile, VersionTag
+    DatasetVersion, Tag, SheetInfo, SchemaVersion, VersionFile, VersionTag,
+    VersionCreateRequest, VersionCreateResponse, VersionResolution, VersionResolutionType
 )
 from app.users.models import DatasetPermission, PermissionGrant, DatasetPermissionType
 from app.datasets.constants import DEFAULT_PAGE_SIZE, MAX_ROWS_PER_PAGE
@@ -173,6 +174,52 @@ async def list_dataset_versions(
     return await controller.list_dataset_versions(dataset_id)
 
 
+
+@router.get(
+    "/{dataset_id}/versions/latest",
+    response_model=DatasetVersion,
+    summary="Get latest version",
+    description="Get the latest version of a dataset"
+)
+async def get_latest_version(
+    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
+    controller: ControllerDep = None,
+    current_user: UserDep = None
+) -> DatasetVersion:
+    """Get the most recent version of the dataset."""
+    return await controller.get_latest_version(dataset_id, current_user)
+
+
+@router.get(
+    "/{dataset_id}/versions/number/{version_number}",
+    response_model=DatasetVersion,
+    summary="Get version by number",
+    description="Get a specific version by its number"
+)
+async def get_version_by_number(
+    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
+    version_number: int = Path(..., gt=0, description="Version number"),
+    controller: ControllerDep = None,
+    current_user: UserDep = None
+) -> DatasetVersion:
+    """Get a version by its version number."""
+    return await controller.get_version_by_number(dataset_id, version_number, current_user)
+
+
+@router.get(
+    "/{dataset_id}/versions/tag/{tag_name}",
+    response_model=DatasetVersion,
+    summary="Get version by tag",
+    description="Get a version by its tag name"
+)
+async def get_version_by_tag_name(
+    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
+    tag_name: str = Path(..., description="Tag name"),
+    controller: ControllerDep = None,
+    current_user: UserDep = None
+) -> DatasetVersion:
+    """Get a version by its tag name."""
+    return await controller.get_version_by_tag(dataset_id, tag_name, current_user)
 
 
 @router.get(
@@ -612,3 +659,31 @@ async def delete_version_tag(
         tag_name=tag_name,
         current_user=current_user
     )
+
+
+# Advanced Versioning Endpoints
+@router.post(
+    "/{dataset_id}/versions",
+    response_model=VersionCreateResponse,
+    summary="Create version from changes",
+    description="Create a new dataset version using overlay-based file changes"
+)
+async def create_version_from_changes(
+    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
+    request: VersionCreateRequest = Body(..., description="Version creation request with file changes"),
+    controller: ControllerDep = None,
+    current_user: UserDep = None
+) -> VersionCreateResponse:
+    """Create a new version by specifying file changes (add/remove/update operations)."""
+    # Ensure the dataset_id in the path matches the request
+    if request.dataset_id != dataset_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Dataset ID in path must match request body"
+        )
+    
+    return await controller.create_version_from_changes(request, current_user)
+
+
+
+

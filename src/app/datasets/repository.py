@@ -8,7 +8,8 @@ import sqlalchemy as sa
 from app.datasets.models import (
     Dataset, DatasetCreate, DatasetUpdate, DatasetVersion, DatasetVersionCreate,
     File, FileCreate, SheetInfo, Tag, SchemaVersion, SchemaVersionCreate,
-    VersionFile, VersionFileCreate, VersionTag, VersionTagCreate
+    VersionFile, VersionFileCreate, VersionTag, VersionTagCreate,
+    OverlayData, OverlayFileAction, VersionResolution, VersionResolutionType
 )
 
 
@@ -93,7 +94,6 @@ class DatasetsRepository:
             dv.dataset_id,
             dv.version_number,
             dv.overlay_file_id,
-            dv.materialized_file_id,
             dv.message,
             dv.status,
             dv.created_by,
@@ -120,7 +120,6 @@ class DatasetsRepository:
                 dataset_id=v_dict["dataset_id"],
                 version_number=v_dict["version_number"],
                 overlay_file_id=v_dict["overlay_file_id"],
-                materialized_file_id=v_dict["materialized_file_id"],
                 message=v_dict.get("message"),
                 status=v_dict.get("status", "active"),
                 created_by=v_dict["created_by"],
@@ -282,14 +281,13 @@ class DatasetsRepository:
             dataset_data dd
         LEFT JOIN LATERAL (
             SELECT version_number, 
-                   overlay_file_id,
-                   materialized_file_id
+                   overlay_file_id
             FROM dataset_versions
             WHERE dataset_id = dd.id
             ORDER BY version_number DESC
             LIMIT 1
         ) dv ON true
-        LEFT JOIN files f ON COALESCE(dv.materialized_file_id, dv.overlay_file_id) = f.id
+        LEFT JOIN files f ON dv.overlay_file_id = f.id
         """
         
         # Add sorting
@@ -375,7 +373,6 @@ class DatasetsRepository:
             dv.dataset_id,
             dv.version_number,
             dv.overlay_file_id,
-            dv.materialized_file_id,
             dv.message,
             dv.status,
             dv.created_by,
@@ -387,7 +384,7 @@ class DatasetsRepository:
             f.file_size
         FROM 
             dataset_versions dv
-        JOIN files f ON COALESCE(dv.materialized_file_id, dv.overlay_file_id) = f.id
+        JOIN files f ON dv.overlay_file_id = f.id
         WHERE 
             dv.dataset_id = :dataset_id
         ORDER BY 
@@ -404,7 +401,6 @@ class DatasetsRepository:
                 dataset_id=row_dict["dataset_id"],
                 version_number=row_dict["version_number"],
                 overlay_file_id=row_dict["overlay_file_id"],
-                materialized_file_id=row_dict["materialized_file_id"],
                 message=row_dict.get("message"),
                 status=row_dict.get("status", "active"),
                 created_by=row_dict["created_by"],
@@ -422,7 +418,6 @@ class DatasetsRepository:
             dv.dataset_id,
             dv.version_number,
             dv.overlay_file_id,
-            dv.materialized_file_id,
             dv.message,
             dv.status,
             dv.created_by,
@@ -434,7 +429,7 @@ class DatasetsRepository:
             f.file_size
         FROM 
             dataset_versions dv
-        JOIN files f ON COALESCE(dv.materialized_file_id, dv.overlay_file_id) = f.id
+        JOIN files f ON dv.overlay_file_id = f.id
         WHERE 
             dv.id = :version_id;
         """)
@@ -471,7 +466,6 @@ class DatasetsRepository:
             dataset_id=version_dict["dataset_id"],
             version_number=version_dict["version_number"],
             overlay_file_id=version_dict["overlay_file_id"],
-            materialized_file_id=version_dict["materialized_file_id"],
             message=version_dict.get("message"),
             status=version_dict.get("status", "active"),
             created_by=version_dict["created_by"],
@@ -994,4 +988,140 @@ class DatasetsRepository:
         result = await self.session.execute(query, values)
         await self.session.commit()
         return result.scalar_one_or_none()
+    
+    # Overlay and versioning operations
+    async def create_overlay_file(self, overlay_data: OverlayData) -> int:
+        """Create an overlay file with the change operations"""
+        overlay_content = overlay_data.model_dump_json()
+        
+        # Create file record for the overlay
+        file_create = FileCreate(
+            storage_type="filesystem",
+            file_type="json",
+            mime_type="application/json",
+            file_size=len(overlay_content.encode('utf-8')),
+            metadata={"overlay_version": overlay_data.version_number}
+        )
+        
+        return await self.create_file(file_create)
+    
+    async def parse_overlay_file(self, file_id: int) -> Optional[OverlayData]:
+        """Parse an overlay file and return OverlayData"""
+        file_info = await self.get_file(file_id)
+        if not file_info or not file_info.file_path:
+            return None
+        
+        try:
+            with open(file_info.file_path, 'r') as f:
+                overlay_content = f.read()
+            return OverlayData.model_validate_json(overlay_content)
+        except Exception:
+            return None
+    
+    async def resolve_version(self, dataset_id: int, resolution: VersionResolution) -> Optional[DatasetVersion]:
+        """Resolve a version based on resolution type (number, tag, latest)"""
+        if resolution.type == VersionResolutionType.LATEST:
+            query = sa.text("""
+            SELECT 
+                dv.id, dv.dataset_id, dv.version_number, dv.overlay_file_id,
+                dv.message, dv.status, dv.created_by,
+                dv.created_at, dv.updated_at
+            FROM dataset_versions dv
+            WHERE dv.dataset_id = :dataset_id
+            ORDER BY dv.version_number DESC
+            LIMIT 1;
+            """)
+            values = {"dataset_id": dataset_id}
+            
+        elif resolution.type == VersionResolutionType.NUMBER:
+            if not resolution.value or not isinstance(resolution.value, int):
+                return None
+            query = sa.text("""
+            SELECT 
+                dv.id, dv.dataset_id, dv.version_number, dv.overlay_file_id,
+                dv.message, dv.status, dv.created_by,
+                dv.created_at, dv.updated_at
+            FROM dataset_versions dv
+            WHERE dv.dataset_id = :dataset_id AND dv.version_number = :version_number;
+            """)
+            values = {"dataset_id": dataset_id, "version_number": resolution.value}
+            
+        elif resolution.type == VersionResolutionType.TAG:
+            if not resolution.value or not isinstance(resolution.value, str):
+                return None
+            query = sa.text("""
+            SELECT 
+                dv.id, dv.dataset_id, dv.version_number, dv.overlay_file_id,
+                dv.message, dv.status, dv.created_by,
+                dv.created_at, dv.updated_at
+            FROM dataset_versions dv
+            JOIN version_tags vt ON dv.id = vt.dataset_version_id
+            WHERE dv.dataset_id = :dataset_id AND vt.tag_name = :tag_name;
+            """)
+            values = {"dataset_id": dataset_id, "tag_name": resolution.value}
+        else:
+            return None
+        
+        result = await self.session.execute(query, values)
+        row = result.mappings().first()
+        
+        if not row:
+            return None
+        
+        return DatasetVersion(
+            id=row["id"],
+            dataset_id=row["dataset_id"],
+            version_number=row["version_number"],
+            overlay_file_id=row["overlay_file_id"],
+            message=row["message"],
+            status=row["status"],
+            created_by=row["created_by"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"]
+        )
+    
+    async def reconstruct_version_files(self, dataset_id: int, target_version: int) -> List[Dict[str, Any]]:
+        """Reconstruct the file list for a version by applying overlays sequentially"""
+        # Start from empty state and apply all overlays from version 1 to target_version
+        file_state = {}
+        
+        # Get all overlays from version 1 to target_version
+        overlay_query = sa.text("""
+        SELECT overlay_file_id, version_number
+        FROM dataset_versions
+        WHERE dataset_id = :dataset_id
+        AND version_number <= :target_version
+        ORDER BY version_number ASC;
+        """)
+        
+        overlay_result = await self.session.execute(overlay_query, {
+            "dataset_id": dataset_id,
+            "target_version": target_version
+        })
+        
+        # Apply each overlay
+        for overlay_row in overlay_result.mappings():
+            overlay_data = await self.parse_overlay_file(overlay_row["overlay_file_id"])
+            if overlay_data:
+                file_state = self._apply_overlay(file_state, overlay_data)
+        
+        return list(file_state.values())
+    
+    def _apply_overlay(self, file_state: Dict[str, Dict], overlay_data: OverlayData) -> Dict[str, Dict]:
+        """Apply overlay actions to current file state"""
+        for action in overlay_data.actions:
+            component_key = f"{action.component_type}:{action.component_name}"
+            
+            if action.operation == "add" or action.operation == "update":
+                file_state[component_key] = {
+                    "file_id": action.file_id,
+                    "component_type": action.component_type,
+                    "component_name": action.component_name,
+                    "metadata": action.metadata
+                }
+            elif action.operation == "remove":
+                file_state.pop(component_key, None)
+        
+        return file_state
+    
     
