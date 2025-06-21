@@ -41,3 +41,23 @@ app.include_router(users_router)
 app.include_router(datasets_router)
 app.include_router(explore_router)
 app.include_router(sampling_router)
+
+@app.get("/")
+async def root():
+    return {"message": "Data Science API is running"}
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
+
+if __name__ == "__main__":
+    import uvicorn
+    
+    # Configuration for exposing to internet
+    uvicorn.run(
+        "app.main:app",
+        host="0.0.0.0",  # Listen on all network interfaces
+        port=8000,       # Port to expose
+        reload=True,     # Auto-reload on code changes (disable in production)
+        log_level="info"
+    )

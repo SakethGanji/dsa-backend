@@ -18,6 +18,30 @@ class RenderType(str, Enum):
     MARKDOWN = "MARKDOWN"
     TEXT_BLOCK = "TEXT_BLOCK"
     MATRIX = "MATRIX"
+    # New render types for enhanced visualizations
+    DONUT_CHART = "DONUT_CHART"
+    PIE_CHART = "PIE_CHART"
+    GAUGE_CHART = "GAUGE_CHART"
+    PROGRESS_BAR = "PROGRESS_BAR"
+    SPARKLINE = "SPARKLINE"
+    MINI_BAR_CHART = "MINI_BAR_CHART"
+    BULLET_CHART = "BULLET_CHART"
+    VIOLIN_PLOT = "VIOLIN_PLOT"
+    DENSITY_PLOT = "DENSITY_PLOT"
+    QQ_PLOT = "QQ_PLOT"
+    RANGE_PLOT = "RANGE_PLOT"
+    TREEMAP = "TREEMAP"
+    SUNBURST = "SUNBURST"
+    HORIZONTAL_BAR_CHART = "HORIZONTAL_BAR_CHART"
+    CALENDAR_HEATMAP = "CALENDAR_HEATMAP"
+    LINE_CHART = "LINE_CHART"
+    AREA_CHART = "AREA_CHART"
+    STACKED_BAR_CHART = "STACKED_BAR_CHART"
+    RISK_MATRIX = "RISK_MATRIX"
+    RADAR_CHART = "RADAR_CHART"
+    NETWORK_GRAPH = "NETWORK_GRAPH"
+    CHORD_DIAGRAM = "CHORD_DIAGRAM"
+    PARALLEL_COORDINATES = "PARALLEL_COORDINATES"
 
 
 class AnalysisBlock(BaseModel):
@@ -86,6 +110,9 @@ class VariableConfig(BaseModel):
         default=["numeric", "categorical", "datetime", "text"],
         description="Variable types to include in analysis"
     )
+    text_avg_length_threshold: float = Field(50.0, ge=0, description="Average length threshold for text classification")
+    text_max_length_threshold: float = Field(200.0, ge=0, description="Max length threshold for text classification")
+    text_distinct_ratio_threshold: float = Field(0.5, ge=0, le=1, description="Distinct ratio threshold for text classification")
 
 
 class InteractionConfig(BaseModel):
@@ -189,7 +216,7 @@ class ScatterPlotData(BaseModel):
 class BoxPlotData(BaseModel):
     """Data structure for BOX_PLOT render type."""
     categories: List[str]
-    data: List[Dict[str, float]]  # Each dict has: min, q1, median, q3, max, outliers
+    data: List[Dict[str, Union[float, List[float]]]]  # Each dict has: min, q1, median, q3, max, outliers
 
 
 class MatrixData(BaseModel):
@@ -197,3 +224,153 @@ class MatrixData(BaseModel):
     columns: List[str]
     rows: List[List[bool]]  # True indicates missing value
     row_indices: List[int]  # Original row indices if sampled
+
+
+# New data structures for enhanced render types
+
+class DonutChartData(BaseModel):
+    """Data structure for DONUT_CHART render type."""
+    labels: List[str]
+    values: List[float]
+    center_text: Optional[str] = None  # Text to display in center
+
+
+class PieChartData(BaseModel):
+    """Data structure for PIE_CHART render type."""
+    labels: List[str]
+    values: List[float]
+    show_percentages: bool = True
+
+
+class GaugeChartData(BaseModel):
+    """Data structure for GAUGE_CHART render type."""
+    value: float
+    min_value: float = 0
+    max_value: float = 100
+    thresholds: Optional[List[Dict[str, Any]]] = None  # e.g., [{"value": 70, "color": "yellow"}, {"value": 90, "color": "red"}]
+    label: Optional[str] = None
+
+
+class ProgressBarData(BaseModel):
+    """Data structure for PROGRESS_BAR render type."""
+    value: float
+    max_value: float = 100
+    label: Optional[str] = None
+    color: Optional[str] = None
+    show_percentage: bool = True
+
+
+class SparklineData(BaseModel):
+    """Data structure for SPARKLINE render type."""
+    values: List[float]
+    show_dots: bool = False
+    show_area: bool = False
+
+
+class MiniBarChartData(BaseModel):
+    """Data structure for MINI_BAR_CHART render type."""
+    values: List[float]
+    labels: Optional[List[str]] = None
+    max_bars: int = 10
+
+
+class BulletChartData(BaseModel):
+    """Data structure for BULLET_CHART render type."""
+    value: float
+    target: float
+    ranges: List[Dict[str, Union[str, float]]]  # e.g., [{"min": 0, "max": 50, "label": "Poor"}, ...]
+    label: Optional[str] = None
+
+
+class ViolinPlotData(BaseModel):
+    """Data structure for VIOLIN_PLOT render type."""
+    categories: List[str]
+    data: List[Dict[str, Any]]  # Each dict contains distribution data
+
+
+class DensityPlotData(BaseModel):
+    """Data structure for DENSITY_PLOT render type."""
+    x_values: List[float]
+    y_values: List[float]
+    label: Optional[str] = None
+
+
+class QQPlotData(BaseModel):
+    """Data structure for QQ_PLOT render type."""
+    theoretical_quantiles: List[float]
+    sample_quantiles: List[float]
+    reference_line: Optional[Dict[str, float]] = None  # slope and intercept
+
+
+class RangePlotData(BaseModel):
+    """Data structure for RANGE_PLOT render type."""
+    categories: List[str]
+    ranges: List[Dict[str, float]]  # Each dict has min, max, mean, median
+
+
+class TreemapData(BaseModel):
+    """Data structure for TREEMAP render type."""
+    data: List[Dict[str, Any]]  # Hierarchical data with name, value, children
+
+
+class SunburstData(BaseModel):
+    """Data structure for SUNBURST render type."""
+    data: List[Dict[str, Any]]  # Hierarchical data similar to treemap
+
+
+class CalendarHeatmapData(BaseModel):
+    """Data structure for CALENDAR_HEATMAP render type."""
+    data: List[Dict[str, Any]]  # Each dict has date and value
+    start_date: str
+    end_date: str
+
+
+class LineChartData(BaseModel):
+    """Data structure for LINE_CHART render type."""
+    x_values: List[Any]
+    series: List[Dict[str, Any]]  # Each series has name and y_values
+
+
+class AreaChartData(BaseModel):
+    """Data structure for AREA_CHART render type."""
+    x_values: List[Any]
+    series: List[Dict[str, Any]]  # Each series has name and y_values
+    stacked: bool = False
+
+
+class StackedBarChartData(BaseModel):
+    """Data structure for STACKED_BAR_CHART render type."""
+    categories: List[str]
+    series: List[Dict[str, Any]]  # Each series has name and values
+
+
+class RiskMatrixData(BaseModel):
+    """Data structure for RISK_MATRIX render type."""
+    items: List[Dict[str, Any]]  # Each item has likelihood, impact, label
+    likelihood_labels: List[str]
+    impact_labels: List[str]
+
+
+class RadarChartData(BaseModel):
+    """Data structure for RADAR_CHART render type."""
+    categories: List[str]
+    series: List[Dict[str, Any]]  # Each series has name and values
+
+
+class NetworkGraphData(BaseModel):
+    """Data structure for NETWORK_GRAPH render type."""
+    nodes: List[Dict[str, Any]]  # Each node has id, label, etc.
+    edges: List[Dict[str, Any]]  # Each edge has source, target, weight
+
+
+class ChordDiagramData(BaseModel):
+    """Data structure for CHORD_DIAGRAM render type."""
+    labels: List[str]
+    matrix: List[List[float]]  # Connection matrix
+
+
+class ParallelCoordinatesData(BaseModel):
+    """Data structure for PARALLEL_COORDINATES render type."""
+    dimensions: List[Dict[str, Any]]  # Each dimension has label, values
+    data: List[Dict[str, Any]]  # Each row of data
+

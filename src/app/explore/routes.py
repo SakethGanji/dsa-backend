@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, Path, Body, HTTPException, status
-from typing import Dict, Any
+from fastapi import APIRouter, Depends, Path, Body, HTTPException, status, Query
+from fastapi.responses import StreamingResponse
+from typing import Dict, Any, Optional
 from datetime import datetime
 
 from app.explore.models import ExploreRequest
-from app.explore.eda_models import EDARequest, EDAResponse
+from app.explore.eda_models import EDARequest, EDAResponse, AnalysisConfig
 from app.explore.controller import ExploreController
 from app.explore.service import ExploreService
 from app.explore.eda_service import EDAService
@@ -99,4 +100,64 @@ async def analyze_dataset_eda(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error performing EDA analysis: {str(e)}"
+        )
+
+@router.get(
+    "/eda/{dataset_id}/versions/{version_id}/stream",
+    summary="Stream EDA analysis results",
+    description="""
+    Stream Exploratory Data Analysis (EDA) results as Server-Sent Events.
+    
+    This endpoint provides real-time streaming of analysis results as they are computed:
+    - Each analysis block is sent as a separate event
+    - Clients can display results progressively
+    - Connection can be closed early to cancel analysis
+    
+    Event format:
+    - event: analysis_block
+    - data: JSON-encoded AnalysisBlock
+    
+    Special events:
+    - event: metadata (sent first with dataset info)
+    - event: complete (sent when analysis is done)
+    - event: error (sent on analysis error)
+    """
+)
+async def stream_eda_analysis(
+    dataset_id: int = Path(..., description="The ID of the dataset"),
+    version_id: int = Path(..., description="The ID of the version"),
+    eda_service: EDAService = Depends(get_eda_service),
+    current_user: CurrentUser = Depends(get_current_user_info),
+    sample_size: Optional[int] = Query(None, description="Sample size for analysis"),
+    variable_limit: Optional[int] = Query(20, description="Maximum variables to analyze"),
+    correlation_limit: Optional[int] = Query(50, description="Maximum variables for correlation"),
+):
+    """Stream EDA analysis results using Server-Sent Events"""
+    # Build analysis config from query parameters
+    config = AnalysisConfig()
+    if sample_size:
+        config.sample_size = sample_size
+    if variable_limit:
+        config.variables.limit = variable_limit
+    if correlation_limit:
+        config.interactions.correlation_variable_limit = correlation_limit
+    
+    try:
+        return StreamingResponse(
+            eda_service.analyze_dataset_stream(
+                dataset_id=dataset_id,
+                version_id=version_id,
+                config=config
+            ),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",  # Disable nginx buffering
+            }
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error starting EDA stream: {str(e)}"
         )
