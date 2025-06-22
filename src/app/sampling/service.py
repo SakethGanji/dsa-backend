@@ -53,9 +53,18 @@ class SamplingService:
                 if version.dataset_id != dataset_id:
                     raise ValueError(f"Version {version_id} does not belong to dataset {dataset_id}")
                 
-                # Get file data - prefer materialized file if available
-                file_id = version.overlay_file_id
-                file_info = await datasets_repo.get_file(file_id)
+                # Get primary file info from version_files table
+                primary_file = await datasets_repo.get_version_file_by_component(
+                    version_id, "primary", "main"
+                )
+                
+                if primary_file and primary_file.file:
+                    file_info = primary_file.file
+                else:
+                    # Fallback to overlay file if no primary file in version_files
+                    file_id = version.overlay_file_id
+                    file_info = await datasets_repo.get_file(file_id)
+                    
                 if not file_info or not file_info.file_path:
                     raise ValueError("File path not found")
                 
@@ -790,9 +799,18 @@ class SamplingService:
                 if version.dataset_id != job.dataset_id:
                     raise ValueError(f"Version {job.version_id} does not belong to dataset {job.dataset_id}")
                 
-                # Get file data - prefer materialized file if available
-                file_id = version.overlay_file_id
-                file_info = await datasets_repo.get_file(file_id)
+                # Get primary file info from version_files table
+                primary_file = await datasets_repo.get_version_file_by_component(
+                    version_id, "primary", "main"
+                )
+                
+                if primary_file and primary_file.file:
+                    file_info = primary_file.file
+                else:
+                    # Fallback to overlay file if no primary file in version_files
+                    file_id = version.overlay_file_id
+                    file_info = await datasets_repo.get_file(file_id)
+                    
                 if not file_info or not file_info.file_path:
                     raise ValueError("File path not found")
                 
@@ -1087,9 +1105,18 @@ class SamplingService:
                 if version.dataset_id != dataset_id:
                     raise ValueError(f"Version {version_id} does not belong to dataset {dataset_id}")
                 
-                # Get file data - prefer materialized file if available
-                file_id = version.overlay_file_id
-                file_info = await datasets_repo.get_file(file_id)
+                # Get primary file info from version_files table
+                primary_file = await datasets_repo.get_version_file_by_component(
+                    version_id, "primary", "main"
+                )
+                
+                if primary_file and primary_file.file:
+                    file_info = primary_file.file
+                else:
+                    # Fallback to overlay file if no primary file in version_files
+                    file_id = version.overlay_file_id
+                    file_info = await datasets_repo.get_file(file_id)
+                    
                 if not file_info or not file_info.file_path:
                     raise ValueError("File path not found")
                 

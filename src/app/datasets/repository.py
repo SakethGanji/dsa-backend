@@ -99,13 +99,17 @@ class DatasetsRepository:
             dv.created_by,
             dv.created_at,
             dv.updated_at,
-            f.storage_type,
-            f.file_type,
-            f.mime_type,
-            f.file_size
+            COALESCE(f.storage_type, of.storage_type) as storage_type,
+            COALESCE(f.file_type, of.file_type) as file_type,
+            COALESCE(f.mime_type, of.mime_type) as mime_type,
+            COALESCE(f.file_size, of.file_size) as file_size
         FROM 
             dataset_versions dv
-        JOIN files f ON dv.overlay_file_id = f.id
+        LEFT JOIN dataset_version_files vf ON dv.id = vf.version_id 
+            AND vf.component_type = 'primary' 
+            AND vf.component_name = 'main'
+        LEFT JOIN files f ON vf.file_id = f.id
+        LEFT JOIN files of ON dv.overlay_file_id = of.id
         WHERE 
             dv.dataset_id = :dataset_id
         ORDER BY 
@@ -280,14 +284,18 @@ class DatasetsRepository:
         FROM 
             dataset_data dd
         LEFT JOIN LATERAL (
-            SELECT version_number, 
-                   overlay_file_id
-            FROM dataset_versions
-            WHERE dataset_id = dd.id
-            ORDER BY version_number DESC
+            SELECT dv.version_number, 
+                   dv.overlay_file_id,
+                   vf.file_id
+            FROM dataset_versions dv
+            LEFT JOIN dataset_version_files vf ON dv.id = vf.version_id 
+                AND vf.component_type = 'primary' 
+                AND vf.component_name = 'main'
+            WHERE dv.dataset_id = dd.id
+            ORDER BY dv.version_number DESC
             LIMIT 1
         ) dv ON true
-        LEFT JOIN files f ON dv.overlay_file_id = f.id
+        LEFT JOIN files f ON COALESCE(dv.file_id, dv.overlay_file_id) = f.id
         """
         
         # Add sorting
@@ -845,7 +853,7 @@ class DatasetsRepository:
         component_name: Optional[str] = None
     ) -> Optional[VersionFile]:
         """Get a specific file by component type and name"""
-        query = sa.text("""
+        query_str = """
         SELECT 
             vf.version_id,
             vf.file_id,
@@ -866,7 +874,7 @@ class DatasetsRepository:
         WHERE 
             vf.version_id = :version_id
             AND vf.component_type = :component_type
-        """)
+        """
         
         values = {
             "version_id": version_id,
@@ -874,12 +882,12 @@ class DatasetsRepository:
         }
         
         if component_name:
-            query += " AND vf.component_name = :component_name"
+            query_str += " AND vf.component_name = :component_name"
             values["component_name"] = component_name
         
-        query += " LIMIT 1;"
+        query_str += " LIMIT 1;"
         
-        result = await self.session.execute(sa.text(str(query)), values)
+        result = await self.session.execute(sa.text(query_str), values)
         row = result.mappings().first()
         
         if not row:

@@ -322,11 +322,20 @@ class DatasetsService:
         if not version:
             return [], [], False
         
-        # Get file info using overlay file
-        file_id = version.overlay_file_id
-        file_info = await self.repository.get_file(file_id)
+        # Get primary file info from version_files table
+        primary_file = await self.repository.get_version_file_by_component(
+            version_id, "primary", "main"
+        )
+        
+        if primary_file and primary_file.file:
+            file_info = primary_file.file
+        else:
+            # Fallback to overlay file if no primary file in version_files
+            file_id = version.overlay_file_id
+            file_info = await self.repository.get_file(file_id)
+            
         if not file_info:
-            logger.error(f"File not found for version {version_id}, file_id: {file_id}")
+            logger.error(f"File not found for version {version_id}")
             return [], [], False
         
         # Get sheets to validate sheet_name
