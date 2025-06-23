@@ -4,7 +4,8 @@ from datetime import datetime
 
 from app.sampling.models import (
     SamplingRequest,
-    MultiRoundSamplingRequest, MultiRoundSamplingJobResponse
+    MultiRoundSamplingRequest, MultiRoundSamplingJobResponse,
+    AnalysisRunListResponse
 )
 from app.sampling.controller import SamplingController
 from app.sampling.service import SamplingService
@@ -299,5 +300,126 @@ async def execute_multi_round_sampling_sync(
         user_id=current_user.role_id,
         page=page,
         page_size=page_size
+    )
+
+@router.get(
+    "/user/{user_id}/samplings",
+    response_model=AnalysisRunListResponse,
+    summary="Get all samplings by user ID",
+    description="""
+    Retrieve all sampling runs created by a specific user.
+    
+    This endpoint returns a paginated list of all sampling analysis runs
+    associated with the specified user ID, including their status, parameters,
+    and output information.
+    
+    The response includes:
+    - Sampling run metadata (ID, status, timestamps)
+    - Dataset and version information
+    - Run parameters and configuration
+    - Output file details (if completed)
+    - Pagination information
+    """
+)
+async def get_samplings_by_user(
+    user_id: int = Path(..., description="The ID of the user"),
+    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
+    page_size: int = Query(10, ge=1, le=100, description="Number of items per page"),
+    controller: SamplingController = Depends(get_sampling_controller),
+    current_user: CurrentUser = Depends(get_current_user_info)
+):
+    """Get all sampling runs created by a specific user"""
+    result = await controller.get_samplings_by_user(
+        user_id=user_id,
+        page=page,
+        page_size=page_size
+    )
+    
+    return AnalysisRunListResponse(
+        runs=result["runs"],
+        total_count=result["total_count"],
+        page=result["page"],
+        page_size=result["page_size"]
+    )
+
+@router.get(
+    "/dataset-version/{dataset_version_id}/samplings",
+    response_model=AnalysisRunListResponse,
+    summary="Get all samplings by dataset version ID",
+    description="""
+    Retrieve all sampling runs performed on a specific dataset version.
+    
+    This endpoint returns a paginated list of all sampling analysis runs
+    that have been executed on the specified dataset version, showing
+    who ran them, when, and their results.
+    
+    The response includes:
+    - Sampling run metadata (ID, status, timestamps)
+    - User information (who created the sampling)
+    - Run parameters and configuration
+    - Output file details (if completed)
+    - Pagination information
+    """
+)
+async def get_samplings_by_dataset_version(
+    dataset_version_id: int = Path(..., description="The ID of the dataset version"),
+    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
+    page_size: int = Query(10, ge=1, le=100, description="Number of items per page"),
+    controller: SamplingController = Depends(get_sampling_controller),
+    current_user: CurrentUser = Depends(get_current_user_info)
+):
+    """Get all sampling runs for a specific dataset version"""
+    result = await controller.get_samplings_by_dataset_version(
+        dataset_version_id=dataset_version_id,
+        page=page,
+        page_size=page_size
+    )
+    
+    return AnalysisRunListResponse(
+        runs=result["runs"],
+        total_count=result["total_count"],
+        page=result["page"],
+        page_size=result["page_size"]
+    )
+
+@router.get(
+    "/dataset/{dataset_id}/samplings",
+    response_model=AnalysisRunListResponse,
+    summary="Get all samplings by dataset ID (across all versions)",
+    description="""
+    Retrieve all sampling runs performed on a specific dataset across all its versions.
+    
+    This endpoint returns a paginated list of all sampling analysis runs
+    that have been executed on any version of the specified dataset. This is useful
+    for viewing the complete sampling history of a dataset regardless of version.
+    
+    The response includes:
+    - Sampling run metadata (ID, status, timestamps)
+    - Dataset version information (version number for each run)
+    - User information (who created the sampling)
+    - Run parameters and configuration
+    - Output file details (if completed)
+    - Pagination information
+    """
+)
+async def get_samplings_by_dataset(
+    dataset_id: int = Path(..., description="The ID of the dataset"),
+    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
+    page_size: int = Query(10, ge=1, le=100, description="Number of items per page"),
+    controller: SamplingController = Depends(get_sampling_controller),
+    current_user: CurrentUser = Depends(get_current_user_info)
+):
+    """Get all sampling runs for a specific dataset (across all versions)"""
+    result = await controller.get_samplings_by_dataset(
+        dataset_id=dataset_id,
+        page=page,
+        page_size=page_size
+    )
+    
+    return AnalysisRunListResponse(
+        runs=result["runs"],
+        total_count=result["total_count"],
+        page=result["page"],
+        page_size=result["page_size"]
     )
 

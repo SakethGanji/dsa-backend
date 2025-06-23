@@ -1299,7 +1299,16 @@ class SamplingService:
                     return
             
                 # Extract request from run_parameters
-                request = MultiRoundSamplingRequest(**run_data["run_parameters"]["request"])
+                try:
+                    request_data = run_data["run_parameters"]["request"]
+                    logger.debug(f"Request data type: {type(request_data)}")
+                    logger.debug(f"Request data: {request_data}")
+                    request = MultiRoundSamplingRequest(**request_data)
+                except Exception as e:
+                    logger.error(f"Error parsing request: {str(e)}")
+                    logger.error(f"run_parameters type: {type(run_data.get('run_parameters'))}")
+                    logger.error(f"run_parameters: {run_data.get('run_parameters')}")
+                    raise ValueError(f"Failed to parse sampling request: {str(e)}")
                 dataset_version_id = run_data["dataset_version_id"]
                 
                 # Get dataset version
@@ -1307,9 +1316,18 @@ class SamplingService:
                 if not version:
                     raise ValueError(f"Dataset version with ID {dataset_version_id} not found")
                 
-                # Get file data
-                file_id = version.overlay_file_id
-                file_info = await datasets_repo.get_file(file_id)
+                # Get primary file info from version_files table
+                primary_file = await datasets_repo.get_version_file_by_component(
+                    dataset_version_id, "primary", "main"
+                )
+                
+                if primary_file and primary_file.file:
+                    file_info = primary_file.file
+                else:
+                    # Fallback to overlay file if no primary file in version_files
+                    file_id = version.overlay_file_id
+                    file_info = await datasets_repo.get_file(file_id)
+                    
                 if not file_info or not file_info.file_path:
                     raise ValueError("File path not found")
                 
@@ -1674,26 +1692,42 @@ class SamplingService:
         if run_data.get("output_summary") and "round_results" in run_data["output_summary"]:
             raw_round_results = run_data["output_summary"]["round_results"]
             completed_rounds = run_data["output_summary"].get("completed_rounds", len(raw_round_results))
+        else:
+            # Use round results from run_parameters
+            raw_round_results = round_results
+        
+        # Transform round results to include required fields
+        round_results = []
+        for rr in raw_round_results:
+            # Make a copy to avoid modifying original data
+            round_result = dict(rr)
             
-            # Transform round results to include required fields
-            round_results = []
-            for rr in raw_round_results:
-                # Add default output_uri if missing
-                if "output_uri" not in rr:
-                    dataset_id = run_data["dataset_id"]
-                    version_id = run_data["dataset_version_id"]
-                    run_id = run_data["id"]
-                    round_number = rr.get("round_number", 1)
-                    # Construct expected path
-                    rr["output_uri"] = f"file:///data/samples/{dataset_id}/{version_id}/multi_round/{run_id}/{round_number}.parquet"
+            # Add default output_uri if missing
+            if "output_uri" not in round_result:
+                dataset_id = run_data["dataset_id"]
+                version_id = run_data["dataset_version_id"]
+                run_id = run_data["id"]
+                round_number = round_result.get("round_number", 1)
+                # Construct expected path
+                round_result["output_uri"] = f"file:///data/samples/{dataset_id}/{version_id}/multi_round/{run_id}/{round_number}.parquet"
+            
+            # Ensure all required fields are present
+            if "preview" not in round_result:
+                round_result["preview"] = None
+            if "summary" not in round_result:
+                round_result["summary"] = None
+            
+            # Ensure sample_size is present
+            if "sample_size" not in round_result:
+                round_result["sample_size"] = 0  # Default to 0 if not available
+            
+            # Ensure datetime fields are present
+            if "started_at" not in round_result:
+                round_result["started_at"] = run_data.get("run_timestamp", datetime.now())
+            if "completed_at" not in round_result:
+                round_result["completed_at"] = run_data.get("run_timestamp", datetime.now())
                 
-                # Ensure all required fields are present
-                if "preview" not in rr:
-                    rr["preview"] = None
-                if "summary" not in rr:
-                    rr["summary"] = None
-                    
-                round_results.append(rr)
+            round_results.append(round_result)
         
         # Build response
         response = {
@@ -1894,3 +1928,84 @@ class SamplingService:
         finally:
             if conn:
                 conn.close()
+    
+    async def get_samplings_by_user(
+        self,
+        user_id: int,
+        page: int = 1,
+        page_size: int = 10
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """
+        Get all sampling runs created by a specific user
+        
+        Args:
+            user_id: The user ID to filter by
+            page: Page number (1-indexed)
+            page_size: Number of items per page
+            
+        Returns:
+            Tuple of (list of sampling runs, total count)
+        """
+        if not self.db_repository:
+            raise ValueError("Database repository not available")
+            
+        offset = (page - 1) * page_size
+        return await self.db_repository.get_samplings_by_user(
+            user_id=user_id,
+            limit=page_size,
+            offset=offset
+        )
+    
+    async def get_samplings_by_dataset_version(
+        self,
+        dataset_version_id: int,
+        page: int = 1,
+        page_size: int = 10
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """
+        Get all sampling runs for a specific dataset version
+        
+        Args:
+            dataset_version_id: The dataset version ID to filter by
+            page: Page number (1-indexed)
+            page_size: Number of items per page
+            
+        Returns:
+            Tuple of (list of sampling runs, total count)
+        """
+        if not self.db_repository:
+            raise ValueError("Database repository not available")
+            
+        offset = (page - 1) * page_size
+        return await self.db_repository.get_samplings_by_dataset_version(
+            dataset_version_id=dataset_version_id,
+            limit=page_size,
+            offset=offset
+        )
+    
+    async def get_samplings_by_dataset(
+        self,
+        dataset_id: int,
+        page: int = 1,
+        page_size: int = 10
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """
+        Get all sampling runs for a specific dataset (across all versions)
+        
+        Args:
+            dataset_id: The dataset ID to filter by
+            page: Page number (1-indexed)
+            page_size: Number of items per page
+            
+        Returns:
+            Tuple of (list of sampling runs, total count)
+        """
+        if not self.db_repository:
+            raise ValueError("Database repository not available")
+            
+        offset = (page - 1) * page_size
+        return await self.db_repository.get_samplings_by_dataset(
+            dataset_id=dataset_id,
+            limit=page_size,
+            offset=offset
+        )

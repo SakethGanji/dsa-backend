@@ -503,4 +503,172 @@ class SamplingController:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Error retrieving merged sample data: {str(e)}"
             )
+    
+    async def get_samplings_by_user(
+        self,
+        user_id: int,
+        page: int = 1,
+        page_size: int = 10
+    ) -> Dict[str, Any]:
+        """
+        Get all sampling runs created by a specific user
+        
+        Args:
+            user_id: The user ID to filter by
+            page: Page number (1-indexed)
+            page_size: Number of items per page
+            
+        Returns:
+            Dictionary with sampling runs and pagination info
+            
+        Raises:
+            HTTPException: If an error occurs
+        """
+        try:
+            logger.info(f"Getting sampling runs for user {user_id}, page {page}")
+            
+            # Call service method
+            runs, total_count = await self.service.get_samplings_by_user(
+                user_id=user_id,
+                page=page,
+                page_size=page_size
+            )
+            
+            # Calculate pagination info
+            total_pages = (total_count + page_size - 1) // page_size
+            
+            return {
+                "runs": runs,
+                "total_count": total_count,
+                "page": page,
+                "page_size": page_size,
+                "total_pages": total_pages,
+                "has_next": page < total_pages,
+                "has_previous": page > 1
+            }
+            
+        except ValueError as e:
+            logger.warning(f"Validation error: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+        except Exception as e:
+            logger.error(f"Error getting samplings by user: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error retrieving sampling runs: {str(e)}"
+            )
+    
+    async def get_samplings_by_dataset_version(
+        self,
+        dataset_version_id: int,
+        page: int = 1,
+        page_size: int = 10
+    ) -> Dict[str, Any]:
+        """
+        Get all sampling runs for a specific dataset version
+        
+        Args:
+            dataset_version_id: The dataset version ID to filter by
+            page: Page number (1-indexed)
+            page_size: Number of items per page
+            
+        Returns:
+            Dictionary with sampling runs and pagination info
+            
+        Raises:
+            HTTPException: If an error occurs
+        """
+        try:
+            logger.info(f"Getting sampling runs for dataset version {dataset_version_id}, page {page}")
+            
+            # Call service method
+            runs, total_count = await self.service.get_samplings_by_dataset_version(
+                dataset_version_id=dataset_version_id,
+                page=page,
+                page_size=page_size
+            )
+            
+            # Calculate pagination info
+            total_pages = (total_count + page_size - 1) // page_size
+            
+            return {
+                "runs": runs,
+                "total_count": total_count,
+                "page": page,
+                "page_size": page_size,
+                "total_pages": total_pages,
+                "has_next": page < total_pages,
+                "has_previous": page > 1
+            }
+            
+        except ValueError as e:
+            logger.warning(f"Validation error: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+        except Exception as e:
+            logger.error(f"Error getting samplings by dataset version: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error retrieving sampling runs: {str(e)}"
+            )
+    
+    async def get_samplings_by_dataset(
+        self,
+        dataset_id: int,
+        page: int = 1,
+        page_size: int = 10
+    ) -> Dict[str, Any]:
+        """
+        Get all sampling runs for a specific dataset (across all versions)
+        
+        Args:
+            dataset_id: The dataset ID to filter by
+            page: Page number (1-indexed)
+            page_size: Number of items per page
+            
+        Returns:
+            Dictionary with sampling runs and pagination info
+            
+        Raises:
+            HTTPException: If an error occurs
+        """
+        try:
+            logger.info(f"Getting sampling runs for dataset {dataset_id}, page {page}")
+            
+            # Call service method
+            runs, total_count = await self.service.get_samplings_by_dataset(
+                dataset_id=dataset_id,
+                page=page,
+                page_size=page_size
+            )
+            
+            # Calculate pagination info
+            total_pages = (total_count + page_size - 1) // page_size
+            
+            return {
+                "runs": runs,
+                "total_count": total_count,
+                "page": page,
+                "page_size": page_size,
+                "total_pages": total_pages,
+                "has_next": page < total_pages,
+                "has_previous": page > 1
+            }
+            
+        except ValueError as e:
+            logger.warning(f"Validation error: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+        except Exception as e:
+            logger.error(f"Error getting samplings by dataset: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error retrieving sampling runs: {str(e)}"
+            )
 

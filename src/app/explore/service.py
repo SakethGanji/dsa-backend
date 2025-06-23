@@ -67,9 +67,18 @@ class ExploreService:
         if version.dataset_id != dataset_id:
             raise ValueError(f"Version {version_id} does not belong to dataset {dataset_id}")
             
-        # Get file data using overlay file
-        file_id = version.overlay_file_id
-        file_info = await self.repository.get_file(file_id)
+        # Get primary file from dataset_version_files
+        primary_file = await self.repository.get_version_file_by_component(
+            version_id, "primary", "main"
+        )
+        
+        if primary_file and primary_file.file:
+            file_info = primary_file.file
+        else:
+            # Fallback to overlay file if no primary file exists
+            file_id = version.overlay_file_id
+            file_info = await self.repository.get_file(file_id)
+            
         if not file_info or not file_info.file_path:
             raise ValueError("File path not found")
             

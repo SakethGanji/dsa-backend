@@ -297,6 +297,33 @@ class AnalysisRunCreate(BaseModel):
     user_id: int
     run_type: str = "sampling"
     run_parameters: Dict[str, Any]
+
+class AnalysisRunResponse(BaseModel):
+    """Response model for analysis runs from database"""
+    id: int = Field(..., description="Analysis run ID")
+    dataset_id: int = Field(..., description="Dataset ID")
+    dataset_version_id: int = Field(..., description="Dataset version ID")
+    dataset_name: Optional[str] = Field(None, description="Dataset name")
+    version_number: Optional[int] = Field(None, description="Version number")
+    user_id: Optional[int] = Field(None, description="User ID who created the run")
+    user_soeid: Optional[str] = Field(None, description="User SOEID")
+    run_type: str = Field(..., description="Type of analysis run")
+    status: str = Field(..., description="Run status")
+    run_timestamp: datetime = Field(..., description="When the run was created")
+    execution_time_ms: Optional[int] = Field(None, description="Execution time in milliseconds")
+    notes: Optional[str] = Field(None, description="Notes or error messages")
+    output_file_id: Optional[int] = Field(None, description="Output file ID")
+    output_file_path: Optional[str] = Field(None, description="Output file path")
+    output_file_size: Optional[int] = Field(None, description="Output file size in bytes")
+    run_parameters: Dict[str, Any] = Field(..., description="Run parameters")
+    output_summary: Optional[Dict[str, Any]] = Field(None, description="Output summary")
+
+class AnalysisRunListResponse(BaseModel):
+    """Response model for listing analysis runs"""
+    runs: List[AnalysisRunResponse] = Field(..., description="List of analysis runs")
+    total_count: int = Field(..., description="Total number of runs matching the query")
+    page: int = Field(1, description="Current page number")
+    page_size: int = Field(10, description="Number of items per page")
     status: str = "pending"
 
 class AnalysisRunUpdate(BaseModel):

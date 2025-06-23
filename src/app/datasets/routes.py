@@ -18,12 +18,16 @@ from app.datasets.constants import DEFAULT_PAGE_SIZE, MAX_ROWS_PER_PAGE
 from app.db.connection import get_session
 from app.storage.factory import StorageFactory
 from app.users.auth import get_current_user_info, CurrentUser
+from app.datasets.search.routes import router as search_router
 
 import logging
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/datasets", tags=["Datasets"])
+
+# Include search sub-router
+router.include_router(search_router)
 
 # Dependency injection - simplified like sampling slice
 async def get_controller(session: AsyncSession = Depends(get_session)) -> DatasetsController:

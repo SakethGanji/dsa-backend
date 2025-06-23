@@ -533,12 +533,11 @@ class DatasetsRepository:
         """)
         result = await self.session.execute(query, {"file_id": file_id})
         row = result.mappings().first()
-        if row and row.get('metadata'):
-            # Parse JSON metadata if it exists
+        if row:
             row_dict = dict(row)
-            row_dict['metadata'] = json.loads(row_dict['metadata']) if row_dict['metadata'] else None
+            # metadata is already a dict from JSONB column, no need to parse
             return File.model_validate(row_dict)
-        return File.model_validate(row) if row else None
+        return None
     
     async def update_file_path(self, file_id: int, new_path: str) -> None:
         query = sa.text("UPDATE files SET file_path = :file_path WHERE id = :file_id")

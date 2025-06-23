@@ -21,7 +21,12 @@ datasets/
 ├── file_parsers.py    # File parsing strategies
 ├── query_builder.py   # SQL query construction
 ├── formatters.py      # Response formatting
-└── duckdb_service.py  # DuckDB integration
+├── duckdb_service.py  # DuckDB integration
+└── search/            # Search functionality module
+    ├── models.py      # Search request/response models
+    ├── repository.py  # Search database operations
+    ├── service.py     # Search business logic
+    └── routes.py      # Search API endpoints
 ```
 
 ### Key Design Patterns
@@ -40,6 +45,10 @@ datasets/
 - **Filtering**: Advanced filtering with multiple criteria
 - **Pagination**: Efficient data retrieval for large datasets
 - **Storage**: Converts all files to Parquet for optimal performance
+- **Full-Text Search**: PostgreSQL-based search with relevance ranking
+- **Fuzzy Search**: Typo-tolerant search using pg_trgm extension
+- **Faceted Search**: Aggregated counts for common filter values
+- **Autocomplete**: Real-time search suggestions
 
 ## API Endpoints
 
@@ -84,6 +93,20 @@ Download the raw file for a specific version.
 GET /api/datasets/{dataset_id}/versions/{version_id}/data
 ```
 Retrieve paginated data from a dataset sheet.
+
+### Search Datasets
+```
+POST /api/datasets/search
+GET /api/datasets/search
+```
+Advanced search with full-text search, fuzzy matching, and faceted results. See [Search API Documentation](search/SEARCH_API_DOCUMENTATION.md) for details.
+
+### Search Suggestions
+```
+POST /api/datasets/search/suggest
+GET /api/datasets/search/suggest
+```
+Get autocomplete suggestions for search queries.
 
 ## Error Handling
 

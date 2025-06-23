@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime
 import json
 import logging
@@ -330,3 +330,409 @@ class SamplingDBRepository:
             run_id=run_id,
             run_parameters_update=run_parameters_update
         )
+    
+    async def get_samplings_by_user(
+        self,
+        user_id: int,
+        limit: int = 10,
+        offset: int = 0
+    ) -> Tuple[List[dict], int]:
+        """
+        Get all sampling runs created by a specific user
+        
+        Args:
+            user_id: The user ID to filter by
+            limit: Maximum number of results
+            offset: Number of results to skip
+            
+        Returns:
+            Tuple of (list of sampling runs, total count)
+        """
+        # Count total matching records
+        count_query = sa.text("""
+            SELECT COUNT(*) as total
+            FROM analysis_runs ar
+            WHERE ar.run_type = 'sampling'
+                AND ar.user_id = :user_id;
+        """)
+        
+        count_result = await self.session.execute(count_query, {"user_id": user_id})
+        total_count = count_result.scalar()
+        
+        # Get paginated results with all required fields
+        query = sa.text("""
+            SELECT 
+                ar.id,
+                ar.dataset_version_id,
+                ar.user_id,
+                ar.run_type,
+                ar.run_parameters,
+                ar.status,
+                ar.run_timestamp,
+                ar.execution_time_ms,
+                ar.notes,
+                ar.output_file_id,
+                ar.output_summary,
+                dv.dataset_id,
+                d.name as dataset_name,
+                dv.version_number,
+                u.soeid as user_soeid,
+                f.file_path as output_file_path,
+                f.file_size as output_file_size
+            FROM 
+                analysis_runs ar
+            JOIN 
+                dataset_versions dv ON ar.dataset_version_id = dv.id
+            JOIN
+                datasets d ON dv.dataset_id = d.id
+            LEFT JOIN
+                users u ON ar.user_id = u.id
+            LEFT JOIN
+                files f ON ar.output_file_id = f.id
+            WHERE 
+                ar.run_type = 'sampling'
+                AND ar.user_id = :user_id
+            ORDER BY 
+                ar.run_timestamp DESC
+            LIMIT :limit
+            OFFSET :offset;
+        """)
+        
+        values = {
+            "user_id": user_id,
+            "limit": limit,
+            "offset": offset
+        }
+        
+        result = await self.session.execute(query, values)
+        rows = result.fetchall()
+        
+        runs = [
+            {
+                "id": row.id,
+                "dataset_id": row.dataset_id,
+                "dataset_name": row.dataset_name,
+                "dataset_version_id": row.dataset_version_id,
+                "version_number": row.version_number,
+                "user_id": row.user_id,
+                "user_soeid": row.user_soeid,
+                "run_type": row.run_type,
+                "run_parameters": row.run_parameters,
+                "status": row.status,
+                "run_timestamp": row.run_timestamp,
+                "execution_time_ms": row.execution_time_ms,
+                "notes": row.notes,
+                "output_file_id": row.output_file_id,
+                "output_file_path": row.output_file_path,
+                "output_file_size": row.output_file_size,
+                "output_summary": row.output_summary
+            }
+            for row in rows
+        ]
+        
+        return runs, total_count
+    
+    async def get_samplings_by_dataset(
+        self,
+        dataset_id: int,
+        limit: int = 10,
+        offset: int = 0
+    ) -> Tuple[List[dict], int]:
+        """
+        Get all sampling runs for a specific dataset (across all versions)
+        
+        Args:
+            dataset_id: The dataset ID to filter by
+            limit: Maximum number of results
+            offset: Number of results to skip
+            
+        Returns:
+            Tuple of (list of sampling runs, total count)
+        """
+        # Count total matching records
+        count_query = sa.text("""
+            SELECT COUNT(*) as total
+            FROM analysis_runs ar
+            JOIN dataset_versions dv ON ar.dataset_version_id = dv.id
+            WHERE ar.run_type = 'sampling'
+                AND dv.dataset_id = :dataset_id;
+        """)
+        
+        count_result = await self.session.execute(count_query, {"dataset_id": dataset_id})
+        total_count = count_result.scalar()
+        
+        # Get paginated results
+        query = sa.text("""
+            SELECT 
+                ar.id,
+                ar.dataset_version_id,
+                ar.user_id,
+                ar.run_type,
+                ar.run_parameters,
+                ar.status,
+                ar.run_timestamp,
+                ar.execution_time_ms,
+                ar.notes,
+                ar.output_file_id,
+                ar.output_summary,
+                dv.dataset_id,
+                d.name as dataset_name,
+                dv.version_number,
+                u.soeid as user_soeid,
+                f.file_path as output_file_path,
+                f.file_size as output_file_size
+            FROM 
+                analysis_runs ar
+            JOIN 
+                dataset_versions dv ON ar.dataset_version_id = dv.id
+            JOIN
+                datasets d ON dv.dataset_id = d.id
+            LEFT JOIN
+                users u ON ar.user_id = u.id
+            LEFT JOIN
+                files f ON ar.output_file_id = f.id
+            WHERE 
+                ar.run_type = 'sampling'
+                AND dv.dataset_id = :dataset_id
+            ORDER BY 
+                ar.run_timestamp DESC
+            LIMIT :limit
+            OFFSET :offset;
+        """)
+        
+        values = {
+            "dataset_id": dataset_id,
+            "limit": limit,
+            "offset": offset
+        }
+        
+        result = await self.session.execute(query, values)
+        rows = result.fetchall()
+        
+        runs = [
+            {
+                "id": row.id,
+                "dataset_id": row.dataset_id,
+                "dataset_name": row.dataset_name,
+                "dataset_version_id": row.dataset_version_id,
+                "version_number": row.version_number,
+                "user_id": row.user_id,
+                "user_soeid": row.user_soeid,
+                "run_type": row.run_type,
+                "run_parameters": row.run_parameters,
+                "status": row.status,
+                "run_timestamp": row.run_timestamp,
+                "execution_time_ms": row.execution_time_ms,
+                "notes": row.notes,
+                "output_file_id": row.output_file_id,
+                "output_file_path": row.output_file_path,
+                "output_file_size": row.output_file_size,
+                "output_summary": row.output_summary
+            }
+            for row in rows
+        ]
+        
+        return runs, total_count
+    
+    async def get_samplings_by_dataset_version(
+        self,
+        dataset_version_id: int,
+        limit: int = 10,
+        offset: int = 0
+    ) -> Tuple[List[dict], int]:
+        """
+        Get all sampling runs for a specific dataset version
+        
+        Args:
+            dataset_version_id: The dataset version ID to filter by
+            limit: Maximum number of results
+            offset: Number of results to skip
+            
+        Returns:
+            Tuple of (list of sampling runs, total count)
+        """
+        # Count total matching records
+        count_query = sa.text("""
+            SELECT COUNT(*) as total
+            FROM analysis_runs ar
+            WHERE ar.run_type = 'sampling'
+                AND ar.dataset_version_id = :dataset_version_id;
+        """)
+        
+        count_result = await self.session.execute(count_query, {"dataset_version_id": dataset_version_id})
+        total_count = count_result.scalar()
+        
+        # Get paginated results
+        query = sa.text("""
+            SELECT 
+                ar.id,
+                ar.dataset_version_id,
+                ar.user_id,
+                ar.run_type,
+                ar.run_parameters,
+                ar.status,
+                ar.run_timestamp,
+                ar.execution_time_ms,
+                ar.notes,
+                ar.output_file_id,
+                ar.output_summary,
+                dv.dataset_id,
+                d.name as dataset_name,
+                dv.version_number,
+                u.soeid as user_soeid,
+                f.file_path as output_file_path,
+                f.file_size as output_file_size
+            FROM 
+                analysis_runs ar
+            JOIN 
+                dataset_versions dv ON ar.dataset_version_id = dv.id
+            JOIN
+                datasets d ON dv.dataset_id = d.id
+            LEFT JOIN
+                users u ON ar.user_id = u.id
+            LEFT JOIN
+                files f ON ar.output_file_id = f.id
+            WHERE 
+                ar.run_type = 'sampling'
+                AND ar.dataset_version_id = :dataset_version_id
+            ORDER BY 
+                ar.run_timestamp DESC
+            LIMIT :limit
+            OFFSET :offset;
+        """)
+        
+        values = {
+            "dataset_version_id": dataset_version_id,
+            "limit": limit,
+            "offset": offset
+        }
+        
+        result = await self.session.execute(query, values)
+        rows = result.fetchall()
+        
+        runs = [
+            {
+                "id": row.id,
+                "dataset_id": row.dataset_id,
+                "dataset_name": row.dataset_name,
+                "dataset_version_id": row.dataset_version_id,
+                "version_number": row.version_number,
+                "user_id": row.user_id,
+                "user_soeid": row.user_soeid,
+                "run_type": row.run_type,
+                "run_parameters": row.run_parameters,
+                "status": row.status,
+                "run_timestamp": row.run_timestamp,
+                "execution_time_ms": row.execution_time_ms,
+                "notes": row.notes,
+                "output_file_id": row.output_file_id,
+                "output_file_path": row.output_file_path,
+                "output_file_size": row.output_file_size,
+                "output_summary": row.output_summary
+            }
+            for row in rows
+        ]
+        
+        return runs, total_count
+    
+    async def get_samplings_by_dataset(
+        self,
+        dataset_id: int,
+        limit: int = 10,
+        offset: int = 0
+    ) -> Tuple[List[dict], int]:
+        """
+        Get all sampling runs for a specific dataset (across all versions)
+        
+        Args:
+            dataset_id: The dataset ID to filter by
+            limit: Maximum number of results
+            offset: Number of results to skip
+            
+        Returns:
+            Tuple of (list of sampling runs, total count)
+        """
+        # Count total matching records
+        count_query = sa.text("""
+            SELECT COUNT(*) as total
+            FROM analysis_runs ar
+            JOIN dataset_versions dv ON ar.dataset_version_id = dv.id
+            WHERE ar.run_type = 'sampling'
+                AND dv.dataset_id = :dataset_id;
+        """)
+        
+        count_result = await self.session.execute(count_query, {"dataset_id": dataset_id})
+        total_count = count_result.scalar()
+        
+        # Get paginated results
+        query = sa.text("""
+            SELECT 
+                ar.id,
+                ar.dataset_version_id,
+                ar.user_id,
+                ar.run_type,
+                ar.run_parameters,
+                ar.status,
+                ar.run_timestamp,
+                ar.execution_time_ms,
+                ar.notes,
+                ar.output_file_id,
+                ar.output_summary,
+                dv.dataset_id,
+                d.name as dataset_name,
+                dv.version_number,
+                u.soeid as user_soeid,
+                f.file_path as output_file_path,
+                f.file_size as output_file_size
+            FROM 
+                analysis_runs ar
+            JOIN 
+                dataset_versions dv ON ar.dataset_version_id = dv.id
+            JOIN
+                datasets d ON dv.dataset_id = d.id
+            LEFT JOIN
+                users u ON ar.user_id = u.id
+            LEFT JOIN
+                files f ON ar.output_file_id = f.id
+            WHERE 
+                ar.run_type = 'sampling'
+                AND dv.dataset_id = :dataset_id
+            ORDER BY 
+                ar.run_timestamp DESC
+            LIMIT :limit
+            OFFSET :offset;
+        """)
+        
+        values = {
+            "dataset_id": dataset_id,
+            "limit": limit,
+            "offset": offset
+        }
+        
+        result = await self.session.execute(query, values)
+        rows = result.fetchall()
+        
+        runs = [
+            {
+                "id": row.id,
+                "dataset_id": row.dataset_id,
+                "dataset_name": row.dataset_name,
+                "dataset_version_id": row.dataset_version_id,
+                "version_number": row.version_number,
+                "user_id": row.user_id,
+                "user_soeid": row.user_soeid,
+                "run_type": row.run_type,
+                "run_parameters": row.run_parameters,
+                "status": row.status,
+                "run_timestamp": row.run_timestamp,
+                "execution_time_ms": row.execution_time_ms,
+                "notes": row.notes,
+                "output_file_id": row.output_file_id,
+                "output_file_path": row.output_file_path,
+                "output_file_size": row.output_file_size,
+                "output_summary": row.output_summary
+            }
+            for row in rows
+        ]
+        
+        return runs, total_count
