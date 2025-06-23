@@ -1131,4 +1131,125 @@ class DatasetsRepository:
         
         return file_state
     
+    # Statistics operations
+    async def upsert_dataset_statistics(
+        self,
+        version_id: int,
+        row_count: int,
+        column_count: int,
+        size_bytes: int,
+        statistics: Dict[str, Any]
+    ) -> None:
+        """Insert or update dataset statistics"""
+        query = sa.text("""
+            INSERT INTO dataset_statistics 
+            (version_id, row_count, column_count, size_bytes, statistics, computed_at)
+            VALUES (:version_id, :row_count, :column_count, :size_bytes, :statistics, NOW())
+            ON CONFLICT (version_id) 
+            DO UPDATE SET
+                row_count = EXCLUDED.row_count,
+                column_count = EXCLUDED.column_count,
+                size_bytes = EXCLUDED.size_bytes,
+                statistics = EXCLUDED.statistics,
+                computed_at = NOW()
+        """)
+        
+        await self.session.execute(
+            query,
+            {
+                "version_id": version_id,
+                "row_count": row_count,
+                "column_count": column_count,
+                "size_bytes": size_bytes,
+                "statistics": json.dumps(statistics)
+            }
+        )
+        await self.session.commit()
+    
+    async def get_dataset_statistics(self, version_id: int) -> Optional[Dict[str, Any]]:
+        """Get statistics for a dataset version"""
+        query = sa.text("""
+            SELECT version_id, row_count, column_count, size_bytes, 
+                   statistics, computed_at
+            FROM dataset_statistics
+            WHERE version_id = :version_id
+        """)
+        
+        result = await self.session.execute(query, {"version_id": version_id})
+        row = result.first()
+        
+        if row:
+            return {
+                "version_id": row.version_id,
+                "row_count": row.row_count,
+                "column_count": row.column_count,
+                "size_bytes": row.size_bytes,
+                "statistics": row.statistics,
+                "computed_at": row.computed_at
+            }
+        return None
+    
+    async def create_analysis_run(
+        self,
+        dataset_version_id: int,
+        user_id: Optional[int],
+        run_type: str,
+        run_parameters: Dict[str, Any],
+        status: str = "pending",
+        output_summary: Optional[Dict[str, Any]] = None
+    ) -> int:
+        """Create an analysis run record"""
+        query = sa.text("""
+            INSERT INTO analysis_runs 
+            (dataset_version_id, user_id, run_type, run_parameters, status, 
+             run_timestamp, output_summary)
+            VALUES (:dataset_version_id, :user_id, :run_type::analysis_run_type, 
+                    :run_parameters, :status::analysis_run_status, NOW(), :output_summary)
+            RETURNING id
+        """)
+        
+        result = await self.session.execute(
+            query,
+            {
+                "dataset_version_id": dataset_version_id,
+                "user_id": user_id,
+                "run_type": run_type,
+                "run_parameters": json.dumps(run_parameters),
+                "status": status,
+                "output_summary": json.dumps(output_summary) if output_summary else None
+            }
+        )
+        await self.session.commit()
+        return result.scalar_one()
+    
+    async def update_analysis_run(
+        self,
+        analysis_run_id: int,
+        status: str,
+        execution_time_ms: Optional[int] = None,
+        output_summary: Optional[Dict[str, Any]] = None,
+        output_file_id: Optional[int] = None
+    ) -> None:
+        """Update an analysis run with results"""
+        query = sa.text("""
+            UPDATE analysis_runs 
+            SET status = :status::analysis_run_status,
+                execution_time_ms = :execution_time_ms,
+                output_summary = :output_summary,
+                output_file_id = :output_file_id
+            WHERE id = :id
+        """)
+        
+        await self.session.execute(
+            query,
+            {
+                "id": analysis_run_id,
+                "status": status,
+                "execution_time_ms": execution_time_ms,
+                "output_summary": json.dumps(output_summary) if output_summary else None,
+                "output_file_id": output_file_id
+            }
+        )
+        await self.session.commit()
+    
     

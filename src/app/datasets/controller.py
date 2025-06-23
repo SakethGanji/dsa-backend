@@ -729,3 +729,129 @@ class DatasetsController:
             )
         
         return version
+    
+    # Statistics operations
+    async def get_version_statistics(
+        self,
+        dataset_id: int,
+        version_id: int,
+        current_user: Any
+    ) -> Dict[str, Any]:
+        """Get pre-computed statistics for a dataset version"""
+        # Check read permission
+        user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User not found"
+            )
+        
+        has_permission = await self.service.check_dataset_permission(dataset_id, user_id, "read")
+        if not has_permission:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Read permission required to view statistics"
+            )
+        
+        # Verify version belongs to dataset
+        version = await self.service.get_dataset_version(version_id)
+        if not version or version.dataset_id != dataset_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Version {version_id} not found for dataset {dataset_id}"
+            )
+        
+        # Get statistics
+        stats = await self.service.get_version_statistics(version_id)
+        if not stats:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Statistics not found for this version. They may still be calculating."
+            )
+        
+        return stats
+    
+    async def get_latest_statistics(
+        self,
+        dataset_id: int,
+        current_user: Any
+    ) -> Dict[str, Any]:
+        """Get statistics for the latest version of a dataset"""
+        # Check read permission
+        user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User not found"
+            )
+        
+        has_permission = await self.service.check_dataset_permission(dataset_id, user_id, "read")
+        if not has_permission:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Read permission required to view statistics"
+            )
+        
+        # Get latest version
+        latest_version = await self.service.get_latest_version(dataset_id)
+        if not latest_version:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No versions found for dataset {dataset_id}"
+            )
+        
+        # Get statistics
+        stats = await self.service.get_version_statistics(latest_version.id)
+        if not stats:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Statistics not found for the latest version. They may still be calculating."
+            )
+        
+        return stats
+    
+    async def refresh_version_statistics(
+        self,
+        dataset_id: int,
+        version_id: int,
+        detailed: bool,
+        sample_size: Optional[int],
+        current_user: Any
+    ) -> Dict[str, Any]:
+        """Refresh statistics for a dataset version"""
+        # Check write permission (since this modifies data)
+        user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User not found"
+            )
+        
+        has_permission = await self.service.check_dataset_permission(dataset_id, user_id, "write")
+        if not has_permission:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Write permission required to refresh statistics"
+            )
+        
+        # Verify version belongs to dataset
+        version = await self.service.get_dataset_version(version_id)
+        if not version or version.dataset_id != dataset_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Version {version_id} not found for dataset {dataset_id}"
+            )
+        
+        try:
+            result = await self.service.refresh_version_statistics(
+                version_id=version_id,
+                detailed=detailed,
+                sample_size=sample_size,
+                user_id=user_id
+            )
+            return result
+        except FileProcessingError as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=str(e)
+            )

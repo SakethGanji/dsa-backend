@@ -20,6 +20,7 @@ from app.datasets.exceptions import DatasetNotFound, DatasetVersionNotFound, Fil
 from app.datasets.validators import DatasetValidator
 from app.datasets.constants import DEFAULT_PAGE_SIZE, MAX_ROWS_PER_PAGE
 from app.datasets.duckdb_service import DuckDBService
+from app.datasets.statistics_service import StatisticsService
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +135,34 @@ class DatasetsService:
         # Extract and store schema
         await self._capture_schema(file_path, file_type, version_id)
         
+        # Calculate and store statistics
+        try:
+            logger.info(f"Calculating statistics for version {version_id}")
+            stats = await StatisticsService.calculate_parquet_statistics(file_path, detailed=False)
+            
+            # Store in dataset_statistics table
+            await self.repository.upsert_dataset_statistics(
+                version_id=version_id,
+                row_count=stats["row_count"],
+                column_count=stats["column_count"],
+                size_bytes=stats["size_bytes"],
+                statistics=stats["statistics"]
+            )
+            
+            # Create analysis_run record for tracking
+            await self.repository.create_analysis_run(
+                dataset_version_id=version_id,
+                user_id=user_id,
+                run_type="profiling",
+                run_parameters={"method": "parquet_metadata", "detailed": False},
+                status="completed",
+                output_summary=stats["statistics"]
+            )
+            
+            logger.info(f"Statistics calculated and stored for version {version_id}")
+        except Exception as e:
+            logger.error(f"Error calculating statistics: {str(e)}")
+            # Don't fail the upload if statistics calculation fails
         
         return DatasetUploadResponse(
             dataset_id=dataset_id,
@@ -810,4 +839,117 @@ class DatasetsService:
             value=tag_name
         )
         return await self.get_version_by_resolution(dataset_id, resolution)
+    
+    # Statistics operations
+    async def get_version_statistics(self, version_id: int) -> Optional[Dict[str, Any]]:
+        """Get pre-computed statistics for a dataset version"""
+        stats_data = await self.repository.get_dataset_statistics(version_id)
+        
+        if not stats_data:
+            return None
+        
+        # Transform the data into the response format
+        from app.datasets.models import DatasetStatistics, ColumnStatistics, DatasetStatisticsMetadata
+        
+        # Parse the JSONB statistics
+        statistics = stats_data["statistics"]
+        columns = {}
+        
+        for col_name, col_stats in statistics.get("columns", {}).items():
+            columns[col_name] = ColumnStatistics(**col_stats)
+        
+        metadata = DatasetStatisticsMetadata(**statistics.get("metadata", {
+            "profiling_method": "unknown",
+            "sampling_applied": False,
+            "profiling_duration_ms": 0
+        }))
+        
+        return DatasetStatistics(
+            version_id=stats_data["version_id"],
+            row_count=stats_data["row_count"],
+            column_count=stats_data["column_count"],
+            size_bytes=stats_data["size_bytes"],
+            size_formatted=StatisticsService.format_size(stats_data["size_bytes"]),
+            computed_at=stats_data["computed_at"],
+            columns=columns,
+            metadata=metadata
+        )
+    
+    async def refresh_version_statistics(
+        self, 
+        version_id: int, 
+        detailed: bool = False,
+        sample_size: Optional[int] = None,
+        user_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Refresh statistics for a dataset version"""
+        # Get version info to find the file
+        version = await self.get_dataset_version(version_id)
+        if not version:
+            raise DatasetVersionNotFound(version_id)
+        
+        # Get the primary file
+        primary_file = await self.repository.get_version_file_by_component(
+            version_id, "primary", "main"
+        )
+        
+        if not primary_file or not primary_file.file or not primary_file.file.file_path:
+            raise FileProcessingError("Primary file not found for version")
+        
+        file_path = primary_file.file.file_path
+        
+        # Create analysis run record
+        analysis_run_id = await self.repository.create_analysis_run(
+            dataset_version_id=version_id,
+            user_id=user_id,
+            run_type="profiling",
+            run_parameters={
+                "method": "detailed_scan" if detailed else "parquet_metadata",
+                "detailed": detailed,
+                "sample_size": sample_size
+            },
+            status="running"
+        )
+        
+        try:
+            # Calculate statistics
+            stats = await StatisticsService.calculate_parquet_statistics(
+                file_path, 
+                detailed=detailed,
+                sample_size=sample_size
+            )
+            
+            # Store in dataset_statistics table
+            await self.repository.upsert_dataset_statistics(
+                version_id=version_id,
+                row_count=stats["row_count"],
+                column_count=stats["column_count"],
+                size_bytes=stats["size_bytes"],
+                statistics=stats["statistics"]
+            )
+            
+            # Update analysis run
+            await self.repository.update_analysis_run(
+                analysis_run_id=analysis_run_id,
+                status="completed",
+                execution_time_ms=stats["statistics"]["metadata"]["profiling_duration_ms"],
+                output_summary=stats["statistics"]
+            )
+            
+            return {
+                "message": "Statistics refresh completed",
+                "analysis_run_id": analysis_run_id,
+                "status": "completed"
+            }
+            
+        except Exception as e:
+            # Update analysis run with failure
+            await self.repository.update_analysis_run(
+                analysis_run_id=analysis_run_id,
+                status="failed",
+                output_summary={"error": str(e)}
+            )
+            
+            logger.error(f"Error refreshing statistics for version {version_id}: {str(e)}")
+            raise FileProcessingError(f"Failed to refresh statistics: {str(e)}")
     

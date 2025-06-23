@@ -218,3 +218,58 @@ class DatasetListParams(BaseModel):
     updated_at_from: Optional[datetime] = None
     updated_at_to: Optional[datetime] = None
 
+
+# Statistics Models
+class ColumnStatistics(BaseModel):
+    """Statistics for a single column"""
+    data_type: str
+    nullable: bool = True
+    null_count: int
+    null_percentage: float
+    distinct_count: Optional[int] = None
+    min_value: Optional[Any] = None
+    max_value: Optional[Any] = None
+    mean: Optional[float] = None
+    median: Optional[float] = None
+    std_dev: Optional[float] = None
+    percentiles: Optional[Dict[str, float]] = None
+    histogram: Optional[Dict[str, Any]] = None
+    top_values: Optional[List[Dict[str, Any]]] = None
+    date_range: Optional[Dict[str, Any]] = None
+
+
+class DatasetStatisticsMetadata(BaseModel):
+    """Metadata about the statistics calculation"""
+    profiling_method: str
+    sampling_applied: bool = False
+    sample_size: Optional[int] = None
+    profiling_duration_ms: int
+
+
+class DatasetStatistics(BaseModel):
+    """Complete statistics for a dataset version"""
+    version_id: int
+    row_count: int
+    column_count: int
+    size_bytes: int
+    size_formatted: str
+    computed_at: datetime
+    columns: Dict[str, ColumnStatistics]
+    metadata: DatasetStatisticsMetadata
+    
+    class Config:
+        from_attributes = True
+
+
+class StatisticsRefreshRequest(BaseModel):
+    """Request to refresh statistics for a dataset version"""
+    detailed: bool = Field(False, description="Calculate detailed statistics including histograms")
+    sample_size: Optional[int] = Field(None, description="Number of rows to sample for detailed statistics")
+
+
+class StatisticsRefreshResponse(BaseModel):
+    """Response for statistics refresh request"""
+    message: str
+    analysis_run_id: Optional[int] = None
+    status: str
+

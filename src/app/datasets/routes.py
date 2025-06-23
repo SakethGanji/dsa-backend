@@ -11,7 +11,8 @@ from app.datasets.repository import DatasetsRepository
 from app.datasets.models import (
     Dataset, DatasetUploadResponse, DatasetUpdate,
     DatasetVersion, Tag, SheetInfo, SchemaVersion, VersionFile, VersionTag,
-    VersionCreateRequest, VersionCreateResponse, VersionResolution, VersionResolutionType
+    VersionCreateRequest, VersionCreateResponse, VersionResolution, VersionResolutionType,
+    DatasetStatistics, StatisticsRefreshResponse
 )
 from app.users.models import DatasetPermission, PermissionGrant, DatasetPermissionType
 from app.datasets.constants import DEFAULT_PAGE_SIZE, MAX_ROWS_PER_PAGE
@@ -687,6 +688,59 @@ async def create_version_from_changes(
         )
     
     return await controller.create_version_from_changes(request, current_user)
+
+
+# Statistics Routes
+@router.get(
+    "/{dataset_id}/statistics",
+    response_model=DatasetStatistics,
+    summary="Get latest version statistics",
+    description="Get pre-computed statistics for the latest version"
+)
+async def get_latest_statistics(
+    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
+    controller: ControllerDep = None,
+    current_user: UserDep = None
+) -> DatasetStatistics:
+    """Get statistics for the latest version of the dataset."""
+    return await controller.get_latest_statistics(dataset_id, current_user)
+
+
+@router.get(
+    "/{dataset_id}/versions/{version_id}/statistics",
+    response_model=DatasetStatistics,
+    summary="Get dataset version statistics",
+    description="Get pre-computed statistics for a dataset version"
+)
+async def get_version_statistics(
+    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
+    version_id: int = Path(..., gt=0, description="Version ID"),
+    controller: ControllerDep = None,
+    current_user: UserDep = None
+) -> DatasetStatistics:
+    """Get pre-computed statistics for a dataset version."""
+    return await controller.get_version_statistics(dataset_id, version_id, current_user)
+
+
+@router.post(
+    "/{dataset_id}/versions/{version_id}/statistics/refresh",
+    response_model=StatisticsRefreshResponse,
+    summary="Refresh dataset statistics",
+    description="Recalculate statistics for a dataset version"
+)
+async def refresh_version_statistics(
+    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
+    version_id: int = Path(..., gt=0, description="Version ID"),
+    detailed: bool = Query(False, description="Calculate detailed statistics including histograms"),
+    sample_size: Optional[int] = Query(None, description="Number of rows to sample for detailed statistics"),
+    controller: ControllerDep = None,
+    current_user: UserDep = None
+) -> StatisticsRefreshResponse:
+    """Trigger recalculation of statistics for a dataset version."""
+    result = await controller.refresh_version_statistics(
+        dataset_id, version_id, detailed, sample_size, current_user
+    )
+    return StatisticsRefreshResponse(**result)
 
 
 
