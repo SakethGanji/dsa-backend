@@ -729,17 +729,3 @@ class DatasetsController:
             )
         
         return version
-    
-    # Removed get_version_files_smart method - service method no longer exists
-    
-    # Removed trigger_materialization method - service method no longer exists
-    
-    # Removed background job management operations - background_jobs.py will be deleted
-    
-    # Removed run_gc_cycle method - background_jobs.py will be deleted
-    
-    # Removed get_background_job_status method - background_jobs.py will be deleted
-    
-    # Removed _count_pending_materializations method - background_jobs.py will be deleted
-    
-    # Removed _count_gc_candidates method - background_jobs.py will be deleted

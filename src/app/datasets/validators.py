@@ -7,7 +7,7 @@ class DatasetValidator:
     """Handles validation logic for datasets"""
     
     SUPPORTED_FILE_TYPES = ['csv', 'xlsx', 'xls', 'xlsm']
-    MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
+    # MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB - File size limit removed
     MAX_TAG_LENGTH = 50
     MAX_TAGS_PER_DATASET = 20
     
@@ -27,11 +27,7 @@ class DatasetValidator:
                 detail=f"Unsupported file type: {file_extension}. Supported types: {', '.join(cls.SUPPORTED_FILE_TYPES)}"
             )
         
-        if file_size > cls.MAX_FILE_SIZE:
-            raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail=f"File size {file_size} exceeds maximum allowed size of {cls.MAX_FILE_SIZE} bytes"
-            )
+        # File size validation removed - no size limit
     
     @classmethod
     def validate_tags(cls, tags: Optional[List[str]]) -> Optional[List[str]]:

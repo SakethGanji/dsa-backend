@@ -126,7 +126,7 @@ async def create_user(
     session: AsyncSession = Depends(get_session)
 ):
     logger.info(f"Create user requested by {current_user.soeid} with role {current_user.role_id}")
-    # Here you could add role-based access control, e.g.:
+    #  role-based access control:
     # if current_user.role_id != ADMIN_ROLE_ID:
     #     raise HTTPException(status_code=403, detail="Not authorized")
     return await create_user_ctrl(payload, session)

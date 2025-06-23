@@ -48,7 +48,7 @@ class SearchRepository:
                 d.created_at,
                 d.updated_at,
                 u.soeid as created_by_name,
-                COALESCE(dp.permission_type, 
+                COALESCE(dp.permission_type::text, 
                     CASE WHEN d.created_by = :user_id THEN 'admin' ELSE NULL END
                 ) as user_permission,
                 -- Search vectors for FTS
@@ -93,11 +93,21 @@ class SearchRepository:
         # Add search condition if query provided
         if request.query:
             if request.fuzzy_search:
-                # Use pg_trgm for fuzzy search (requires CREATE EXTENSION pg_trgm)
-                query_parts.append("(d.name % :search_query OR d.description % :search_query)")
+                # Use combination of ILIKE for partial matches and pg_trgm for similarity
+                # This allows both "data" to match "testdataaa" and typo tolerance
+                query_parts.append("""
+                    (d.name ILIKE :search_pattern OR 
+                     d.description ILIKE :search_pattern OR
+                     d.name % :search_query OR 
+                     d.description % :search_query)
+                """)
+                params["search_pattern"] = f"%{request.query}%"
             else:
                 # Use full-text search
-                query_parts.append("search_vector @@ plainto_tsquery('english', :search_query)")
+                query_parts.append("""
+                    (to_tsvector('english', COALESCE(d.name, '')) || 
+                     to_tsvector('english', COALESCE(d.description, ''))) @@ plainto_tsquery('english', :search_query)
+                """)
             params["search_query"] = request.query
         
         # Add tag filters
@@ -168,7 +178,10 @@ class SearchRepository:
         """
         
         # Finalize base query
-        base_query += f" {where_clause} {group_by_clause} )"
+        if query_parts:
+            base_query += f" AND {where_clause} {group_by_clause} )"
+        else:
+            base_query += f" {group_by_clause} )"
         
         # Build ordering clause
         order_clause = self._build_order_clause(request.sort_by, request.sort_order, request.query)
@@ -417,8 +430,11 @@ class SearchRepository:
         # Combine multiple ranking factors
         return """
         CASE 
-            WHEN search_vector @@ plainto_tsquery('english', :search_query) THEN
-                ts_rank(search_vector, plainto_tsquery('english', :search_query))
+            WHEN (to_tsvector('english', COALESCE(ud.name, '')) || 
+                  to_tsvector('english', COALESCE(ud.description, ''))) @@ plainto_tsquery('english', :search_query) THEN
+                ts_rank((to_tsvector('english', COALESCE(ud.name, '')) || 
+                         to_tsvector('english', COALESCE(ud.description, ''))), 
+                        plainto_tsquery('english', :search_query))
             ELSE 0.0
         END
         """
@@ -428,42 +444,3 @@ class SearchRepository:
         # This is a simplified version - in production you'd build this dynamically
         return "TRUE"
     
-    async def ensure_search_extensions(self) -> None:
-        """Ensure required PostgreSQL extensions are installed"""
-        # Check and create pg_trgm extension for fuzzy search
-        check_query = """
-        SELECT EXISTS (
-            SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm'
-        )
-        """
-        result = await self.session.execute(text(check_query))
-        has_trgm = result.scalar()
-        
-        if not has_trgm:
-            try:
-                await self.session.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
-                await self.session.commit()
-            except Exception as e:
-                # Extension creation might require superuser privileges
-                print(f"Warning: Could not create pg_trgm extension: {e}")
-    
-    async def update_search_indexes(self) -> None:
-        """Create or update search indexes for better performance"""
-        # Create GIN index for full-text search
-        fts_index = """
-        CREATE INDEX IF NOT EXISTS idx_datasets_fts ON datasets 
-        USING gin(to_tsvector('english', COALESCE(name, '') || ' ' || COALESCE(description, '')))
-        """
-        
-        # Create trigram index for fuzzy search
-        trgm_index = """
-        CREATE INDEX IF NOT EXISTS idx_datasets_name_trgm ON datasets 
-        USING gin(name gin_trgm_ops)
-        """
-        
-        try:
-            await self.session.execute(text(fts_index))
-            await self.session.execute(text(trgm_index))
-            await self.session.commit()
-        except Exception as e:
-            print(f"Warning: Could not create search indexes: {e}")

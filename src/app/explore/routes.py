@@ -47,8 +47,6 @@ async def explore_dataset(
     current_user: CurrentUser = Depends(get_current_user_info)
 ):
     """Explore a dataset version and generate profiling"""
-    # Use soeid from the CurrentUser object
-    # In a real implementation, you might want to map this to a user ID in your database
     return await controller.explore_dataset(
         dataset_id=dataset_id,
         version_id=version_id,

@@ -14,7 +14,6 @@ class UserService:
 
     async def authenticate_user(self, username: str, password: str) -> UserOut | None:
         # TODO: Implement actual authentication logic
-        # This is a placeholder implementation
         user = await get_user_by_soeid(self.session, username)
         if not user:
             return None

@@ -29,7 +29,11 @@ class SearchService:
         start_time = time.time()
         
         # Get user ID from soeid
-        user_id = await self.user_service.get_user_id_from_soeid(current_user.soeid)
+        user = await self.user_service.get_user_by_soeid(current_user.soeid)
+        if not user:
+            user_id = None
+        else:
+            user_id = user.id
         if not user_id:
             # Return empty results if user not found
             return SearchResponse(
@@ -93,46 +97,6 @@ class SearchService:
             execution_time_ms=execution_time_ms
         )
     
-    async def save_search(
-        self,
-        user_id: int,
-        name: str,
-        search_request: SearchRequest
-    ) -> Dict[str, Any]:
-        """
-        Save a search for later use.
-        """
-        # This would save to a saved_searches table
-        # Implementation depends on whether you want this feature
-        pass
-    
-    async def get_saved_searches(
-        self,
-        user_id: int
-    ) -> List[Dict[str, Any]]:
-        """
-        Get user's saved searches.
-        """
-        # This would retrieve from saved_searches table
-        pass
-    
-    async def get_search_history(
-        self,
-        user_id: int,
-        limit: int = 10
-    ) -> List[Dict[str, Any]]:
-        """
-        Get user's recent search history.
-        """
-        # This would retrieve from search_history table
-        pass
-    
-    async def ensure_search_capabilities(self) -> None:
-        """
-        Ensure database has necessary extensions and indexes for search.
-        """
-        await self.search_repo.ensure_search_extensions()
-        await self.search_repo.update_search_indexes()
     
     def validate_search_request(self, request: SearchRequest) -> None:
         """

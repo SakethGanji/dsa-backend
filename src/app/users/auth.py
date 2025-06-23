@@ -33,8 +33,6 @@ def create_access_token(subject: str, role_id: int, role_name: str = None, expir
 def create_refresh_token(subject: str, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = {"sub": subject}
     expire = datetime.utcnow() + (expires_delta or timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
-    # Add a claim to distinguish refresh tokens, e.g., "type": "refresh"
-    # This is useful if the same verify_token function is used, or for auditing.
     to_encode.update({"exp": expire, "token_type": "refresh"})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -48,10 +46,9 @@ def verify_token(token: str, token_type: str = "access") -> TokenData: # Added t
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         soeid: str = payload.get("sub")
-        role_id: int = payload.get("role_id") # Extract role_id
-        role_name: str = payload.get("role_name") # Extract role_name
+        role_id: int = payload.get("role_id")
+        role_name: str = payload.get("role_name")
 
-        # If verifying a refresh token, check its type
         if token_type == "refresh":
             payload_token_type = payload.get("token_type")
             if payload_token_type != "refresh":
@@ -61,7 +58,7 @@ def verify_token(token: str, token_type: str = "access") -> TokenData: # Added t
 
         if soeid is None:
             raise credentials_exception
-        return TokenData(soeid=soeid, role_id=role_id, role_name=role_name) # Include role_id and role_name in TokenData
+        return TokenData(soeid=soeid, role_id=role_id, role_name=role_name)
     except jwt.ExpiredSignatureError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
