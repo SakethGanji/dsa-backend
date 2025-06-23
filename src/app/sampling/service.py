@@ -176,18 +176,6 @@ class SamplingService:
             raise e
     
     async def _apply_sampling_sql(self, conn: duckdb.DuckDBPyConnection, base_query: str, query_params: List[Any], request: SamplingRequest) -> str:
-        """
-        Generate SQL query for the requested sampling method
-        
-        Args:
-            conn: DuckDB connection
-            base_query: Base SQL query to sample from
-            query_params: Query parameters for the base query
-            request: Sampling request with method and parameters
-            
-        Returns:
-            SQL query string for the sampled data
-        """
         try:
             # Get typed parameters
             params = request.get_typed_parameters()

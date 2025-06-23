@@ -17,7 +17,7 @@ MIME_TYPE_EXCEL = "application/vnd.openxmlformats-officedocument.spreadsheetml.s
 MIME_TYPE_PARQUET = "application/parquet"
 
 # Limits
-MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
+# MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB - File size limit removed
 MAX_ROWS_PER_PAGE = 1000
 DEFAULT_PAGE_SIZE = 100
 MAX_TAG_LENGTH = 50
