@@ -3,12 +3,14 @@ import os
 import uuid
 import logging
 import tempfile
+import io
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, BinaryIO
 import pandas as pd
 import duckdb
 
 from .backend import StorageBackend, DatasetReader
+from .interfaces import IStorageBackend
 
 logger = logging.getLogger(__name__)
 
@@ -62,8 +64,8 @@ class LocalDatasetReader:
             conn.close()
 
 
-class LocalStorageBackend(StorageBackend):
-    """Local file system storage backend."""
+class LocalStorageBackend(StorageBackend, IStorageBackend):
+    """Local file system storage backend implementing IStorageBackend interface."""
     
     def __init__(self, base_path: str = "/data"):
         """Initialize local storage backend.
@@ -472,3 +474,150 @@ class LocalStorageBackend(StorageBackend):
         except Exception as e:
             logger.error(f"Error deleting file {file_path}: {str(e)}")
             return False
+    
+    # IStorageBackend interface implementation
+    
+    async def write_stream(self, path: str, stream: BinaryIO) -> None:
+        """Write content from stream (memory-efficient).
+        
+        Args:
+            path: The storage path where the file should be written.
+            stream: A binary stream to read from. Will be read in chunks.
+        
+        Raises:
+            StorageWriteError: If the write operation fails.
+        """
+        from app.core.exceptions import StorageWriteError
+        
+        # Ensure path is absolute or relative to base_path
+        if not os.path.isabs(path):
+            full_path = self.base_path / path
+        else:
+            full_path = Path(path)
+        
+        # Ensure parent directory exists
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        try:
+            # Write stream to file in chunks
+            chunk_size = 8192  # 8KB chunks
+            with open(full_path, 'wb') as f:
+                while True:
+                    chunk = stream.read(chunk_size)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+        except Exception as e:
+            logger.error(f"Failed to write stream to {full_path}: {str(e)}")
+            raise StorageWriteError(f"Failed to write stream: {str(e)}") from e
+    
+    async def read_stream(self, path: str) -> io.BytesIO:
+        """Read content as stream.
+        
+        Args:
+            path: The storage path to read from.
+        
+        Returns:
+            A BytesIO stream containing the file content.
+        
+        Raises:
+            StorageReadError: If the read operation fails.
+            FileNotFoundError: If the file doesn't exist.
+        """
+        from app.core.exceptions import StorageReadError
+        
+        # Ensure path is absolute or relative to base_path
+        if not os.path.isabs(path):
+            full_path = self.base_path / path
+        else:
+            full_path = Path(path)
+        
+        if not full_path.exists():
+            raise FileNotFoundError(f"File not found: {full_path}")
+        
+        try:
+            # Read file content into BytesIO stream
+            with open(full_path, 'rb') as f:
+                return io.BytesIO(f.read())
+        except Exception as e:
+            logger.error(f"Failed to read stream from {full_path}: {str(e)}")
+            raise StorageReadError(f"Failed to read stream: {str(e)}") from e
+    
+    async def exists(self, path: str) -> bool:
+        """Check if file exists.
+        
+        Args:
+            path: The storage path to check.
+        
+        Returns:
+            True if the file exists, False otherwise.
+        """
+        # Ensure path is absolute or relative to base_path
+        if not os.path.isabs(path):
+            full_path = self.base_path / path
+        else:
+            full_path = Path(path)
+        
+        return full_path.exists()
+    
+    async def list_files(self, prefix: str) -> List[str]:
+        """List files with prefix.
+        
+        Args:
+            prefix: The path prefix to search for.
+        
+        Returns:
+            List of file paths that match the prefix.
+        """
+        # Ensure prefix is absolute or relative to base_path
+        if not os.path.isabs(prefix):
+            search_path = self.base_path / prefix
+        else:
+            search_path = Path(prefix)
+        
+        files = []
+        if search_path.is_dir():
+            # List all files in directory
+            for file_path in search_path.rglob('*'):
+                if file_path.is_file():
+                    files.append(str(file_path))
+        else:
+            # Use prefix matching
+            parent_dir = search_path.parent
+            if parent_dir.exists():
+                pattern = search_path.name + '*'
+                for file_path in parent_dir.glob(pattern):
+                    if file_path.is_file():
+                        files.append(str(file_path))
+        
+        return files
+    
+    async def get_file_info(self, path: str) -> Dict[str, Any]:
+        """Get file metadata.
+        
+        Args:
+            path: The storage path to get info for.
+        
+        Returns:
+            Dictionary containing file metadata (size, modified time, etc.)
+        
+        Raises:
+            FileNotFoundError: If the file doesn't exist.
+        """
+        # Ensure path is absolute or relative to base_path
+        if not os.path.isabs(path):
+            full_path = self.base_path / path
+        else:
+            full_path = Path(path)
+        
+        if not full_path.exists():
+            raise FileNotFoundError(f"File not found: {full_path}")
+        
+        stat = full_path.stat()
+        return {
+            "size": stat.st_size,
+            "created": stat.st_ctime,
+            "modified": stat.st_mtime,
+            "path": str(full_path),
+            "name": full_path.name
+        }

@@ -2,10 +2,11 @@
 from typing import Dict, Type
 from .backend import StorageBackend
 from .local_backend import LocalStorageBackend
+from .interfaces import IStorageBackend, IStorageFactory
 
 
-class StorageFactory:
-    """Factory for creating storage backend instances."""
+class StorageFactory(IStorageFactory):
+    """Factory for creating storage backend instances implementing IStorageFactory."""
     
     _backends: Dict[str, Type[StorageBackend]] = {
         "local": LocalStorageBackend,
@@ -24,9 +25,10 @@ class StorageFactory:
         """
         cls._backends[name] = backend_class
     
-    @classmethod
-    def create(cls, backend_type: str = "local", **kwargs) -> StorageBackend:
+    def create_backend(self, backend_type: str = "local", **kwargs) -> IStorageBackend:
         """Create a storage backend instance.
+        
+        Implements IStorageFactory.create_backend method.
         
         Args:
             backend_type: Type of backend to create
@@ -35,14 +37,18 @@ class StorageFactory:
         Returns:
             StorageBackend instance
         """
-        if backend_type not in cls._backends:
+        if backend_type not in StorageFactory._backends:
             raise ValueError(f"Unknown backend type: {backend_type}")
         
-        backend_class = cls._backends[backend_type]
-        return backend_class(**kwargs)
+        backend_class = StorageFactory._backends[backend_type]
+        instance = backend_class(**kwargs)
+        # Ensure the instance implements IStorageBackend
+        if not isinstance(instance, IStorageBackend):
+            raise TypeError(f"Backend {backend_type} does not implement IStorageBackend")
+        return instance
     
     @classmethod
-    def get_instance(cls, backend_type: str = "local", **kwargs) -> StorageBackend:
+    def get_instance(cls, backend_type: str = "local", **kwargs) -> IStorageBackend:
         """Get a singleton instance of the storage backend.
         
         Args:
@@ -60,7 +66,7 @@ class StorageFactory:
                 base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
                 kwargs["base_path"] = base_path
             
-            cls._instance = cls.create(backend_type, **kwargs)
+            cls._instance = cls.create_backend(backend_type, **kwargs)
             cls._backend_type = backend_type
         
         return cls._instance

@@ -34,11 +34,16 @@ router.include_router(search_router)
 async def get_controller(session: AsyncSession = Depends(get_session)) -> DatasetsController:
     """Get datasets controller instance"""
     from app.users.service import UserService
+    from app.storage.services import ArtifactProducer
     
     repository = DatasetsRepository(session)
     storage_backend = StorageFactory.get_instance()
     user_service = UserService(session)
-    service = DatasetsService(repository, storage_backend, user_service)
+    
+    # Create artifact producer properly
+    artifact_producer = ArtifactProducer(session, storage_backend)
+    
+    service = DatasetsService(repository, storage_backend, user_service, artifact_producer)
     return DatasetsController(service)
 
 # Type aliases for cleaner code

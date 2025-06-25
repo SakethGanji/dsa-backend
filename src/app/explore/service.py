@@ -90,9 +90,19 @@ class ExploreService:
         # We'll get dataset_id and version_id from the file_info or version info
         # For now, we'll use the file_path directly since we're transitioning
         try:
+            # Convert relative path to absolute path if needed
+            import os
+            file_path = file_info.file_path
+            if not os.path.isabs(file_path):
+                # Construct absolute path using the same pattern as in other services
+                base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+                file_path = os.path.join(base_path, file_path)
+            
+            logger.info(f"Loading file from path: {file_path}")
+            
             # Since the files are stored as Parquet in the new system
             # We can read them directly using pandas
-            return pd.read_parquet(file_info.file_path)
+            return pd.read_parquet(file_path)
         except Exception as e:
             logger.error(f"Error loading file: {str(e)}")
             # Return an empty DataFrame with a message column

@@ -28,11 +28,12 @@ logger = logging.getLogger(__name__)
 class DatasetsService:
     """Service layer for dataset operations"""
     
-    def __init__(self, repository, storage_backend, user_service=None):
+    def __init__(self, repository, storage_backend, user_service=None, artifact_producer=None):
         self.repository = repository
         self.storage = storage_backend
         self.validator = DatasetValidator()
         self.user_service = user_service
+        self.artifact_producer = artifact_producer
         self._tag_cache = {}  # Simple in-memory cache
         self._cache_timestamp = None
         self._cache_ttl = 300  # 5 minutes
@@ -88,7 +89,7 @@ class DatasetsService:
         file_type = os.path.splitext(file.filename)[1].lower()[1:]
         
         # Save file to storage
-        file_id, file_path = await self._save_file(file, dataset_id, file_type)
+        file_id, file_path, used_artifact_producer = await self._save_file(file, dataset_id, file_type)
         
         # Create dataset version using overlay-based approach for consistency
         file_changes = [OverlayFileAction(
@@ -120,9 +121,14 @@ class DatasetsService:
         if request.tags:
             await self._process_tags(dataset_id, request.tags)
         
-        # Update file path with version ID
-        if file_path:
+        # Update file path with version ID only if artifact producer was NOT used
+        if file_path and not used_artifact_producer:
             file_path = await self._finalize_file_location(file_id, file_path, version_id)
+        elif file_path and used_artifact_producer:
+            # When using artifact producer, we need to get the absolute path
+            # The file_path from database is relative (e.g., "artifacts/hash")
+            base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+            file_path = os.path.join(base_path, file_path)
         
         # Parse file into sheets
         try:
@@ -383,7 +389,15 @@ class DatasetsService:
         # Read data from Parquet file using DuckDB
         try:
             if file_info.file_path:
-                return await self._read_parquet_data(file_info.file_path, limit, offset)
+                # Convert relative path to absolute path if needed
+                file_path = file_info.file_path
+                if not os.path.isabs(file_path):
+                    # Construct absolute path using the same pattern as in upload_dataset
+                    base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+                    file_path = os.path.join(base_path, file_path)
+                
+                logger.info(f"Reading data from file: {file_path}")
+                return await self._read_parquet_data(file_path, limit, offset)
             else:
                 logger.error(f"File path not found for file {file_info.id}")
                 return [], [], False
@@ -402,34 +416,78 @@ class DatasetsService:
     async def _save_file(self, file: UploadFile, dataset_id: int, file_type: str) -> Tuple[int, str]:
         """Save file to storage and create database record"""
         try:
-            # Read file content
-            file_content = await file.read()
-            await file.seek(0)
+            # If artifact_producer is available, use it for centralized file creation
+            if self.artifact_producer:
+                import io
+                
+                # Read file content for conversion
+                file_content = await file.read()
+                await file.seek(0)
+                
+                # First convert to Parquet if needed (using existing logic)
+                result = await self.storage.save_dataset_file(
+                    file_content=file_content,
+                    dataset_id=dataset_id,
+                    version_id=0,  # Temporary, will update later
+                    file_name=file.filename
+                )
+                
+                # Now read the converted Parquet file and use artifact producer
+                with open(result["path"], 'rb') as parquet_file:
+                    file_id = await self.artifact_producer.create_artifact(
+                        content_stream=parquet_file,
+                        file_type="parquet",
+                        mime_type="application/parquet",
+                        metadata={
+                            "original_filename": file.filename,
+                            "dataset_id": dataset_id,
+                            "converted_from": file_type
+                        }
+                    )
+                
+                # Clean up temporary file
+                import os
+                os.unlink(result["path"])
+                
+                # Get file path from database
+                file_record = await self.repository.get_file(file_id)
+                file_path = file_record.file_path
+                
+                logger.info(f"File created via artifact producer: id={file_id}, path={file_path}")
+                # Return file_id, file_path, and a flag indicating artifact producer was used
+                return file_id, file_path, True
             
-            # Save file as Parquet using storage backend
-            result = await self.storage.save_dataset_file(
-                file_content=file_content,
-                dataset_id=dataset_id,
-                version_id=0,  # Temporary, will update later
-                file_name=file.filename
-            )
-            
-            file_path = result["path"]
-            file_size = result["size"]
-            
-            # Create file record in database
-            file_create = FileCreate(
-                storage_type="filesystem",
-                file_type="parquet",
-                mime_type="application/parquet",
-                file_data=None,
-                file_size=file_size,
-                file_path=file_path
-            )
-            file_id = await self.repository.create_file(file_create)
-            logger.info(f"File saved to storage: {file_path}, size: {file_size} bytes")
-            
-            return file_id, file_path
+            else:
+                # Fallback to original implementation
+                # Read file content
+                file_content = await file.read()
+                await file.seek(0)
+                
+                # Save file as Parquet using storage backend
+                result = await self.storage.save_dataset_file(
+                    file_content=file_content,
+                    dataset_id=dataset_id,
+                    version_id=0,  # Temporary, will update later
+                    file_name=file.filename
+                )
+                
+                file_path = result["path"]
+                file_size = result["size"]
+                
+                # Create file record in database
+                file_create = FileCreate(
+                    storage_type="filesystem",
+                    file_type="parquet",
+                    mime_type="application/parquet",
+                    file_data=None,
+                    file_size=file_size,
+                    file_path=file_path
+                )
+                file_id = await self.repository.create_file(file_create)
+                logger.info(f"File saved to storage: {file_path}, size: {file_size} bytes")
+                
+                # Return file_id, file_path, and False to indicate artifact producer was NOT used
+                return file_id, file_path, False
             
         except Exception as e:
             logger.error(f"Error saving file: {str(e)}")
@@ -511,6 +569,7 @@ class DatasetsService:
         offset: int
     ) -> Tuple[List[str], List[Dict[str, Any]], bool]:
         """Read data from Parquet file using DuckDB"""
+        logger.info(f"_read_parquet_data called with file_path: {file_path}")
         conn = duckdb.connect(':memory:')
         try:
             # Create view from Parquet file
@@ -897,6 +956,11 @@ class DatasetsService:
             raise FileProcessingError("Primary file not found for version")
         
         file_path = primary_file.file.file_path
+        
+        # Convert relative path to absolute path if needed
+        if not os.path.isabs(file_path):
+            base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+            file_path = os.path.join(base_path, file_path)
         
         # Create analysis run record
         analysis_run_id = await self.repository.create_analysis_run(

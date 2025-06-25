@@ -24,15 +24,61 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 class SamplingService:
-    def __init__(self, datasets_repository, sampling_repository, storage_backend: StorageBackend, db_session=None):
+    def __init__(self, datasets_repository, sampling_repository, storage_backend: StorageBackend, db_session=None, artifact_producer=None):
         self.datasets_repository = datasets_repository
         self.sampling_repository = sampling_repository  # Keep for backward compatibility
         self.storage = storage_backend
         self.db_session = db_session  # For database operations
+        self.artifact_producer = artifact_producer
         self.db_repository = None
         if db_session:
             self.db_repository = SamplingDBRepository(db_session)
+    
+    async def _save_sample_file(self, conn: duckdb.DuckDBPyConnection, query: str, output_path: str) -> int:
+        """Save sample results to file using artifact producer if available.
         
+        Args:
+            conn: DuckDB connection
+            query: SQL query to get sample data
+            output_path: Target path for the file
+            
+        Returns:
+            File ID if using artifact producer, 0 otherwise
+        """
+        if self.artifact_producer:
+            # Export to temporary file first
+            temp_fd, temp_path = tempfile.mkstemp(suffix=".parquet")
+            os.close(temp_fd)
+            
+            try:
+                # Export query results to temp file
+                conn.execute(f"COPY ({query}) TO '{temp_path}' (FORMAT PARQUET)")
+                
+                # Create artifact using producer
+                with open(temp_path, 'rb') as f:
+                    file_id = await self.artifact_producer.create_artifact(
+                        content_stream=f,
+                        file_type="parquet",
+                        mime_type="application/parquet",
+                        metadata={
+                            "source": "sampling_service",
+                            "query": query[:500],  # Store first 500 chars of query
+                            "target_path": output_path
+                        }
+                    )
+                
+                logger.info(f"Sample file created via artifact producer: id={file_id}")
+                return file_id
+                
+            finally:
+                # Clean up temp file
+                if os.path.exists(temp_path):
+                    os.unlink(temp_path)
+        else:
+            # Fallback to direct file creation
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            conn.execute(f"COPY ({query}) TO '{output_path}' (FORMAT PARQUET)")
+            return 0
     
     async def get_dataset_columns(self, dataset_id: int, version_id: int) -> Dict[str, Any]:
         """Get column information for a dataset version"""
@@ -68,6 +114,12 @@ class SamplingService:
                 if not file_info or not file_info.file_path:
                     raise ValueError("File path not found")
                 
+                # Convert relative path to absolute path if needed
+                file_path = file_info.file_path
+                if not os.path.isabs(file_path):
+                    base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+                    file_path = os.path.join(base_path, file_path)
+                
                 # Use file-backed DuckDB to prevent memory crashes
                 temp_db_fd, temp_db_path = tempfile.mkstemp(suffix=".duckdb")
                 os.close(temp_db_fd)  # Close the file descriptor
@@ -77,7 +129,7 @@ class SamplingService:
                     conn = duckdb.connect(database=temp_db_path, read_only=False)
                     try:
                         # Create view from Parquet file - this doesn't load data into memory
-                        conn.execute(f"CREATE VIEW dataset AS SELECT * FROM read_parquet('{file_info.file_path}')")
+                        conn.execute(f"CREATE VIEW dataset AS SELECT * FROM read_parquet('{file_path}')")
                         
                         # Get column information - use DESCRIBE for better performance
                         columns_info = conn.execute("DESCRIBE dataset").fetchall()
@@ -92,7 +144,7 @@ class SamplingService:
                         # Get row count using parquet_metadata for instant results
                         try:
                             # Use parquet_metadata for instantaneous row count
-                            meta = conn.execute(f"SELECT num_rows FROM parquet_metadata('{file_info.file_path}')").fetchone()
+                            meta = conn.execute(f"SELECT num_rows FROM parquet_metadata('{file_path}')").fetchone()
                             total_rows = meta[0] if meta and meta[0] is not None else 0
                             logger.info(f"Got row count from parquet metadata: {total_rows}")
                         except Exception as e:
@@ -801,6 +853,12 @@ class SamplingService:
                 if not file_info or not file_info.file_path:
                     raise ValueError("File path not found")
                 
+                # Convert relative path to absolute path if needed
+                file_path = file_info.file_path
+                if not os.path.isabs(file_path):
+                    base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+                    file_path = os.path.join(base_path, file_path)
+                
                 # Create file-backed DuckDB connection to prevent memory crashes
                 temp_db_fd, temp_db_path = tempfile.mkstemp(suffix=".duckdb")
                 os.close(temp_db_fd)  # Close the file descriptor
@@ -809,7 +867,7 @@ class SamplingService:
                 conn = duckdb.connect(database=temp_db_path, read_only=False)
                 
                 # Create initial view from dataset
-                conn.execute(f"CREATE VIEW original_data AS SELECT * FROM read_parquet('{file_info.file_path}')")
+                conn.execute(f"CREATE VIEW original_data AS SELECT * FROM read_parquet('{file_path}')")
                 
                 # Add unique row identifier for tracking
                 conn.execute("""
@@ -828,7 +886,7 @@ class SamplingService:
                     
                     # Execute sampling for this round
                     round_result = await self._execute_sampling_round(
-                        conn, job, round_config, file_info.file_path
+                        conn, job, round_config, file_path
                     )
                     
                     # Update job with round result
@@ -912,12 +970,11 @@ class SamplingService:
             )
             
             # Export sample without internal row ID
-            conn.execute(f"""
-                COPY (
-                    SELECT * EXCLUDE (__row_id__)
-                    FROM ({sample_query})
-                ) TO '{sample_path}' (FORMAT PARQUET)
-            """)
+            sample_file_id = await self._save_sample_file(
+                conn=conn,
+                query=f"SELECT * EXCLUDE (__row_id__) FROM ({sample_query})",
+                output_path=sample_path
+            )
             
             # Get preview data
             preview_result = conn.execute(f"""
@@ -1107,6 +1164,12 @@ class SamplingService:
                 if not file_info or not file_info.file_path:
                     raise ValueError("File path not found")
                 
+                # Convert relative path to absolute path if needed
+                file_path = file_info.file_path
+                if not os.path.isabs(file_path):
+                    base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+                    file_path = os.path.join(base_path, file_path)
+                
                 # Create file-backed DuckDB connection to prevent memory crashes
                 temp_db_fd, temp_db_path = tempfile.mkstemp(suffix=".duckdb")
                 os.close(temp_db_fd)  # Close the file descriptor
@@ -1115,7 +1178,7 @@ class SamplingService:
                 conn = duckdb.connect(database=temp_db_path, read_only=False)
                 
                 # Create initial view from dataset
-                conn.execute(f"CREATE VIEW original_data AS SELECT * FROM read_parquet('{file_info.file_path}')")
+                conn.execute(f"CREATE VIEW original_data AS SELECT * FROM read_parquet('{file_path}')")
                 
                 # Add unique row identifier for tracking
                 conn.execute("""
@@ -1318,6 +1381,12 @@ class SamplingService:
                 if not file_info or not file_info.file_path:
                     raise ValueError("File path not found")
                 
+                # Convert relative path to absolute path if needed
+                file_path = file_info.file_path
+                if not os.path.isabs(file_path):
+                    base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+                    file_path = os.path.join(base_path, file_path)
+                
                 # Create file-backed DuckDB connection
                 temp_db_fd, temp_db_path = tempfile.mkstemp(suffix=".duckdb")
                 os.close(temp_db_fd)
@@ -1326,7 +1395,7 @@ class SamplingService:
                 conn = duckdb.connect(database=temp_db_path, read_only=False)
                 
                 # Create initial view from dataset
-                conn.execute(f"CREATE VIEW original_data AS SELECT * FROM read_parquet('{file_info.file_path}')")
+                conn.execute(f"CREATE VIEW original_data AS SELECT * FROM read_parquet('{file_path}')")
                 
                 # Add unique row identifier for tracking
                 conn.execute("""

@@ -24,10 +24,16 @@ sampling_repo = SamplingRepository()
 
 # Create dependency for the controller
 def get_sampling_controller(session: AsyncSession = Depends(get_session)):
+    from app.storage.services import ArtifactProducer
+    
     datasets_repository = DatasetsRepository(session)
     storage_backend = StorageFactory.get_instance()
+    
+    # Create artifact producer properly
+    artifact_producer = ArtifactProducer(session, storage_backend)
+    
     # Pass the database session to enable database persistence
-    service = SamplingService(datasets_repository, sampling_repo, storage_backend, db_session=session)
+    service = SamplingService(datasets_repository, sampling_repo, storage_backend, db_session=session, artifact_producer=artifact_producer)
     controller = SamplingController(service)
     return controller
 
