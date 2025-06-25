@@ -16,7 +16,6 @@ class Tag(TagBase):
         from_attributes = True
 
 class FileBase(BaseModel):
-    storage_type: str
     file_type: str
     mime_type: Optional[str] = None
     file_path: Optional[str] = None

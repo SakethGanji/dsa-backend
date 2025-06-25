@@ -269,7 +269,7 @@ async def download_dataset_version(
         )
     
     # Handle filesystem storage
-    if file_info.storage_type == "filesystem" and file_info.file_path:
+    if file_info.file_path:
         import asyncio
         
         # Update file extension to .parquet since we store all files as Parquet

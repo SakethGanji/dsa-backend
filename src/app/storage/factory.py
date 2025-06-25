@@ -1,5 +1,6 @@
 """Storage backend factory for dependency injection."""
-from typing import Dict, Type
+from typing import Dict, Type, Optional
+from urllib.parse import urlparse
 from .backend import StorageBackend
 from .local_backend import LocalStorageBackend
 from .interfaces import IStorageBackend, IStorageFactory
@@ -10,10 +11,40 @@ class StorageFactory(IStorageFactory):
     
     _backends: Dict[str, Type[StorageBackend]] = {
         "local": LocalStorageBackend,
+        "file": LocalStorageBackend,  # file:// URIs use LocalStorageBackend
+    }
+    
+    # Map URI schemes to backend types
+    _scheme_to_backend: Dict[str, str] = {
+        "file": "local",
+        "": "local",  # No scheme means local file
+        "s3": "s3",
+        "gs": "gcs",  # Google Cloud Storage
+        "azure": "azure",
+        "http": "http",
+        "https": "https"
     }
     
     _instance: StorageBackend = None
     _backend_type: str = None
+    
+    @classmethod
+    def get_backend_type_from_uri(cls, uri: str) -> str:
+        """Determine the backend type from a URI.
+        
+        Args:
+            uri: The URI to parse (e.g., 'file:///path/to/file' or 's3://bucket/key')
+            
+        Returns:
+            The backend type to use
+        """
+        parsed = urlparse(uri)
+        scheme = parsed.scheme.lower()
+        
+        if scheme in cls._scheme_to_backend:
+            return cls._scheme_to_backend[scheme]
+        else:
+            raise ValueError(f"Unsupported URI scheme: {scheme}")
     
     @classmethod
     def register_backend(cls, name: str, backend_class: Type[StorageBackend]) -> None:
@@ -46,6 +77,28 @@ class StorageFactory(IStorageFactory):
         if not isinstance(instance, IStorageBackend):
             raise TypeError(f"Backend {backend_type} does not implement IStorageBackend")
         return instance
+    
+    def create_backend_from_uri(self, uri: str, **kwargs) -> IStorageBackend:
+        """Create a storage backend instance based on a URI.
+        
+        Args:
+            uri: The URI to determine backend type (e.g., 'file:///path' or 's3://bucket')
+            **kwargs: Additional arguments to pass to the backend constructor
+            
+        Returns:
+            StorageBackend instance appropriate for the URI scheme
+        """
+        backend_type = self.get_backend_type_from_uri(uri)
+        
+        # For local/file backends, extract the base path from the URI if not provided
+        if backend_type == "local" and "base_path" not in kwargs:
+            parsed = urlparse(uri)
+            if parsed.scheme == "file":
+                # Remove the filename part to get the directory
+                import os
+                kwargs["base_path"] = os.path.dirname(parsed.path)
+        
+        return self.create_backend(backend_type, **kwargs)
     
     @classmethod
     def get_instance(cls, backend_type: str = "local", **kwargs) -> IStorageBackend:

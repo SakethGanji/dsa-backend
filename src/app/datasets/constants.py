@@ -1,9 +1,5 @@
 """Constants for the datasets slice"""
 
-# Storage types
-STORAGE_TYPE_FILESYSTEM = "filesystem"
-STORAGE_TYPE_DATABASE = "database"
-
 # File types
 FILE_TYPE_CSV = "csv"
 FILE_TYPE_EXCEL = "xlsx"

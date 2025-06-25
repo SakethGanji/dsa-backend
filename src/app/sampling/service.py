@@ -1443,7 +1443,6 @@ class SamplingService:
                 
                 # Register the output file in the database
                 file_create = FileCreate(
-                    storage_type="filesystem",
                     file_type="parquet",
                     mime_type="application/parquet",
                     file_path=merged_info["merged_path"],

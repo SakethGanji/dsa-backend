@@ -202,25 +202,29 @@ class ArtifactProducer(IArtifactProducer):
         """
         storage_path = f"artifacts/{content_hash}"
         
+        # Determine the full URI based on storage backend type
+        # For now, assume local storage. In production, this should be configurable
+        # TODO: Get base URL from configuration
+        file_uri = f"file:///data/{storage_path}"
+        
         # First, try to insert the database record
         try:
             result = await self._db.execute(
                 text("""
                     INSERT INTO files (
-                        storage_type, file_type, mime_type, file_path, 
+                        file_type, mime_type, file_path, 
                         file_size, content_hash, reference_count, 
                         compression_type, metadata
                     ) VALUES (
-                        :storage_type, :file_type, :mime_type, :file_path,
+                        :file_type, :mime_type, :file_path,
                         :file_size, :content_hash, :reference_count,
                         :compression_type, :metadata
                     ) RETURNING id
                 """),
                 {
-                    "storage_type": "local",  # TODO: Get from storage backend
                     "file_type": file_type,
                     "mime_type": mime_type,
-                    "file_path": storage_path,
+                    "file_path": file_uri,  # Use the full URI
                     "file_size": content_size,
                     "content_hash": content_hash,
                     "reference_count": 1,

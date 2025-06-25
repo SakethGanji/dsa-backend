@@ -476,8 +476,7 @@ class DatasetsService:
                 
                 # Create file record in database
                 file_create = FileCreate(
-                    storage_type="filesystem",
-                    file_type="parquet",
+                        file_type="parquet",
                     mime_type="application/parquet",
                     file_data=None,
                     file_size=file_size,

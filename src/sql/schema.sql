@@ -21,17 +21,27 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS files (
     id SERIAL PRIMARY KEY,
-    storage_type VARCHAR(50) NOT NULL, -- e.g. 's3', 'local'
     file_type VARCHAR(50) NOT NULL, -- e.g. 'parquet','csv','json'
     mime_type VARCHAR(100),
-    file_path TEXT, -- e.g. S3 URI
+    file_path TEXT NOT NULL, -- Full URI e.g. 'file:///data/artifacts/hash' or 's3://bucket/artifacts/hash'
     file_size BIGINT,
     content_hash CHAR(64) UNIQUE, -- SHA256 for dedupe
     reference_count BIGINT NOT NULL DEFAULT 0, -- for safe GC
     compression_type VARCHAR(50), -- e.g. 'snappy','zstd'
     metadata JSONB,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    CONSTRAINT file_path_is_uri CHECK (
+        file_path LIKE 'file://%' OR 
+        file_path LIKE 's3://%' OR 
+        file_path LIKE 'gs://%' OR 
+        file_path LIKE 'azure://%' OR
+        file_path LIKE 'http://%' OR
+        file_path LIKE 'https://%'
+    )
 );
+
+-- Index for efficient backend selection based on URI scheme
+CREATE INDEX IF NOT EXISTS idx_files_uri_scheme ON files ((substring(file_path from '^[^:]+:')));
 
 -- 2.1 File-level permissions
 CREATE TYPE file_permission AS ENUM ('read','write','admin');

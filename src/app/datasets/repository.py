@@ -99,7 +99,6 @@ class DatasetsRepository:
             dv.created_by,
             dv.created_at,
             dv.updated_at,
-            COALESCE(f.storage_type, of.storage_type) as storage_type,
             COALESCE(f.file_type, of.file_type) as file_type,
             COALESCE(f.mime_type, of.mime_type) as mime_type,
             COALESCE(f.file_size, of.file_size) as file_size
@@ -386,7 +385,6 @@ class DatasetsRepository:
             dv.created_by,
             dv.created_at,
             dv.updated_at,
-            f.storage_type,
             f.file_type,
             f.mime_type,
             f.file_size
@@ -431,7 +429,6 @@ class DatasetsRepository:
             dv.created_by,
             dv.created_at,
             dv.updated_at,
-            f.storage_type,
             f.file_type,
             f.mime_type,
             f.file_size
@@ -499,17 +496,16 @@ class DatasetsRepository:
     async def create_file(self, file: FileCreate) -> int:
         query = sa.text("""
         INSERT INTO files (
-            storage_type, file_type, mime_type, file_path, file_size,
+            file_type, mime_type, file_path, file_size,
             content_hash, reference_count, compression_type, metadata
         )
         VALUES (
-            :storage_type, :file_type, :mime_type, :file_path, :file_size,
+            :file_type, :mime_type, :file_path, :file_size,
             :content_hash, :reference_count, :compression_type, :metadata
         )
         RETURNING id;
         """)
         values = {
-            "storage_type": file.storage_type,
             "file_type": file.file_type,
             "mime_type": file.mime_type,
             "file_path": file.file_path,
@@ -526,7 +522,7 @@ class DatasetsRepository:
     async def get_file(self, file_id: int) -> Optional[File]:
         query = sa.text("""
         SELECT 
-            id, storage_type, file_type, mime_type, file_path, file_size,
+            id, file_type, mime_type, file_path, file_size,
             content_hash, reference_count, compression_type, metadata, created_at 
         FROM files 
         WHERE id = :file_id;
@@ -786,7 +782,6 @@ class DatasetsRepository:
             vf.component_index,
             vf.metadata,
             f.id as file_id,
-            f.storage_type,
             f.file_type,
             f.mime_type,
             f.file_path,
@@ -814,8 +809,7 @@ class DatasetsRepository:
             # Create File object
             file_obj = File(
                 id=row_dict["file_id"],
-                storage_type=row_dict["storage_type"],
-                file_type=row_dict["file_type"],
+                                file_type=row_dict["file_type"],
                 mime_type=row_dict.get("mime_type"),
                 file_path=row_dict.get("file_path"),
                 file_size=row_dict.get("file_size"),
@@ -861,7 +855,6 @@ class DatasetsRepository:
             vf.component_index,
             vf.metadata,
             f.id as file_id,
-            f.storage_type,
             f.file_type,
             f.mime_type,
             f.file_path,
@@ -901,8 +894,7 @@ class DatasetsRepository:
         # Create File object
         file_obj = File(
             id=row_dict["file_id"],
-            storage_type=row_dict["storage_type"],
-            file_type=row_dict["file_type"],
+                        file_type=row_dict["file_type"],
             mime_type=row_dict.get("mime_type"),
             file_path=row_dict.get("file_path"),
             file_size=row_dict.get("file_size"),
@@ -1001,12 +993,17 @@ class DatasetsRepository:
         """Create an overlay file with the change operations"""
         overlay_content = overlay_data.model_dump_json()
         
-        # Create file record for the overlay
+        # Generate a content hash for the overlay
+        import hashlib
+        content_hash = hashlib.sha256(overlay_content.encode('utf-8')).hexdigest()
+        
+        # Create file record for the overlay with proper URI
         file_create = FileCreate(
-            storage_type="filesystem",
             file_type="json",
             mime_type="application/json",
+            file_path=f"file:///data/overlays/{content_hash}",
             file_size=len(overlay_content.encode('utf-8')),
+            content_hash=content_hash,
             metadata={"overlay_version": overlay_data.version_number}
         )
         
