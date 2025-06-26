@@ -38,9 +38,10 @@ def get_storage_backend(
     Returns:
         An instance of IStorageBackend configured for the application.
     """
-    # TODO: Get backend type from configuration
-    # For now, hardcode to local backend
-    return factory.create_backend("local")
+    import os
+    # Get backend type from environment variable, default to "local"
+    backend_type = os.getenv("STORAGE_BACKEND", "local")
+    return factory.create_backend(backend_type)
 
 
 # Event bus dependency

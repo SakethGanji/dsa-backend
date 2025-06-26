@@ -3,6 +3,7 @@ from typing import Dict, Type, Optional
 from urllib.parse import urlparse
 from .backend import StorageBackend
 from .local_backend import LocalStorageBackend
+from .memory_backend import InMemoryStorageBackend
 from .interfaces import IStorageBackend, IStorageFactory
 
 
@@ -12,12 +13,14 @@ class StorageFactory(IStorageFactory):
     _backends: Dict[str, Type[StorageBackend]] = {
         "local": LocalStorageBackend,
         "file": LocalStorageBackend,  # file:// URIs use LocalStorageBackend
+        "memory": InMemoryStorageBackend,  # In-memory storage using Polars
     }
     
     # Map URI schemes to backend types
     _scheme_to_backend: Dict[str, str] = {
         "file": "local",
         "": "local",  # No scheme means local file
+        "memory": "memory",  # In-memory storage
         "s3": "s3",
         "gs": "gcs",  # Google Cloud Storage
         "azure": "azure",

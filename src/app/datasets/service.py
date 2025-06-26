@@ -207,7 +207,30 @@ class DatasetsService:
         # Calculate and store statistics
         try:
             logger.info(f"Calculating statistics for version {version_id}")
-            stats = await StatisticsService.calculate_parquet_statistics(file_path, detailed=False)
+            
+            # Handle memory:// paths differently
+            if file_path.startswith("memory://"):
+                stats = None
+                if hasattr(self.storage, 'get_dataframe'):
+                    df = self.storage.get_dataframe(file_path)
+                    if df is not None:
+                        # Calculate statistics from Polars DataFrame
+                        stats = {
+                            "row_count": df.height,
+                            "column_count": df.width,
+                            "size_bytes": df.estimated_size(),
+                            "statistics": {
+                                "columns": df.columns,
+                                "dtypes": {col: str(dtype) for col, dtype in zip(df.columns, df.dtypes)},
+                                "null_counts": {col: df[col].null_count() for col in df.columns}
+                            }
+                        }
+                if not stats:
+                    logger.warning(f"Could not calculate statistics for memory path: {file_path}")
+                    stats = {"row_count": 0, "column_count": 0, "size_bytes": 0, "statistics": {}}
+            else:
+                # Use existing statistics service for file-based storage
+                stats = await StatisticsService.calculate_parquet_statistics(file_path, detailed=False)
             
             # Store in dataset_statistics table
             await self.repository.upsert_dataset_statistics(
@@ -634,6 +657,17 @@ class DatasetsService:
         version_id: int
     ) -> str:
         """Move file to final location with version ID"""
+        # Handle memory:// paths
+        if file_path.startswith("memory://"):
+            if hasattr(self.storage, 'finalize_file_location'):
+                new_path = await self.storage.finalize_file_location(file_path, version_id)
+            else:
+                # Simple replacement for memory paths
+                new_path = file_path.replace("/temp/", f"/{version_id}/")
+            await self.repository.update_file_path(file_id, new_path)
+            return new_path
+        
+        # Handle file system paths
         new_path = file_path.replace("/temp/", f"/{version_id}/").replace("_temp_", f"_{version_id}_")
         os.makedirs(os.path.dirname(new_path), exist_ok=True)
         shutil.move(file_path, new_path)
@@ -653,31 +687,49 @@ class DatasetsService:
         # For now, just return basic sheet info without creating entries in dataset_version_files
         # This avoids transaction issues while we transition to the new schema
         try:
-            # Use DuckDB to read Parquet metadata
-            conn = duckdb.connect(':memory:')
-            try:
-                # Create view from Parquet file
-                conn.execute(f"CREATE VIEW parquet_data AS SELECT * FROM read_parquet('{file_path}')")
-                
-                # Get metadata
-                columns_info = conn.execute("PRAGMA table_info('parquet_data')").fetchall()
-                column_names = [col[1] for col in columns_info]
-                
-                # Create sheet entry
-                sheet_name = os.path.splitext(original_filename)[0]
-                
-                # For now, just return the sheet info without persisting
-                sheet_infos.append(SheetInfo(
-                    file_id=None,  # We'll set this later when we have a stable transaction
-                    name=sheet_name,
-                    index=0,
-                    description=None
-                ))
-            finally:
-                conn.close()
+            if file_path.startswith("memory://"):
+                # Handle memory:// paths
+                if hasattr(self.storage, 'get_dataframe'):
+                    df = self.storage.get_dataframe(file_path)
+                    if df is not None:
+                        # Create sheet entry from Polars DataFrame
+                        sheet_name = os.path.splitext(original_filename)[0]
+                        sheet_infos.append(SheetInfo(
+                            file_id=None,
+                            name=sheet_name,
+                            index=0,
+                            description=None
+                        ))
+                    else:
+                        raise Exception("DataFrame not found in memory")
+                else:
+                    raise Exception("Storage backend does not support in-memory DataFrames")
+            else:
+                # Use DuckDB to read Parquet metadata
+                conn = duckdb.connect(':memory:')
+                try:
+                    # Create view from Parquet file
+                    conn.execute(f"CREATE VIEW parquet_data AS SELECT * FROM read_parquet('{file_path}')")
+                    
+                    # Get metadata
+                    columns_info = conn.execute("PRAGMA table_info('parquet_data')").fetchall()
+                    column_names = [col[1] for col in columns_info]
+                    
+                    # Create sheet entry
+                    sheet_name = os.path.splitext(original_filename)[0]
+                    
+                    # For now, just return the sheet info without persisting
+                    sheet_infos.append(SheetInfo(
+                        file_id=None,  # We'll set this later when we have a stable transaction
+                        name=sheet_name,
+                        index=0,
+                        description=None
+                    ))
+                finally:
+                    conn.close()
                 
         except Exception as e:
-            logger.error(f"Error parsing Parquet file: {str(e)}")
+            logger.error(f"Error parsing file: {str(e)}")
             # Return basic error sheet info
             filename = os.path.basename(original_filename)
             sheet_infos.append(SheetInfo(
@@ -695,8 +747,19 @@ class DatasetsService:
         limit: int,
         offset: int
     ) -> Tuple[List[str], List[Dict[str, Any]], bool]:
-        """Read data from Parquet file using DuckDB"""
+        """Read data from Parquet file using DuckDB or from memory"""
         logger.info(f"_read_parquet_data called with file_path: {file_path}")
+        
+        # Check if it's a memory:// path
+        if file_path.startswith("memory://"):
+            # Use in-memory backend to read data
+            if hasattr(self.storage, 'read_dataset_paginated'):
+                return await self.storage.read_dataset_paginated(file_path, limit, offset)
+            else:
+                logger.error("Storage backend does not support in-memory reading")
+                return [], [], False
+        
+        # Otherwise use DuckDB for file-based storage
         conn = duckdb.connect(':memory:')
         try:
             # Create view from Parquet file
@@ -730,22 +793,78 @@ class DatasetsService:
     async def _capture_schema(self, file_path: str, file_type: str, version_id: int) -> None:
         """Extract and store schema for a dataset version"""
         try:
-            # Extract schema using DuckDB service
-            schema_json = await DuckDBService.extract_schema(file_path, file_type)
+            schema_json = None
+            
+            # Handle memory:// paths
+            if file_path.startswith("memory://"):
+                if hasattr(self.storage, 'get_dataframe'):
+                    df = self.storage.get_dataframe(file_path)
+                    if df is not None:
+                        # Extract schema from Polars DataFrame
+                        import polars as pl
+                        schema_json = {
+                            "type": "object",
+                            "properties": {},
+                            "columns": []
+                        }
+                        
+                        # Map Polars types to JSON schema types
+                        type_mapping = {
+                            pl.Int8: 'integer',
+                            pl.Int16: 'integer',
+                            pl.Int32: 'integer',
+                            pl.Int64: 'integer',
+                            pl.UInt8: 'integer',
+                            pl.UInt16: 'integer',
+                            pl.UInt32: 'integer',
+                            pl.UInt64: 'integer',
+                            pl.Float32: 'number',
+                            pl.Float64: 'number',
+                            pl.Boolean: 'boolean',
+                            pl.Utf8: 'string',
+                            pl.Date: 'string',
+                            pl.Datetime: 'string',
+                            pl.Time: 'string',
+                        }
+                        
+                        for col, dtype in zip(df.columns, df.dtypes):
+                            json_type = 'string'  # default
+                            for pl_type, json_type_str in type_mapping.items():
+                                if dtype == pl_type:
+                                    json_type = json_type_str
+                                    break
+                            
+                            schema_json["properties"][col] = {
+                                "type": json_type,
+                                "duckdb_type": str(dtype)
+                            }
+                            schema_json["columns"].append({
+                                "name": col,
+                                "type": json_type,
+                                "duckdb_type": str(dtype),
+                                "nullable": df[col].null_count() > 0
+                            })
+                else:
+                    logger.error(f"Cannot extract schema from memory path: {file_path}")
+                    return
+            else:
+                # Use DuckDB for file-based extraction
+                schema_json = await DuckDBService.extract_schema(file_path, file_type)
             
             # Check if extraction was successful
-            if "error" in schema_json:
+            if schema_json and "error" in schema_json:
                 logger.error(f"Schema extraction failed for version {version_id}: {schema_json['error']}")
                 return
             
-            # Create schema version
-            schema_create = SchemaVersionCreate(
-                dataset_version_id=version_id,
-                schema_data=schema_json
-            )
-            
-            await self.repository.create_schema_version(schema_create)
-            logger.info(f"Schema captured for version {version_id}")
+            if schema_json:
+                # Create schema version
+                schema_create = SchemaVersionCreate(
+                    dataset_version_id=version_id,
+                    schema_data=schema_json
+                )
+                
+                await self.repository.create_schema_version(schema_create)
+                logger.info(f"Schema captured for version {version_id}")
             
         except Exception as e:
             logger.error(f"Error capturing schema for version {version_id}: {str(e)}")
