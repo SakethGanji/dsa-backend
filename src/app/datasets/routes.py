@@ -15,7 +15,7 @@ from app.datasets.models import (
     DatasetStatistics, StatisticsRefreshResponse
 )
 from app.users.models import DatasetPermission, PermissionGrant, DatasetPermissionType
-from app.datasets.constants import DEFAULT_PAGE_SIZE, MAX_ROWS_PER_PAGE
+from app.core.constants import DATASET_DEFAULT_PAGE_SIZE, MAX_ROWS_PER_PAGE
 from app.db.connection import get_session
 from app.users.auth import get_current_user_info, CurrentUser
 from app.datasets.search.routes import router as search_router
@@ -72,7 +72,7 @@ async def upload_dataset(
     description="Retrieve a paginated list of datasets with optional filtering"
 )
 async def list_datasets(
-    limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=100, description="Page size"),
+    limit: int = Query(DATASET_DEFAULT_PAGE_SIZE, ge=1, le=100, description="Page size"),
     offset: int = Query(0, ge=0, description="Number of items to skip"),
     name: Optional[str] = Query(None, description="Filter by name (partial match)"),
     description: Optional[str] = Query(None, description="Filter by description (partial match)"),
@@ -332,7 +332,7 @@ async def get_sheet_data(
     dataset_id: int = Path(..., gt=0, description="Dataset ID"),
     version_id: int = Path(..., gt=0, description="Version ID"),
     sheet: Optional[str] = Query(None, description="Sheet name (optional for single-sheet files)"),
-    limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_ROWS_PER_PAGE, description="Rows per page"),
+    limit: int = Query(DATASET_DEFAULT_PAGE_SIZE, ge=1, le=MAX_ROWS_PER_PAGE, description="Rows per page"),
     offset: int = Query(0, ge=0, description="Number of rows to skip"),
     controller: ControllerDep = None,
     current_user: UserDep = None

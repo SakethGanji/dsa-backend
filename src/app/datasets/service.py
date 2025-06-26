@@ -18,10 +18,10 @@ from app.datasets.models import (
     VersionResolution, VersionResolutionType,
     VersionCreateRequest, VersionCreateResponse
 )
-from app.datasets.exceptions import DatasetNotFound, DatasetVersionNotFound, FileProcessingError, StorageError
-from app.datasets.validators import DatasetValidator
-from app.datasets.constants import DEFAULT_PAGE_SIZE, MAX_ROWS_PER_PAGE
-from app.datasets.duckdb_service import DuckDBService
+from app.datasets.exceptions import DatasetNotFound, DatasetVersionNotFound, FileProcessingError, DatasetStorageError
+from app.core.validators import BaseValidator, FileValidator
+from app.core.constants import MAX_TAG_LENGTH, MAX_TAGS_PER_ENTITY, DATASET_DEFAULT_PAGE_SIZE, MAX_ROWS_PER_PAGE
+from app.core.services.duckdb_service import DuckDBService
 from app.datasets.statistics_service import StatisticsService
 
 logger = logging.getLogger(__name__)
@@ -30,10 +30,12 @@ logger = logging.getLogger(__name__)
 class DatasetsService:
     """Service layer for dataset operations"""
     
+    # Dataset file type support
+    SUPPORTED_FILE_TYPES = {'csv', 'xlsx', 'xls', 'xlsm'}
+    
     def __init__(self, repository, storage_backend, user_service=None, artifact_producer=None, event_bus=None):
         self.repository = repository
         self.storage = storage_backend
-        self.validator = DatasetValidator()
         self.user_service = user_service
         self.artifact_producer = artifact_producer
         self.event_bus = event_bus
@@ -51,11 +53,20 @@ class DatasetsService:
         """Process dataset upload with validation and error handling"""
         # Validate file
         file_size = file.size if hasattr(file, 'size') else 0
-        self.validator.validate_file_upload(file.filename, file_size)
+        FileValidator.validate_file_upload(
+            filename=file.filename,
+            file_size=file_size,
+            supported_types=self.SUPPORTED_FILE_TYPES,
+            max_file_size=None  # No size limit for datasets
+        )
         
         # Validate tags
         if request.tags:
-            request.tags = self.validator.validate_tags(request.tags)
+            request.tags = BaseValidator.validate_tags(
+                tags=request.tags,
+                max_tags=MAX_TAGS_PER_ENTITY,
+                max_tag_length=MAX_TAG_LENGTH
+            )
         
         # Create or update dataset
         dataset_create = DatasetCreate(
@@ -231,7 +242,7 @@ class DatasetsService:
     async def list_datasets(self, **kwargs) -> List[Dataset]:
         """List datasets with filtering and pagination"""
         # Validate and normalize inputs
-        limit = kwargs.get('limit', DEFAULT_PAGE_SIZE)
+        limit = kwargs.get('limit', DATASET_DEFAULT_PAGE_SIZE)
         if limit < 1:
             limit = 10
         elif limit > 100:
@@ -607,7 +618,7 @@ class DatasetsService:
             
         except Exception as e:
             logger.error(f"Error saving file: {str(e)}")
-            raise StorageError("save_file", str(e))
+            raise DatasetStorageError("save_file", str(e))
     
     
     async def _process_tags(self, dataset_id: int, tags: List[str]) -> None:

@@ -1,4 +1,11 @@
-"""DuckDB service for dataset operations - handles data query operations using DuckDB"""
+"""DuckDB service for data operations - handles data query operations using DuckDB.
+
+This service provides generic data processing capabilities including:
+- Querying Parquet, CSV, and other data files
+- Extracting schema information
+- Converting between data formats
+- Getting file metadata
+"""
 import duckdb
 import os
 import logging
@@ -9,12 +16,23 @@ logger = logging.getLogger(__name__)
 
 
 class DuckDBService:
-    """Service for DuckDB operations on dataset files"""
+    """Service for DuckDB operations on data files.
+    
+    This is a generic data processing service that can be used across
+    different vertical slices for working with structured data files.
+    """
     
     @staticmethod
     @contextmanager
     def get_connection(mode: str = ':memory:'):
-        """Context manager for DuckDB connections"""
+        """Context manager for DuckDB connections.
+        
+        Args:
+            mode: Connection mode (':memory:' for in-memory, or file path)
+            
+        Yields:
+            duckdb.DuckDBPyConnection: Active DuckDB connection
+        """
         conn = duckdb.connect(mode)
         try:
             yield conn
@@ -27,7 +45,16 @@ class DuckDBService:
         query: str,
         params: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
-        """Execute a query on a Parquet file"""
+        """Execute a query on a Parquet file.
+        
+        Args:
+            file_path: Path to the Parquet file
+            query: SQL query to execute
+            params: Optional query parameters
+            
+        Returns:
+            List of dictionaries representing query results
+        """
         with DuckDBService.get_connection() as conn:
             # Create view from Parquet file
             conn.execute(f"CREATE VIEW data AS SELECT * FROM read_parquet('{file_path}')")
@@ -53,7 +80,14 @@ class DuckDBService:
     
     @staticmethod
     async def get_file_metadata(file_path: str) -> Dict[str, Any]:
-        """Get metadata about a Parquet file"""
+        """Get metadata about a Parquet file.
+        
+        Args:
+            file_path: Path to the Parquet file
+            
+        Returns:
+            Dictionary containing file metadata
+        """
         with DuckDBService.get_connection() as conn:
             # Create view from Parquet file
             conn.execute(f"CREATE VIEW data AS SELECT * FROM read_parquet('{file_path}')")
@@ -80,7 +114,15 @@ class DuckDBService:
     
     @staticmethod
     async def extract_schema(file_path: str, file_type: str) -> Dict[str, Any]:
-        """Extract schema information from a file"""
+        """Extract schema information from a file.
+        
+        Args:
+            file_path: Path to the data file
+            file_type: Type of the file (parquet, csv, tsv, etc.)
+            
+        Returns:
+            Dictionary containing schema information in JSON schema format
+        """
         try:
             with DuckDBService.get_connection() as conn:
                 # Create view based on file type
@@ -161,7 +203,17 @@ class DuckDBService:
         output_path: str,
         filters: Optional[Dict[str, Any]] = None
     ) -> bool:
-        """Export Parquet file to another format"""
+        """Export data file to another format.
+        
+        Args:
+            file_path: Path to the source file
+            output_format: Target format (csv, json, parquet)
+            output_path: Path for the output file
+            filters: Optional filters to apply during export
+            
+        Returns:
+            True if successful, False otherwise
+        """
         try:
             with DuckDBService.get_connection() as conn:
                 # Build query with optional filters

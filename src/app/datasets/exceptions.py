@@ -1,24 +1,24 @@
 """Custom exceptions for the datasets slice"""
-from typing import Optional
+from app.core.exceptions import DomainException, EntityNotFoundError, StorageException
 
 
-class DatasetException(Exception):
+class DatasetException(DomainException):
     """Base exception for dataset-related errors"""
     pass
 
 
-class DatasetNotFound(DatasetException):
+class DatasetNotFound(EntityNotFoundError):
     """Raised when a dataset is not found"""
     def __init__(self, dataset_id: int):
+        super().__init__("Dataset", dataset_id)
         self.dataset_id = dataset_id
-        super().__init__(f"Dataset {dataset_id} not found")
 
 
-class DatasetVersionNotFound(DatasetException):
+class DatasetVersionNotFound(EntityNotFoundError):
     """Raised when a dataset version is not found"""
     def __init__(self, version_id: int):
+        super().__init__("Dataset version", version_id)
         self.version_id = version_id
-        super().__init__(f"Dataset version {version_id} not found")
 
 
 class FileProcessingError(DatasetException):
@@ -29,17 +29,9 @@ class FileProcessingError(DatasetException):
         super().__init__(f"Error processing file {filename}: {error}")
 
 
-class StorageError(DatasetException):
-    """Raised when storage operations fail"""
+class DatasetStorageError(StorageException):
+    """Raised when dataset storage operations fail"""
     def __init__(self, operation: str, error: str):
         self.operation = operation
         self.error = error
         super().__init__(f"Storage error during {operation}: {error}")
-
-
-class SheetNotFound(DatasetException):
-    """Raised when a sheet is not found"""
-    def __init__(self, sheet_name: str, version_id: int):
-        self.sheet_name = sheet_name
-        self.version_id = version_id
-        super().__init__(f"Sheet '{sheet_name}' not found in version {version_id}")

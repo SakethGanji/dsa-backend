@@ -9,7 +9,7 @@ from app.datasets.models import (
     VersionCreateRequest, VersionCreateResponse
 )
 from app.datasets.exceptions import (
-    DatasetNotFound, DatasetVersionNotFound, FileProcessingError, StorageError
+    DatasetNotFound, DatasetVersionNotFound, FileProcessingError, DatasetStorageError
 )
 
 logger = logging.getLogger(__name__)
@@ -66,7 +66,7 @@ class DatasetsController:
             
             return await self.service.upload_dataset(file, request, user_id)
             
-        except (FileProcessingError, StorageError) as e:
+        except (FileProcessingError, DatasetStorageError) as e:
             logger.error(f"Dataset upload error: {str(e)}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

@@ -8,69 +8,34 @@ clean separation between the dataset slice and other vertical slices.
 from abc import ABC, abstractmethod
 from typing import Optional, List, Dict, Any
 from datetime import datetime
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from fastapi import UploadFile
 
-from app.core.types import TagName, Metadata
+from app.core.types import TagName
+from app.core.repository import ITaggableRepository, ISoftDeleteRepository
 from app.datasets.models import (
-    Dataset, DatasetVersion, File, Tag,
-    DatasetCreate, DatasetUpdate, DatasetStatistics,
+    Dataset, DatasetVersion,
+    DatasetCreate, DatasetStatistics,
     VersionCreateRequest, VersionCreateResponse
 )
 
 
-class IDatasetRepository(ABC):
+class IDatasetRepository(ISoftDeleteRepository[Dataset, int], ITaggableRepository[Dataset, int], ABC):
     """Dataset data access interface.
     
     This interface defines all database operations for datasets,
     versions, and related entities.
     """
     
-    @abstractmethod
-    async def create(self, dataset: Dataset) -> Dataset:
-        """Create a new dataset."""
-        pass
-    
-    @abstractmethod
-    async def get_by_id(self, dataset_id: int) -> Optional[Dataset]:
-        """Get dataset by ID."""
-        pass
+    # Methods from parent interfaces:
+    # - create, get_by_id, update, delete (from IRepository)
+    # - list, count (from IPaginatedRepository)
+    # - soft_delete, restore, list_deleted, purge (from ISoftDeleteRepository)
+    # - add_tag, remove_tag, get_tags, find_by_tags (from ITaggableRepository)
     
     @abstractmethod
     async def get_by_name(self, name: str) -> Optional[Dataset]:
         """Get dataset by name."""
-        pass
-    
-    @abstractmethod
-    async def update(self, dataset_id: int, updates: Dict[str, Any]) -> Dataset:
-        """Update dataset fields."""
-        pass
-    
-    @abstractmethod
-    async def delete(self, dataset_id: int) -> None:
-        """Soft delete dataset."""
-        pass
-    
-    @abstractmethod
-    async def list_datasets(
-        self, 
-        offset: int = 0, 
-        limit: int = 100,
-        tags: Optional[List[TagName]] = None,
-        created_after: Optional[datetime] = None,
-        created_before: Optional[datetime] = None
-    ) -> List[Dataset]:
-        """List datasets with filters."""
-        pass
-    
-    @abstractmethod
-    async def add_tag(self, dataset_id: int, tag: TagName) -> None:
-        """Add tag to dataset."""
-        pass
-    
-    @abstractmethod
-    async def remove_tag(self, dataset_id: int, tag: TagName) -> None:
-        """Remove tag from dataset."""
         pass
     
     @abstractmethod
@@ -154,47 +119,31 @@ class IDatasetService(ABC):
         pass
 
 
+from app.core.search import BaseSearchFilters, ISearchService, SearchResults
+
+
 @dataclass
-class SearchFilters:
-    """Search filter options."""
+class DatasetSearchFilters(BaseSearchFilters):
+    """Dataset-specific search filter options."""
     tags: Optional[List[TagName]] = None
     file_types: Optional[List[str]] = None
     min_size_bytes: Optional[int] = None
     max_size_bytes: Optional[int] = None
-    created_after: Optional[datetime] = None
-    created_before: Optional[datetime] = None
 
 
-@dataclass
-class SearchResult:
-    """Individual search result."""
-    dataset: Dataset
-    relevance_score: float
-    matched_fields: List[str]
-
-
-@dataclass
-class SearchResults:
-    """Search results container."""
-    results: List[SearchResult]
-    total_count: int
-    query_time_ms: float
-
-
-class IDatasetSearchService(ABC):
-    """Search operations interface.
+class IDatasetSearchService(ISearchService[Dataset]):
+    """Search operations interface for datasets.
     
-    This interface defines search and discovery operations for datasets.
+    This interface extends the core search interface with dataset-specific
+    operations.
     """
     
     @abstractmethod
     async def search(
         self, 
         query: str, 
-        filters: Optional[SearchFilters] = None,
-        offset: int = 0,
-        limit: int = 20
-    ) -> SearchResults:
+        filters: Optional[DatasetSearchFilters] = None
+    ) -> SearchResults[Dataset]:
         """Full-text search across datasets."""
         pass
     
@@ -204,13 +153,4 @@ class IDatasetSearchService(ABC):
         content_hash: str
     ) -> List[Dataset]:
         """Find datasets containing a specific file by hash."""
-        pass
-    
-    @abstractmethod
-    async def suggest(
-        self, 
-        prefix: str,
-        max_suggestions: int = 10
-    ) -> List[str]:
-        """Autocomplete suggestions for dataset names."""
         pass
