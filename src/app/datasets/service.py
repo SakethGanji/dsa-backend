@@ -182,16 +182,9 @@ class DatasetsService:
         if file_path and not used_artifact_producer:
             file_path = await self._finalize_file_location(file_id, file_path, version_id)
         elif file_path and used_artifact_producer:
-            # When using artifact producer, the file_path might be a URI
-            if file_path.startswith("file://"):
-                # Extract the actual path from the URI
-                from urllib.parse import urlparse
-                parsed = urlparse(file_path)
-                file_path = parsed.path
-            elif not os.path.isabs(file_path):
-                # If it's a relative path, make it absolute
-                base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
-                file_path = os.path.join(base_path, file_path)
+            # When using artifact producer, keep the full URI
+            # Don't strip the protocol - we need it to determine the storage type
+            logger.info(f"Artifact producer file path (keeping full URI): {file_path}")
         
         # Parse file into sheets
         try:
@@ -229,8 +222,15 @@ class DatasetsService:
                     logger.warning(f"Could not calculate statistics for memory path: {file_path}")
                     stats = {"row_count": 0, "column_count": 0, "size_bytes": 0, "statistics": {}}
             else:
+                # Handle file:// URIs for statistics
+                actual_file_path = file_path
+                if file_path.startswith("file://"):
+                    from urllib.parse import urlparse
+                    parsed = urlparse(file_path)
+                    actual_file_path = parsed.path
+                
                 # Use existing statistics service for file-based storage
-                stats = await StatisticsService.calculate_parquet_statistics(file_path, detailed=False)
+                stats = await StatisticsService.calculate_parquet_statistics(actual_file_path, detailed=False)
             
             # Store in dataset_statistics table
             await self.repository.upsert_dataset_statistics(
@@ -535,17 +535,18 @@ class DatasetsService:
         # Read data from Parquet file using DuckDB
         try:
             if file_info.file_path:
-                # Handle different path formats
+                # Use the file path as-is, preserving any URI scheme
                 file_path = file_info.file_path
-                if file_path.startswith("file://"):
-                    # Extract the actual path from the URI
-                    from urllib.parse import urlparse
-                    parsed = urlparse(file_path)
-                    file_path = parsed.path
-                elif not os.path.isabs(file_path):
-                    # Construct absolute path for relative paths
-                    base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
-                    file_path = os.path.join(base_path, file_path)
+                
+                # Handle legacy paths without URI scheme
+                if not file_path.startswith(("file://", "memory://", "s3://", "gs://", "azure://")):
+                    if file_path.startswith("/data/artifacts/"):
+                        # Legacy artifact path - add file:// prefix
+                        file_path = f"file://{file_path}"
+                    elif not os.path.isabs(file_path):
+                        # Construct absolute path for relative paths
+                        base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+                        file_path = os.path.join(base_path, file_path)
                 
                 logger.info(f"Reading data from file: {file_path}")
                 return await self._read_parquet_data(file_path, limit, offset)
@@ -567,8 +568,17 @@ class DatasetsService:
     async def _save_file(self, file: UploadFile, dataset_id: int, file_type: str) -> Tuple[int, str]:
         """Save file to storage and create database record"""
         try:
-            # If artifact_producer is available, use it for centralized file creation
-            if self.artifact_producer:
+            # Check if we're using memory storage
+            # More robust check - look for InMemoryStorageBackend in the class hierarchy
+            use_memory_storage = (
+                hasattr(self.storage, '_datasets') or 
+                'InMemoryStorageBackend' in str(type(self.storage)) or
+                (hasattr(self.storage, '__class__') and 'InMemoryStorageBackend' in str(self.storage.__class__.__mro__))
+            )
+            logger.info(f"Storage backend type: {type(self.storage).__name__}, use_memory_storage: {use_memory_storage}")
+            
+            # If artifact_producer is available AND we're not using memory storage, use it for centralized file creation
+            if self.artifact_producer and not use_memory_storage:
                 import io
                 
                 # Read file content for conversion
@@ -584,9 +594,11 @@ class DatasetsService:
                 )
                 
                 # Now read the converted Parquet file and use artifact producer
-                with open(result["path"], 'rb') as parquet_file:
+                if result["path"].startswith("memory://"):
+                    # For memory paths, read from the in-memory backend
+                    content_stream = await self.storage.read_stream(result["path"])
                     file_id = await self.artifact_producer.create_artifact(
-                        content_stream=parquet_file,
+                        content_stream=content_stream,
                         file_type="parquet",
                         mime_type="application/parquet",
                         metadata={
@@ -595,10 +607,23 @@ class DatasetsService:
                             "converted_from": file_type
                         }
                     )
-                
-                # Clean up temporary file
-                import os
-                os.unlink(result["path"])
+                    # No cleanup needed for memory storage
+                else:
+                    # For file paths, read normally
+                    with open(result["path"], 'rb') as parquet_file:
+                        file_id = await self.artifact_producer.create_artifact(
+                            content_stream=parquet_file,
+                            file_type="parquet",
+                            mime_type="application/parquet",
+                            metadata={
+                                "original_filename": file.filename,
+                                "dataset_id": dataset_id,
+                                "converted_from": file_type
+                            }
+                        )
+                    # Clean up temporary file
+                    import os
+                    os.unlink(result["path"])
                 
                 # Get file path from database
                 file_record = await self.repository.get_file(file_id)
@@ -705,11 +730,18 @@ class DatasetsService:
                 else:
                     raise Exception("Storage backend does not support in-memory DataFrames")
             else:
+                # Handle file:// URIs
+                actual_file_path = file_path
+                if file_path.startswith("file://"):
+                    from urllib.parse import urlparse
+                    parsed = urlparse(file_path)
+                    actual_file_path = parsed.path
+                
                 # Use DuckDB to read Parquet metadata
                 conn = duckdb.connect(':memory:')
                 try:
                     # Create view from Parquet file
-                    conn.execute(f"CREATE VIEW parquet_data AS SELECT * FROM read_parquet('{file_path}')")
+                    conn.execute(f"CREATE VIEW parquet_data AS SELECT * FROM read_parquet('{actual_file_path}')")
                     
                     # Get metadata
                     columns_info = conn.execute("PRAGMA table_info('parquet_data')").fetchall()
@@ -759,11 +791,18 @@ class DatasetsService:
                 logger.error("Storage backend does not support in-memory reading")
                 return [], [], False
         
+        # Handle file:// URIs
+        actual_file_path = file_path
+        if file_path.startswith("file://"):
+            from urllib.parse import urlparse
+            parsed = urlparse(file_path)
+            actual_file_path = parsed.path
+        
         # Otherwise use DuckDB for file-based storage
         conn = duckdb.connect(':memory:')
         try:
             # Create view from Parquet file
-            conn.execute(f"CREATE VIEW sheet_data AS SELECT * FROM read_parquet('{file_path}')")
+            conn.execute(f"CREATE VIEW sheet_data AS SELECT * FROM read_parquet('{actual_file_path}')")
             
             # Get headers
             columns_info = conn.execute("PRAGMA table_info('sheet_data')").fetchall()
@@ -848,8 +887,15 @@ class DatasetsService:
                     logger.error(f"Cannot extract schema from memory path: {file_path}")
                     return
             else:
+                # Handle file:// URIs for DuckDB
+                actual_file_path = file_path
+                if file_path.startswith("file://"):
+                    from urllib.parse import urlparse
+                    parsed = urlparse(file_path)
+                    actual_file_path = parsed.path
+                
                 # Use DuckDB for file-based extraction
-                schema_json = await DuckDBService.extract_schema(file_path, file_type)
+                schema_json = await DuckDBService.extract_schema(actual_file_path, file_type)
             
             # Check if extraction was successful
             if schema_json and "error" in schema_json:
