@@ -390,7 +390,7 @@ class DatasetsRepository:
             f.file_size
         FROM 
             dataset_versions dv
-        JOIN files f ON dv.overlay_file_id = f.id
+        LEFT JOIN files f ON dv.overlay_file_id = f.id
         WHERE 
             dv.dataset_id = :dataset_id
         ORDER BY 
@@ -434,7 +434,7 @@ class DatasetsRepository:
             f.file_size
         FROM 
             dataset_versions dv
-        JOIN files f ON dv.overlay_file_id = f.id
+        LEFT JOIN files f ON dv.overlay_file_id = f.id
         WHERE 
             dv.id = :version_id;
         """)

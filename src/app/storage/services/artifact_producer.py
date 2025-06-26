@@ -9,11 +9,13 @@ import hashlib
 import logging
 import json
 from typing import BinaryIO, Dict, Any, Optional
+from datetime import datetime
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 
 from app.core.interfaces import IArtifactProducer, FileId
+from app.core.events import Event, EventType
 from app.core.exceptions import (
     ArtifactCreationError,
     StorageWriteError,
@@ -44,15 +46,17 @@ class ArtifactProducer(IArtifactProducer):
     # Chunk size for streaming (8KB)
     CHUNK_SIZE = 8192
     
-    def __init__(self, db: AsyncSession, storage_backend: IStorageBackend):
+    def __init__(self, db: AsyncSession, storage_backend: IStorageBackend, event_bus=None):
         """Initialize the artifact producer.
         
         Args:
             db: SQLAlchemy database session.
             storage_backend: Storage backend for file operations.
+            event_bus: Optional event bus for publishing events.
         """
         self._db = db
         self._storage = storage_backend
+        self._event_bus = event_bus
     
     async def create_artifact(
         self,
@@ -183,6 +187,22 @@ class ArtifactProducer(IArtifactProducer):
             f"Incremented reference count for existing file {file['id']} "
             f"(hash: {file['content_hash']}, new count: {new_count})"
         )
+        
+        # Publish file deduplicated event
+        if self._event_bus:
+            await self._event_bus.publish(Event(
+                event_type=EventType.FILE_DEDUPLICATED,
+                timestamp=datetime.utcnow(),
+                data={
+                    "original_file_id": file["id"],
+                    "duplicate_file_id": file["id"],  # Same as original in this case
+                    "content_hash": file["content_hash"],
+                    "saved_bytes": file.get("file_size", 0),
+                    "reference_count": new_count
+                },
+                source="ArtifactProducer"
+            ))
+        
         return file["id"]
     
     async def _create_new_file(

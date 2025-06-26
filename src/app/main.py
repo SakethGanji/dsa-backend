@@ -15,6 +15,12 @@ from app.datasets.routes import router as datasets_router
 from app.explore.routes import router as explore_router
 from app.sampling.routes import router as sampling_router
 
+# Import event handlers to register them
+import app.datasets.events
+import app.storage.events
+from app.core.events import setup_event_handlers
+from app.core.dependencies import get_event_bus
+
 app = FastAPI()
 
 app.add_middleware(
@@ -45,9 +51,14 @@ app.include_router(sampling_router)
 # Startup event to recover running jobs
 @app.on_event("startup")
 async def startup_event():
-    """Recover any sampling jobs that were running when the server shut down"""
+    """Initialize event handlers and recover any sampling jobs"""
     try:
         logger.info("Starting up application...")
+        
+        # Register all event handlers with the event bus
+        event_bus = get_event_bus()
+        await setup_event_handlers(event_bus)
+        logger.info("Event handlers registered successfully")
         
         # Get the sampling service instance with database session
         from app.db.connection import AsyncSessionLocal

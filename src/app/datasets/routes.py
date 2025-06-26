@@ -6,8 +6,8 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.datasets.controller import DatasetsController
-from app.datasets.service import DatasetsService
-from app.datasets.repository import DatasetsRepository
+from app.core.dependencies import get_dataset_service
+from app.datasets.interfaces import IDatasetService
 from app.datasets.models import (
     Dataset, DatasetUploadResponse, DatasetUpdate,
     DatasetVersion, Tag, SheetInfo, SchemaVersion, VersionFile, VersionTag,
@@ -17,7 +17,6 @@ from app.datasets.models import (
 from app.users.models import DatasetPermission, PermissionGrant, DatasetPermissionType
 from app.datasets.constants import DEFAULT_PAGE_SIZE, MAX_ROWS_PER_PAGE
 from app.db.connection import get_session
-from app.storage.factory import StorageFactory
 from app.users.auth import get_current_user_info, CurrentUser
 from app.datasets.search.routes import router as search_router
 
@@ -31,19 +30,8 @@ router = APIRouter(prefix="/api/datasets", tags=["Datasets"])
 router.include_router(search_router)
 
 # Dependency injection - simplified like sampling slice
-async def get_controller(session: AsyncSession = Depends(get_session)) -> DatasetsController:
-    """Get datasets controller instance"""
-    from app.users.service import UserService
-    from app.storage.services import ArtifactProducer
-    
-    repository = DatasetsRepository(session)
-    storage_backend = StorageFactory.get_instance()
-    user_service = UserService(session)
-    
-    # Create artifact producer properly
-    artifact_producer = ArtifactProducer(session, storage_backend)
-    
-    service = DatasetsService(repository, storage_backend, user_service, artifact_producer)
+async def get_controller(service: IDatasetService = Depends(get_dataset_service)) -> DatasetsController:
+    """Get datasets controller instance with injected service"""
     return DatasetsController(service)
 
 # Type aliases for cleaner code

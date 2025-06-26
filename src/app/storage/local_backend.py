@@ -67,13 +67,18 @@ class LocalDatasetReader:
 class LocalStorageBackend(StorageBackend, IStorageBackend):
     """Local file system storage backend implementing IStorageBackend interface."""
     
-    def __init__(self, base_path: str = "/data"):
+    def __init__(self, base_path: str = None):
         """Initialize local storage backend.
         
         Args:
             base_path: Base directory for all storage operations
         """
-        self.base_path = Path(base_path)
+        if base_path is None:
+            # Try to get from environment variable, otherwise use local directory
+            import os
+            base_path = os.getenv('STORAGE_PATH', './data')
+        
+        self.base_path = Path(base_path).resolve()
         self.datasets_dir = self.base_path / "datasets"
         self.samples_dir = self.base_path / "samples"
         self.ensure_directories()

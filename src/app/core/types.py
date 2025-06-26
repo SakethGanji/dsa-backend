@@ -4,12 +4,13 @@ This module contains type aliases and custom types that are used
 across multiple vertical slices to ensure type consistency.
 """
 
-from typing import NewType, Union
+from typing import NewType, Union, Any, Dict
 from pathlib import Path
 
 # Dataset-related types
 DatasetId = NewType('DatasetId', str)
 VersionId = NewType('VersionId', str)
+TagName = NewType('TagName', str)
 
 # File-related types
 # MUST be int to match database schema (files.id SERIAL PRIMARY KEY)
@@ -25,3 +26,6 @@ UserId = NewType('UserId', str)
 JobId = NewType('JobId', str)
 SamplingJobId = NewType('SamplingJobId', str)
 AnalysisJobId = NewType('AnalysisJobId', str)
+
+# Common DTOs
+Metadata = Dict[str, Any]

@@ -5,9 +5,11 @@ clean separation between abstract storage operations and concrete implementation
 """
 
 from abc import ABC, abstractmethod
-from typing import BinaryIO, List, Dict, Any, Optional
+from typing import BinaryIO, List, Dict, Any, Optional, Protocol
 from pathlib import Path
 import io
+
+from app.core.types import StoragePath
 
 
 class IStorageBackend(ABC):
@@ -122,3 +124,80 @@ class IStorageFactory(ABC):
             ValueError: If the backend_type is not supported.
         """
         pass
+
+
+class IDatasetReader(Protocol):
+    """Dataset reading operations interface.
+    
+    This interface defines methods for reading various dataset formats
+    into dataframes or other structured formats. It provides a unified
+    API for different file formats.
+    """
+    
+    def read_csv(self, path: StoragePath, **kwargs) -> Any:
+        """Read CSV file into a DataFrame.
+        
+        Args:
+            path: Path to the CSV file.
+            **kwargs: Additional arguments passed to the CSV reader.
+        
+        Returns:
+            DataFrame containing the CSV data.
+        
+        Raises:
+            FileNotFoundError: If the file doesn't exist.
+            ValueError: If the file is not a valid CSV.
+        """
+        ...
+    
+    def read_parquet(self, path: StoragePath, **kwargs) -> Any:
+        """Read Parquet file into a DataFrame.
+        
+        Args:
+            path: Path to the Parquet file.
+            **kwargs: Additional arguments passed to the Parquet reader.
+        
+        Returns:
+            DataFrame containing the Parquet data.
+        
+        Raises:
+            FileNotFoundError: If the file doesn't exist.
+            ValueError: If the file is not a valid Parquet file.
+        """
+        ...
+    
+    def read_json(self, path: StoragePath, **kwargs) -> Any:
+        """Read JSON file into a DataFrame.
+        
+        Args:
+            path: Path to the JSON file.
+            **kwargs: Additional arguments passed to the JSON reader.
+        
+        Returns:
+            DataFrame containing the JSON data.
+        
+        Raises:
+            FileNotFoundError: If the file doesn't exist.
+            ValueError: If the file is not valid JSON.
+        """
+        ...
+    
+    def infer_schema(self, path: StoragePath, file_type: str) -> Dict[str, Any]:
+        """Infer schema from file.
+        
+        Args:
+            path: Path to the file.
+            file_type: Type of the file (csv, parquet, json, etc.)
+        
+        Returns:
+            Dictionary containing schema information including:
+            - columns: List of column names
+            - dtypes: Mapping of column names to data types
+            - nullable: Mapping of column names to nullable status
+            - metadata: Additional format-specific metadata
+        
+        Raises:
+            FileNotFoundError: If the file doesn't exist.
+            ValueError: If the file type is not supported.
+        """
+        ...

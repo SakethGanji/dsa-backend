@@ -8,6 +8,8 @@ from fastapi import UploadFile
 import duckdb
 from sqlalchemy import text
 
+from app.core.events import Event, EventType
+
 from app.datasets.models import (
     Dataset, DatasetCreate, DatasetUpdate, DatasetUploadRequest, DatasetUploadResponse,
     DatasetVersion, DatasetVersionCreate, File, FileCreate, Tag, SheetInfo,
@@ -28,12 +30,13 @@ logger = logging.getLogger(__name__)
 class DatasetsService:
     """Service layer for dataset operations"""
     
-    def __init__(self, repository, storage_backend, user_service=None, artifact_producer=None):
+    def __init__(self, repository, storage_backend, user_service=None, artifact_producer=None, event_bus=None):
         self.repository = repository
         self.storage = storage_backend
         self.validator = DatasetValidator()
         self.user_service = user_service
         self.artifact_producer = artifact_producer
+        self.event_bus = event_bus
         self._tag_cache = {}  # Simple in-memory cache
         self._cache_timestamp = None
         self._cache_ttl = 300  # 5 minutes
@@ -83,6 +86,20 @@ class DatasetsService:
                 user_id,
                 DatasetPermissionType.ADMIN
             )
+            
+        # Publish dataset created event for new datasets
+        if not request.dataset_id and not existing_dataset_id and self.event_bus:
+            await self.event_bus.publish(Event(
+                event_type=EventType.DATASET_CREATED,
+                timestamp=datetime.utcnow(),
+                data={
+                    "dataset_id": dataset_id,
+                    "dataset_name": request.name,
+                    "created_by": user_id,
+                    "tags": request.tags or []
+                },
+                source="DatasetsService"
+            ))
         
         
         # Get the original file type
@@ -120,15 +137,50 @@ class DatasetsService:
         # Process tags
         if request.tags:
             await self._process_tags(dataset_id, request.tags)
+            
+        # Publish file uploaded event
+        if self.event_bus:
+            await self.event_bus.publish(Event(
+                event_type=EventType.FILE_UPLOADED,
+                timestamp=datetime.utcnow(),
+                data={
+                    "file_id": file_id,
+                    "dataset_id": dataset_id,
+                    "file_path": file_path,
+                    "file_type": file_type,
+                    "file_size": file_size if hasattr(file, 'size') else 0
+                },
+                source="DatasetsService"
+            ))
+            
+        # Publish version created event
+        if self.event_bus:
+            await self.event_bus.publish(Event(
+                event_type=EventType.VERSION_CREATED,
+                timestamp=datetime.utcnow(),
+                data={
+                    "dataset_id": dataset_id,
+                    "version_id": version_id,
+                    "version_number": version_response.version_number,
+                    "parent_version_id": None
+                },
+                source="DatasetsService"
+            ))
         
         # Update file path with version ID only if artifact producer was NOT used
         if file_path and not used_artifact_producer:
             file_path = await self._finalize_file_location(file_id, file_path, version_id)
         elif file_path and used_artifact_producer:
-            # When using artifact producer, we need to get the absolute path
-            # The file_path from database is relative (e.g., "artifacts/hash")
-            base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
-            file_path = os.path.join(base_path, file_path)
+            # When using artifact producer, the file_path might be a URI
+            if file_path.startswith("file://"):
+                # Extract the actual path from the URI
+                from urllib.parse import urlparse
+                parsed = urlparse(file_path)
+                file_path = parsed.path
+            elif not os.path.isabs(file_path):
+                # If it's a relative path, make it absolute
+                base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+                file_path = os.path.join(base_path, file_path)
         
         # Parse file into sheets
         try:
@@ -223,6 +275,32 @@ class DatasetsService:
                 tag_id = await self.repository.upsert_tag(tag_name)
                 await self.repository.create_dataset_tag(dataset_id, tag_id)
         
+        # Publish dataset updated event
+        if self.event_bus:
+            # Determine what changed
+            changes = {}
+            if data.name is not None:
+                changes["name"] = data.name
+            if data.description is not None:
+                changes["description"] = data.description
+            if data.tags is not None:
+                changes["tags"] = data.tags
+                
+            await self.event_bus.publish(Event(
+                event_type=EventType.DATASET_UPDATED,
+                timestamp=datetime.utcnow(),
+                data={
+                    "dataset_id": dataset_id,
+                    "updated_fields": changes,
+                    "previous_values": {
+                        "name": existing_dataset.name,
+                        "description": existing_dataset.description,
+                        "tags": [tag.tag_name for tag in existing_dataset.tags] if existing_dataset.tags else []
+                    }
+                },
+                source="DatasetsService"
+            ))
+        
         # Return the updated dataset
         return await self.get_dataset(dataset_id)
     
@@ -293,8 +371,27 @@ class DatasetsService:
                     perm.permission_type
                 )
         
+        # Get file IDs before deletion for event
+        file_ids = []
+        for version in versions:
+            version_files = await self.repository.list_version_files(version.id)
+            file_ids.extend([vf.file_id for vf in version_files])
+        
         # Finally delete the dataset itself
         deleted_id = await self.repository.delete_dataset(dataset_id)
+        
+        # Publish dataset deleted event
+        if deleted_id and self.event_bus:
+            await self.event_bus.publish(Event(
+                event_type=EventType.DATASET_DELETED,
+                timestamp=datetime.utcnow(),
+                data={
+                    "dataset_id": dataset_id,
+                    "file_ids": file_ids
+                },
+                source="DatasetsService"
+            ))
+        
         return deleted_id is not None
     
     async def delete_dataset_version(self, version_id: int) -> bool:
@@ -313,6 +410,21 @@ class DatasetsService:
         
         # Delete the version itself
         deleted_id = await self.repository.delete_dataset_version(version_id)
+        
+        # Publish version deleted event
+        if deleted_id and self.event_bus:
+            await self.event_bus.publish(Event(
+                event_type=EventType.VERSION_DELETED,
+                timestamp=datetime.utcnow(),
+                data={
+                    "dataset_id": version.dataset_id,
+                    "version_id": version_id,
+                    "version_number": version.version_number,
+                    "file_ids": [vf.file_id for vf in version_files]
+                },
+                source="DatasetsService"
+            ))
+        
         return deleted_id is not None
     
     # Tag operations with simple caching
@@ -389,10 +501,15 @@ class DatasetsService:
         # Read data from Parquet file using DuckDB
         try:
             if file_info.file_path:
-                # Convert relative path to absolute path if needed
+                # Handle different path formats
                 file_path = file_info.file_path
-                if not os.path.isabs(file_path):
-                    # Construct absolute path using the same pattern as in upload_dataset
+                if file_path.startswith("file://"):
+                    # Extract the actual path from the URI
+                    from urllib.parse import urlparse
+                    parsed = urlparse(file_path)
+                    file_path = parsed.path
+                elif not os.path.isabs(file_path):
+                    # Construct absolute path for relative paths
                     base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
                     file_path = os.path.join(base_path, file_path)
                 
@@ -956,8 +1073,14 @@ class DatasetsService:
         
         file_path = primary_file.file.file_path
         
-        # Convert relative path to absolute path if needed
-        if not os.path.isabs(file_path):
+        # Handle different path formats
+        if file_path.startswith("file://"):
+            # Extract the actual path from the URI
+            from urllib.parse import urlparse
+            parsed = urlparse(file_path)
+            file_path = parsed.path
+        elif not os.path.isabs(file_path):
+            # Convert relative path to absolute path
             base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
             file_path = os.path.join(base_path, file_path)
         
