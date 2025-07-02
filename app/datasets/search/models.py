@@ -40,7 +40,7 @@ class SearchRequest(BaseModel):
     query: Optional[str] = Field(None, description="Search query string")
     
     # Filters
-    tags: Optional[List[str]] = Field(None, description="Filter by tags")
+    tags: Optional[List[str]] = Field(None, description="Filter by tags (AND logic - dataset must have ALL specified tags)")
     file_types: Optional[List[str]] = Field(None, description="Filter by file types")
     created_by: Optional[List[int]] = Field(None, description="Filter by creator user IDs")
     

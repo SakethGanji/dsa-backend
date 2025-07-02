@@ -110,16 +110,23 @@ class SearchRepository:
                 """)
             params["search_query"] = request.query
         
-        # Add tag filters
+        # Add tag filters (AND logic - dataset must have ALL specified tags)
         if request.tags:
-            query_parts.append("""
-                EXISTS (
-                    SELECT 1 FROM dataset_tags dt2
-                    JOIN tags t2 ON dt2.tag_id = t2.id
-                    WHERE dt2.dataset_id = d.id AND t2.tag_name = ANY(:tag_filter)
-                )
-            """)
-            params["tag_filter"] = request.tags
+            # For each tag, ensure the dataset has it
+            tag_conditions = []
+            for i, tag in enumerate(request.tags):
+                tag_param = f"tag_{i}"
+                tag_conditions.append(f"""
+                    EXISTS (
+                        SELECT 1 FROM dataset_tags dt_filter_{i}
+                        JOIN tags t_filter_{i} ON dt_filter_{i}.tag_id = t_filter_{i}.id
+                        WHERE dt_filter_{i}.dataset_id = d.id AND t_filter_{i}.tag_name = :{tag_param}
+                    )
+                """)
+                params[tag_param] = tag
+            
+            # Combine all tag conditions with AND
+            query_parts.append("(" + " AND ".join(tag_conditions) + ")")
         
         # Add file type filters
         if request.file_types:
