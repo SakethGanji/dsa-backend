@@ -117,8 +117,12 @@ class SamplingService:
                 # Convert relative path to absolute path if needed
                 file_path = file_info.file_path
                 if not os.path.isabs(file_path):
-                    base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+                    base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "data")
                     file_path = os.path.join(base_path, file_path)
+                
+                # Ensure parquet extension
+                if not file_path.endswith('.parquet'):
+                    file_path = f"{file_path}.parquet"
                 
                 # Use file-backed DuckDB to prevent memory crashes
                 temp_db_fd, temp_db_path = tempfile.mkstemp(suffix=".duckdb")
@@ -856,8 +860,12 @@ class SamplingService:
                 # Convert relative path to absolute path if needed
                 file_path = file_info.file_path
                 if not os.path.isabs(file_path):
-                    base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+                    base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "data")
                     file_path = os.path.join(base_path, file_path)
+                
+                # Ensure parquet extension
+                if not file_path.endswith('.parquet'):
+                    file_path = f"{file_path}.parquet"
                 
                 # Create file-backed DuckDB connection to prevent memory crashes
                 temp_db_fd, temp_db_path = tempfile.mkstemp(suffix=".duckdb")
@@ -1167,8 +1175,12 @@ class SamplingService:
                 # Convert relative path to absolute path if needed
                 file_path = file_info.file_path
                 if not os.path.isabs(file_path):
-                    base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+                    base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "data")
                     file_path = os.path.join(base_path, file_path)
+                
+                # Ensure parquet extension
+                if not file_path.endswith('.parquet'):
+                    file_path = f"{file_path}.parquet"
                 
                 # Create file-backed DuckDB connection to prevent memory crashes
                 temp_db_fd, temp_db_path = tempfile.mkstemp(suffix=".duckdb")
@@ -1384,8 +1396,12 @@ class SamplingService:
                 # Convert relative path to absolute path if needed
                 file_path = file_info.file_path
                 if not os.path.isabs(file_path):
-                    base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+                    base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "data")
                     file_path = os.path.join(base_path, file_path)
+                
+                # Ensure parquet extension
+                if not file_path.endswith('.parquet'):
+                    file_path = f"{file_path}.parquet"
                 
                 # Create file-backed DuckDB connection
                 temp_db_fd, temp_db_path = tempfile.mkstemp(suffix=".duckdb")

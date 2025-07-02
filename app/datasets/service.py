@@ -190,8 +190,12 @@ class DatasetsService:
                 file_path = parsed.path
             elif not os.path.isabs(file_path):
                 # If it's a relative path, make it absolute
-                base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+                base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "data")
                 file_path = os.path.join(base_path, file_path)
+        
+        # Ensure parquet extension
+        if not file_path.endswith('.parquet'):
+            file_path = f"{file_path}.parquet"
         
         # Parse file into sheets
         try:
@@ -521,8 +525,12 @@ class DatasetsService:
                     file_path = parsed.path
                 elif not os.path.isabs(file_path):
                     # Construct absolute path for relative paths
-                    base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+                    base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "data")
                     file_path = os.path.join(base_path, file_path)
+                
+                # Check if we need to add .parquet extension
+                if not file_path.endswith('.parquet'):
+                    file_path = f"{file_path}.parquet"
                 
                 logger.info(f"Reading data from file: {file_path}")
                 return await self._read_parquet_data(file_path, limit, offset)
@@ -697,6 +705,17 @@ class DatasetsService:
     ) -> Tuple[List[str], List[Dict[str, Any]], bool]:
         """Read data from Parquet file using DuckDB"""
         logger.info(f"_read_parquet_data called with file_path: {file_path}")
+        
+        # Check if file exists
+        if not os.path.exists(file_path):
+            # Try with .parquet extension
+            parquet_path = f"{file_path}.parquet"
+            if os.path.exists(parquet_path):
+                file_path = parquet_path
+            else:
+                logger.error(f"File not found: {file_path} or {parquet_path}")
+                raise FileNotFoundError(f"File not found: {file_path}")
+        
         conn = duckdb.connect(':memory:')
         try:
             # Create view from Parquet file
@@ -1092,8 +1111,12 @@ class DatasetsService:
             file_path = parsed.path
         elif not os.path.isabs(file_path):
             # Convert relative path to absolute path
-            base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+            base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "data")
             file_path = os.path.join(base_path, file_path)
+        
+        # Ensure parquet extension
+        if not file_path.endswith('.parquet'):
+            file_path = f"{file_path}.parquet"
         
         # Create analysis run record
         analysis_run_id = await self.repository.create_analysis_run(
