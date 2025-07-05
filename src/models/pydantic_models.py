@@ -9,11 +9,14 @@ from enum import Enum
 class CreateDatasetRequest(BaseModel):
     name: str
     description: Optional[str] = None
+    tags: Optional[List[str]] = Field(default=[], description="List of tags for the dataset")
 
 
 class CreateDatasetResponse(BaseModel):
     dataset_id: int
     name: str
+    description: Optional[str] = None
+    tags: List[str] = []
 
 
 # File upload models

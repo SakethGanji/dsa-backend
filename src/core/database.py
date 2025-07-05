@@ -5,7 +5,8 @@ from contextlib import asynccontextmanager
 from typing import Optional, AsyncContextManager
 import asyncpg
 from asyncpg import Pool, Connection
-from abc import ABC, abstractmethod
+from .abstractions import IUnitOfWork
+from .infrastructure.postgres import PostgresUnitOfWork
 
 
 class DatabasePool:
@@ -45,81 +46,6 @@ class DatabasePool:
         async with self._pool.acquire() as connection:
             yield connection
 
-
-class IUnitOfWork(ABC):
-    """Abstract Unit of Work interface."""
-    
-    @abstractmethod
-    async def begin(self):
-        """Begin a new transaction."""
-        pass
-    
-    @abstractmethod
-    async def commit(self):
-        """Commit the current transaction."""
-        pass
-    
-    @abstractmethod
-    async def rollback(self):
-        """Rollback the current transaction."""
-        pass
-    
-    @property
-    @abstractmethod
-    def connection(self) -> Connection:
-        """Get the current database connection."""
-        pass
-
-
-class PostgresUnitOfWork(IUnitOfWork):
-    """PostgreSQL implementation of Unit of Work pattern."""
-    
-    def __init__(self, pool: DatabasePool):
-        self._pool = pool
-        self._connection: Optional[Connection] = None
-        self._transaction = None
-    
-    async def __aenter__(self):
-        """Enter the context manager."""
-        await self.begin()
-        return self
-    
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Exit the context manager."""
-        if exc_type:
-            await self.rollback()
-        else:
-            await self.commit()
-        
-        if self._connection:
-            await self._pool._pool.release(self._connection)
-            self._connection = None
-    
-    async def begin(self):
-        """Begin a new transaction."""
-        if self._connection is None:
-            self._connection = await self._pool._pool.acquire()
-            self._transaction = self._connection.transaction()
-            await self._transaction.start()
-    
-    async def commit(self):
-        """Commit the current transaction."""
-        if self._transaction:
-            await self._transaction.commit()
-            self._transaction = None
-    
-    async def rollback(self):
-        """Rollback the current transaction."""
-        if self._transaction:
-            await self._transaction.rollback()
-            self._transaction = None
-    
-    @property
-    def connection(self) -> Connection:
-        """Get the current database connection."""
-        if not self._connection:
-            raise RuntimeError("No active connection in unit of work")
-        return self._connection
 
 
 class UnitOfWorkFactory:

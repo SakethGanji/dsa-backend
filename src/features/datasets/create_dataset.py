@@ -1,5 +1,5 @@
-from core.services.interfaces import IUnitOfWork, IDatasetRepository, ICommitRepository
-from models.pydantic_models import CreateDatasetRequest, CreateDatasetResponse
+from src.core.abstractions import IUnitOfWork, IDatasetRepository, ICommitRepository
+from src.models.pydantic_models import CreateDatasetRequest, CreateDatasetResponse
 
 
 class CreateDatasetHandler:

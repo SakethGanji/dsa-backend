@@ -1,7 +1,7 @@
 from typing import Optional, Dict, Any, List
 
-from core.services.interfaces import ICommitRepository, IDatasetRepository
-from models.pydantic_models import CommitSchemaResponse, SheetSchema, ColumnSchema
+from src.core.abstractions import ICommitRepository, IDatasetRepository
+from src.models.pydantic_models import CommitSchemaResponse, SheetSchema, ColumnSchema
 
 
 class GetCommitSchemaHandler:

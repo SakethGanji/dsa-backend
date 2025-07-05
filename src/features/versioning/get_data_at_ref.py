@@ -1,7 +1,7 @@
 from typing import Optional, List, Dict, Any
 
-from core.services.interfaces import ICommitRepository, IDatasetRepository
-from models.pydantic_models import GetDataRequest, GetDataResponse, DataRow
+from src.core.abstractions import ICommitRepository, IDatasetRepository
+from src.models.pydantic_models import GetDataRequest, GetDataResponse, DataRow
 
 
 class GetDataAtRefHandler:

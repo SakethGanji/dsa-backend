@@ -3,7 +3,7 @@
 from typing import Dict, Any, Optional
 from fastapi import Depends, HTTPException, status
 from .auth import get_current_user
-from .services.interfaces import IDatasetRepository
+from .abstractions import IDatasetRepository
 from ..models.pydantic_models import CurrentUser, PermissionType
 from .database import DatabasePool
 
@@ -26,7 +26,7 @@ async def get_current_user_info(
         )
     
     # Get user_id from database based on soeid
-    from .services.postgres import PostgresUserRepository
+    from .infrastructure.postgres import PostgresUserRepository
     async with db_pool.acquire() as conn:
         user_repo = PostgresUserRepository(conn)
         user = await user_repo.get_by_soeid(token_data["soeid"])

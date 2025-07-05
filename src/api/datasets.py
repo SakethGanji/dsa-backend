@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Path, UploadFile, File, Form
 from typing import Annotated, AsyncGenerator
 from ..core.database import DatabasePool, UnitOfWorkFactory
-from ..core.services.postgres import PostgresDatasetRepository
+from ..core.infrastructure.postgres import PostgresDatasetRepository
 from ..features.datasets.grant_permission import GrantPermissionHandler
 from ..models.pydantic_models import (
     CreateDatasetRequest, CreateDatasetResponse,
@@ -47,19 +47,29 @@ async def create_dataset(
     current_user: CurrentUser = Depends(get_current_user_info),
     pool: DatabasePool = Depends(get_db_pool)
 ) -> CreateDatasetResponse:
-    """Create a new dataset."""
+    """Create a new dataset with optional tags."""
     async with pool.acquire() as conn:
         dataset_repo = PostgresDatasetRepository(conn)
         
+        # Create the dataset
         dataset_id = await dataset_repo.create_dataset(
             name=request.name,
             description=request.description or "",
             created_by=current_user.user_id
         )
         
+        # Add tags if provided
+        if request.tags:
+            await dataset_repo.add_dataset_tags(dataset_id, request.tags)
+        
+        # Get the tags back to include in response
+        tags = await dataset_repo.get_dataset_tags(dataset_id)
+        
         return CreateDatasetResponse(
             dataset_id=dataset_id,
-            name=request.name
+            name=request.name,
+            description=request.description,
+            tags=tags
         )
 
 

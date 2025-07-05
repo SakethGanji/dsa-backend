@@ -4,7 +4,8 @@ import json
 from typing import Dict, Any, List, Tuple, Set
 import pandas as pd
 
-from core.services.interfaces import IUnitOfWork, IJobRepository, ICommitRepository
+from src.core.abstractions import IUnitOfWork, IJobRepository, ICommitRepository
+from src.core.abstractions.services import IFileProcessingService, IStatisticsService
 from uuid import UUID
 
 
@@ -15,11 +16,15 @@ class ProcessImportJobHandler:
         self,
         uow: IUnitOfWork,
         job_repo: IJobRepository,
-        commit_repo: ICommitRepository
+        commit_repo: ICommitRepository,
+        parser_factory: IFileProcessingService,
+        stats_calculator: IStatisticsService
     ):
         self._uow = uow
         self._job_repo = job_repo
         self._commit_repo = commit_repo
+        self._parser_factory = parser_factory
+        self._stats_calculator = stats_calculator
     
     async def handle(self, job_id: UUID) -> None:
         """
@@ -59,8 +64,8 @@ class ProcessImportJobHandler:
             if current_commit != job['source_commit_id']:
                 raise Exception(f"Conflict: The '{target_ref}' branch has been updated. Please re-upload.")
             
-            # TODO: Parse file
-            rows_to_store, manifest, schema_def = await self._parse_file(
+            # Parse file using abstracted parser
+            rows_to_store, manifest, schema_def, table_statistics = await self._parse_file(
                 temp_file_path, params['filename']
             )
             
@@ -92,6 +97,9 @@ class ProcessImportJobHandler:
                 
                 # Store schema
                 await self._commit_repo.create_commit_schema(new_commit_id, schema_def)
+                
+                # Store pre-calculated statistics
+                await self._commit_repo.create_commit_statistics(new_commit_id, table_statistics)
                 
                 await self._uow.commit()
                 
@@ -126,51 +134,55 @@ class ProcessImportJobHandler:
         self, 
         file_path: str, 
         filename: str
-    ) -> Tuple[Set[Tuple[str, str]], List[Tuple[str, str]], Dict[str, Any]]:
+    ) -> Tuple[Set[Tuple[str, str]], List[Tuple[str, str]], Dict[str, Any], Dict[str, Any]]:
         """
-        Parse file and return (rows_to_store, manifest, schema_definition)
+        Parse file and return processed data.
+        
+        Returns:
+            rows_to_store: Set of (row_hash, json_data) tuples
+            manifest: List of (logical_row_id, row_hash) tuples
+            schema_definition: Dict mapping table_key to schema info
+            statistics: Dict mapping table_key to statistics
         """
         rows_to_store = set()
         manifest = []
         schema_def = {}
+        statistics = {}
         
-        # Determine file type
-        ext = os.path.splitext(filename)[1].lower()
+        # Use parser factory to get appropriate parser
+        parser = self._parser_factory.get_parser(filename)
+        parsed_data = await parser.parse(file_path, filename)
         
-        if ext == '.csv':
-            # Parse CSV
-            df = pd.read_csv(file_path)
-            sheets = {'default': df}
-        elif ext == '.parquet':
-            # Parse Parquet
-            df = pd.read_parquet(file_path)
-            sheets = {'default': df}
-        elif ext in ['.xlsx', '.xls']:
-            # Parse Excel with multiple sheets
-            sheets = pd.read_excel(file_path, sheet_name=None)
-        else:
-            raise ValueError(f"Unsupported file type: {ext}")
-        
-        # Process each sheet
-        for sheet_name, df in sheets.items():
-            # Infer schema
+        # Process each table
+        for table_data in parsed_data.tables:
+            table_key = table_data.table_key
+            df = table_data.dataframe
+            
+            # Calculate statistics for this table
+            table_stats = await self._stats_calculator.calculate_table_statistics(
+                df, table_key
+            )
+            
+            # Convert statistics to storage format
+            statistics[table_key] = self._stats_calculator.get_summary_dict(table_stats)
+            
+            # Build schema from statistics
             sheet_schema = {
                 'columns': {},
-                'row_count': len(df)
+                'row_count': table_stats.row_count
             }
             
-            for col in df.columns:
-                dtype = str(df[col].dtype)
-                sheet_schema['columns'][col] = {
-                    'type': self._map_dtype_to_type(dtype),
-                    'nullable': df[col].isnull().any()
+            for col_name, col_stats in table_stats.columns.items():
+                sheet_schema['columns'][col_name] = {
+                    'type': col_stats.dtype,
+                    'nullable': col_stats.null_count > 0
                 }
             
-            schema_def[sheet_name] = sheet_schema
+            schema_def[table_key] = sheet_schema
             
             # Process rows
             for idx, row in df.iterrows():
-                logical_row_id = f"{sheet_name}:{idx}"
+                logical_row_id = f"{table_key}:{idx}"
                 row_data = row.to_dict()
                 
                 # Handle NaN values
@@ -183,17 +195,4 @@ class ProcessImportJobHandler:
                 rows_to_store.add((row_hash, canonical_json))
                 manifest.append((logical_row_id, row_hash))
         
-        return rows_to_store, manifest, schema_def
-    
-    def _map_dtype_to_type(self, dtype: str) -> str:
-        """Map pandas dtype to our type system"""
-        if 'int' in dtype:
-            return 'integer'
-        elif 'float' in dtype:
-            return 'number'
-        elif 'bool' in dtype:
-            return 'boolean'
-        elif 'datetime' in dtype:
-            return 'datetime'
-        else:
-            return 'string'
+        return rows_to_store, manifest, schema_def, statistics

@@ -2,8 +2,8 @@ from typing import List, Dict, Any, Tuple, Set
 import hashlib
 import json
 
-from core.services.interfaces import IUnitOfWork, ICommitRepository, IDatasetRepository
-from models.pydantic_models import CreateCommitRequest, CreateCommitResponse
+from src.core.abstractions import IUnitOfWork, ICommitRepository, IDatasetRepository
+from src.models.pydantic_models import CreateCommitRequest, CreateCommitResponse
 
 
 class CreateCommitHandler:

@@ -208,6 +208,122 @@ class TestDatasetPermissions:
         assert data["permission_type"] == "write"
 
 
+class TestDatasetTags:
+    """Test dataset tag functionality."""
+    
+    async def test_create_dataset_with_tags(self, client: AsyncClient, auth_headers: dict):
+        """Test creating dataset with tags."""
+        dataset_name = f"test_dataset_with_tags_{int(time.time())}"
+        tags = ["financial", "quarterly", "2024"]
+        
+        response = await client.post(
+            "/api/datasets/",
+            json={
+                "name": dataset_name,
+                "description": "Dataset with tags",
+                "tags": tags
+            },
+            headers=auth_headers
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == dataset_name
+        assert "tags" in data
+        assert set(data["tags"]) == set(tags)
+    
+    async def test_create_dataset_with_empty_tags(self, client: AsyncClient, auth_headers: dict):
+        """Test creating dataset with empty tags list."""
+        dataset_name = f"test_dataset_empty_tags_{int(time.time())}"
+        
+        response = await client.post(
+            "/api/datasets/",
+            json={
+                "name": dataset_name,
+                "description": "Dataset with empty tags",
+                "tags": []
+            },
+            headers=auth_headers
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == dataset_name
+        assert data["tags"] == []
+    
+    async def test_create_dataset_without_tags(self, client: AsyncClient, auth_headers: dict):
+        """Test creating dataset without tags field."""
+        dataset_name = f"test_dataset_no_tags_{int(time.time())}"
+        
+        response = await client.post(
+            "/api/datasets/",
+            json={
+                "name": dataset_name,
+                "description": "Dataset without tags"
+            },
+            headers=auth_headers
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == dataset_name
+        assert data["tags"] == []
+    
+    async def test_create_dataset_with_duplicate_tags(self, client: AsyncClient, auth_headers: dict):
+        """Test creating dataset with duplicate tags."""
+        dataset_name = f"test_dataset_dup_tags_{int(time.time())}"
+        tags = ["financial", "quarterly", "financial"]  # "financial" appears twice
+        
+        response = await client.post(
+            "/api/datasets/",
+            json={
+                "name": dataset_name,
+                "description": "Dataset with duplicate tags",
+                "tags": tags
+            },
+            headers=auth_headers
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == dataset_name
+        # Should deduplicate tags
+        assert len(data["tags"]) == 2
+        assert set(data["tags"]) == {"financial", "quarterly"}
+    
+    async def test_create_multiple_datasets_with_same_tags(self, client: AsyncClient, auth_headers: dict):
+        """Test creating multiple datasets with the same tags."""
+        tags = ["test-tag-1", "test-tag-2"]
+        
+        # Create first dataset
+        response1 = await client.post(
+            "/api/datasets/",
+            json={
+                "name": f"test_dataset_same_tags_1_{int(time.time())}",
+                "description": "First dataset",
+                "tags": tags
+            },
+            headers=auth_headers
+        )
+        assert response1.status_code == 200
+        
+        # Create second dataset with same tags
+        response2 = await client.post(
+            "/api/datasets/",
+            json={
+                "name": f"test_dataset_same_tags_2_{int(time.time())}",
+                "description": "Second dataset",
+                "tags": tags
+            },
+            headers=auth_headers
+        )
+        assert response2.status_code == 200
+        
+        # Both should have the same tags
+        assert set(response1.json()["tags"]) == set(tags)
+        assert set(response2.json()["tags"]) == set(tags)
+
+
 class TestDatasetValidation:
     """Test dataset input validation."""
     

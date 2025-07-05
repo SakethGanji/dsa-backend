@@ -1,7 +1,7 @@
 from uuid import UUID
 
-from core.services.interfaces import IJobRepository
-from models.pydantic_models import JobStatusResponse
+from src.core.abstractions import IJobRepository
+from src.models.pydantic_models import JobStatusResponse
 
 
 class GetJobStatusHandler:

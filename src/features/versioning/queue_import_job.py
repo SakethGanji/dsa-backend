@@ -3,22 +3,15 @@ from uuid import UUID
 import os
 import tempfile
 
-from core.services.interfaces import IUnitOfWork, IJobRepository, IDatasetRepository
-from models.pydantic_models import QueueImportRequest, QueueImportResponse
+from src.core.abstractions import IUnitOfWork, IJobRepository, IDatasetRepository
+from src.models.pydantic_models import QueueImportRequest, QueueImportResponse
 
 
 class QueueImportJobHandler:
     """Handler for queuing dataset import jobs from uploaded files"""
     
-    def __init__(
-        self,
-        uow: IUnitOfWork,
-        job_repo: IJobRepository,
-        dataset_repo: IDatasetRepository
-    ):
+    def __init__(self, uow: IUnitOfWork):
         self._uow = uow
-        self._job_repo = job_repo
-        self._dataset_repo = dataset_repo
     
     async def handle(
         self,
@@ -38,8 +31,8 @@ class QueueImportJobHandler:
         3. Create job record with parameters
         4. Return job_id for status polling
         """
-        # TODO: Check user permission
-        has_permission = await self._dataset_repo.check_user_permission(
+        # Check user permission
+        has_permission = await self._uow.datasets.check_user_permission(
             dataset_id, user_id, 'write'
         )
         if not has_permission:
@@ -56,8 +49,8 @@ class QueueImportJobHandler:
             content = file.read()
             f.write(content)
         
-        # TODO: Get current commit for the ref
-        current_commit = await self._commit_repo.get_current_commit_for_ref(
+        # Get current commit for the ref
+        current_commit = await self._uow.commits.get_current_commit_for_ref(
             dataset_id, ref_name
         )
         
@@ -71,7 +64,7 @@ class QueueImportJobHandler:
         
         await self._uow.begin()
         try:
-            job_id = await self._job_repo.create_job(
+            job_id = await self._uow.jobs.create_job(
                 run_type='import',
                 dataset_id=dataset_id,
                 user_id=user_id,

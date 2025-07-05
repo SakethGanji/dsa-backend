@@ -7,7 +7,13 @@ import logging
 
 from .core.config import get_settings
 from .core.database import DatabasePool
-from .api import users, datasets
+from .core.dependencies import (
+    set_database_pool,
+    set_parser_factory,
+    set_stats_calculator
+)
+from .core.infrastructure.services import FileParserFactory, DefaultStatisticsCalculator
+from .api import users, datasets, versioning
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -29,6 +35,12 @@ async def lifespan(app: FastAPI):
     db_pool = DatabasePool(settings.database_url)
     await db_pool.initialize()
     logger.info("Database pool initialized")
+    
+    # Initialize global dependencies
+    set_database_pool(db_pool)
+    set_parser_factory(FileParserFactory())
+    set_stats_calculator(DefaultStatisticsCalculator())
+    logger.info("Dependencies initialized")
     
     yield
     
@@ -66,6 +78,7 @@ async def get_db_pool() -> DatabasePool:
 # Include routers
 app.include_router(users.router, prefix="/api")
 app.include_router(datasets.router, prefix="/api")
+app.include_router(versioning.router, prefix="/api")
 
 # Override dependencies using FastAPI's dependency_overrides
 app.dependency_overrides[users.get_db_pool] = get_db_pool
