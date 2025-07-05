@@ -1,3 +1,4 @@
+"""Controller for sampling endpoints - HOLLOWED OUT FOR BACKEND RESET"""
 from typing import Dict, List, Any, Optional
 from fastapi import HTTPException, status
 import logging
@@ -17,53 +18,50 @@ class SamplingController:
     
     async def get_dataset_columns(self, dataset_id: int, version_id: int) -> Dict[str, Any]:
         """
-        Get column information for a dataset version
+        Get column information for a dataset version.
         
-        Args:
-            dataset_id: The ID of the dataset
-            version_id: The ID of the version
-            
-        Returns:
-            Dictionary with column information
-            
+        Implementation Notes:
+        1. Map version_id to commit_id
+        2. Get schema from commit_schemas table
+        3. Get row count from commit_statistics
+        4. Return column metadata
+        
+        Request:
+        - dataset_id: int
+        - version_id: int
+        
+        Response:
+        {
+            "columns": ["col1", "col2", ...],
+            "column_types": {"col1": "string", "col2": "number", ...},
+            "total_rows": 1000,
+            "null_counts": {"col1": 10, "col2": 0, ...},
+            "sample_values": {"col1": ["a", "b"], "col2": [1, 2], ...}
+        }
+        
+        Error Responses:
+        - 404: Dataset or version not found
+        - 500: Internal error
+        
         Raises:
-            HTTPException: If the dataset/version is not found
+            HTTPException: With appropriate status code
         """
-        try:
-            logger.info(f"Getting column info for dataset {dataset_id}, version {version_id}")
-            
-            # Call service method
-            columns_info = await self.service.get_dataset_columns(dataset_id, version_id)
-            
-            return columns_info
-            
-        except ValueError as e:
-            # Handle validation and not found errors
-            logger.warning(f"Resource not found: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=str(e)
-            )
-        except Exception as e:
-            # Handle all other errors
-            logger.error(f"Error getting dataset columns: {str(e)}", exc_info=True)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error getting dataset columns: {str(e)}"
-            )
+        raise NotImplementedError()
 
     def _get_status_message(self, status: JobStatus) -> str:
-        """Get a human-readable message for a job status"""
-        if status == JobStatus.PENDING:
-            return "Sampling job is queued"
-        elif status == JobStatus.RUNNING:
-            return "Worker is processing the full sample"
-        elif status == JobStatus.COMPLETED:
-            return "Sampling job completed"
-        elif status == JobStatus.FAILED:
-            return "Sampling job failed"
-        else:
-            return "Unknown job status"
+        """
+        Get human-readable message for job status.
+        
+        Implementation Notes:
+        Map JobStatus enum to user-friendly messages
+        
+        Request:
+        - status: JobStatus
+        
+        Response:
+        - str: Status message
+        """
+        raise NotImplementedError()
     
     # Multi-round sampling methods
     async def create_multi_round_sampling_job(
@@ -74,133 +72,67 @@ class SamplingController:
         user_id: int
     ) -> MultiRoundSamplingJobResponse:
         """
-        Create a new multi-round sampling job
+        Create a new multi-round sampling job.
         
-        Args:
-            dataset_id: The ID of the dataset
-            version_id: The ID of the version
-            request: The multi-round sampling request with rounds configuration
-            user_id: The ID of the user making the request
-            
-        Returns:
-            A response with the job ID and status
-            
+        Implementation Notes:
+        1. Validate dataset and version exist
+        2. Check user permissions
+        3. Create analysis_run record
+        4. Launch background job
+        5. Return job details
+        
+        Request:
+        - dataset_id: int
+        - version_id: int
+        - request: MultiRoundSamplingRequest with rounds config
+        - user_id: int
+        
+        Response:
+        - MultiRoundSamplingJobResponse with:
+          - run_id: str - Job ID
+          - status: JobStatus - Initial status (pending)
+          - message: str
+          - total_rounds: int
+          - completed_rounds: int (0)
+          - current_round: None
+          - round_results: []
+          - created_at: datetime
+        
+        Error Responses:
+        - 400: Invalid request (validation errors)
+        - 404: Dataset/version not found
+        - 403: No permission
+        - 500: Internal error
+        
         Raises:
-            HTTPException: If an error occurs during job creation
+            HTTPException: With appropriate status code
         """
-        try:
-            logger.info(f"User {user_id} creating multi-round sampling job for dataset {dataset_id}, version {version_id}")
-            
-            # Call service method to create job
-            result = await self.service.create_multi_round_sampling_job(
-                dataset_id=dataset_id,
-                version_id=version_id,
-                request=request,
-                user_id=user_id
-            )
-            
-            logger.info(f"Created multi-round sampling job {result['run_id']} for dataset {dataset_id}, version {version_id}")
-            
-            # Return response
-            return MultiRoundSamplingJobResponse(
-                run_id=str(result["run_id"]),  # Convert to string for consistency
-                status=JobStatus(result["status"]),
-                message=result.get("message", f"Multi-round sampling job created with {len(request.rounds)} rounds"),
-                total_rounds=len(request.rounds),
-                completed_rounds=0,
-                current_round=None,
-                round_results=[],
-                residual_uri=None,
-                residual_size=None,
-                residual_summary=None,
-                error_message=None,
-                created_at=datetime.now()
-            )
-            
-        except ValueError as e:
-            # Handle validation errors from service
-            logger.warning(f"Validation error: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(e)
-            )
-        except Exception as e:
-            # Handle all other errors
-            logger.error(f"Error creating multi-round sampling job: {str(e)}", exc_info=True)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error creating multi-round sampling job: {str(e)}"
-            )
+        raise NotImplementedError()
     
     async def get_multi_round_job(self, job_id: str) -> MultiRoundSamplingJobResponse:
         """
-        Get details of a multi-round sampling job
+        Get details of a multi-round sampling job.
         
-        Args:
-            job_id: The ID of the job
-            
-        Returns:
-            Job details including status and results
-            
+        Implementation Notes:
+        1. Query analysis_run by ID
+        2. Transform database format to response format
+        3. Include round results if available
+        4. Build appropriate status message
+        
+        Request:
+        - job_id: str - Job ID
+        
+        Response:
+        - MultiRoundSamplingJobResponse with full job details
+        
+        Error Responses:
+        - 404: Job not found
+        - 500: Internal error
+        
         Raises:
-            HTTPException: If the job is not found
+            HTTPException: With appropriate status code
         """
-        try:
-            logger.info(f"Getting multi-round job details for job {job_id}")
-            
-            # Call service method
-            job_data = await self.service.get_multi_round_job(job_id)
-            
-            if not job_data:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Multi-round sampling job with ID {job_id} not found"
-                )
-            
-            # Extract data from dict response
-            status_str = job_data.get("status", "pending")
-            status_enum = JobStatus(status_str)
-            completed_rounds = job_data.get("completed_rounds", 0)
-            total_rounds = job_data.get("total_rounds", 0)
-            current_round = job_data.get("current_round")
-            error_message = job_data.get("error_message")
-            
-            # Build status message
-            if status_enum == JobStatus.COMPLETED:
-                message = f"Multi-round sampling completed. {completed_rounds} rounds processed."
-            elif status_enum == JobStatus.RUNNING:
-                message = f"Processing round {current_round} of {total_rounds}"
-            elif status_enum == JobStatus.FAILED:
-                message = f"Multi-round sampling failed: {error_message}"
-            else:
-                message = "Multi-round sampling job is queued"
-            
-            # Return response
-            return MultiRoundSamplingJobResponse(
-                run_id=job_data.get("id", job_id),
-                status=status_enum,
-                message=message,
-                total_rounds=total_rounds,
-                completed_rounds=completed_rounds,
-                current_round=current_round,
-                round_results=job_data.get("round_results", []),
-                residual_uri=job_data.get("residual_uri"),
-                residual_size=job_data.get("residual_size"),
-                residual_summary=job_data.get("residual_summary"),
-                error_message=error_message,
-                created_at=job_data.get("created_at", datetime.now()),
-                started_at=job_data.get("started_at"),
-                completed_at=job_data.get("completed_at")
-            )
-            
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error getting multi-round job details: {str(e)}", exc_info=True)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error getting multi-round job details: {str(e)}"
-            )
+        raise NotImplementedError()
     
     async def get_round_preview(
         self,
@@ -209,68 +141,49 @@ class SamplingController:
         page: int = 1,
         page_size: int = 100
     ) -> Dict[str, Any]:
-        """Get preview data from a specific sampling round"""
-        try:
-            # Get job details
-            job_data = await self.service.get_multi_round_job(job_id)
-            
-            if not job_data:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Multi-round sampling job with ID {job_id} not found"
-                )
-            
-            # Find the round result
-            round_result = None
-            for result in job_data.get("round_results", []):
-                if result.get("round_number") == round_number:
-                    round_result = result
-                    break
-            
-            if not round_result:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Round {round_number} not found or not yet completed"
-                )
-            
-            # For now, return the preview data from the round result
-            # In a full implementation, you would load the actual file and paginate
-            preview_data = round_result.get("preview", [])
-            
-            # Apply pagination
-            total_items = len(preview_data)
-            total_pages = (total_items + page_size - 1) // page_size
-            start_idx = (page - 1) * page_size
-            end_idx = start_idx + page_size
-            
-            paginated_data = preview_data[start_idx:end_idx]
-            
-            return {
-                "data": paginated_data,
-                "round_info": {
-                    "round_number": round_result.get("round_number"),
-                    "method": round_result.get("method"),
-                    "sample_size": round_result.get("sample_size"),
-                    "output_uri": round_result.get("output_uri")
-                },
-                "pagination": {
-                    "page": page,
-                    "page_size": page_size,
-                    "total_items": total_items,
-                    "total_pages": total_pages,
-                    "has_next": page < total_pages,
-                    "has_previous": page > 1
-                }
+        """
+        Get preview data from a specific sampling round.
+        
+        Implementation Notes:
+        1. Get job details
+        2. Find round result by number
+        3. Load sample file for round
+        4. Apply pagination
+        5. Return data with round info
+        
+        Request:
+        - job_id: str
+        - round_number: int
+        - page: int - 1-indexed
+        - page_size: int
+        
+        Response:
+        {
+            "data": [...],  # Paginated sample data
+            "round_info": {
+                "round_number": 1,
+                "method": "random",
+                "sample_size": 1000,
+                "output_uri": "file://..."
+            },
+            "pagination": {
+                "page": 1,
+                "page_size": 100,
+                "total_items": 1000,
+                "total_pages": 10,
+                "has_next": true,
+                "has_previous": false
             }
-            
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error getting round preview: {str(e)}", exc_info=True)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error getting round preview: {str(e)}"
-            )
+        }
+        
+        Error Responses:
+        - 404: Job or round not found
+        - 500: Internal error
+        
+        Raises:
+            HTTPException: With appropriate status code
+        """
+        raise NotImplementedError()
     
     async def get_residual_preview(
         self,
@@ -278,58 +191,41 @@ class SamplingController:
         page: int = 1,
         page_size: int = 100
     ) -> Dict[str, Any]:
-        """Get preview data from the residual dataset"""
-        try:
-            # Get job details
-            job_data = await self.service.get_multi_round_job(job_id)
-            
-            if not job_data:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Multi-round sampling job with ID {job_id} not found"
-                )
-            
-            status_str = job_data.get("status", "pending")
-            if JobStatus(status_str) != JobStatus.COMPLETED:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Job must be completed to view residual data"
-                )
-            
-            residual_uri = job_data.get("residual_uri")
-            if not residual_uri:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="No residual dataset available (export_residual was false or all data was sampled)"
-                )
-            
-            # For now, return empty data as we don't have actual residual preview
-            # In a full implementation, you would load the residual file and paginate
-            return {
-                "data": [],
-                "residual_info": {
-                    "size": job_data.get("residual_size"),
-                    "uri": residual_uri,
-                    "summary": job_data.get("residual_summary")
-                },
-                "pagination": {
-                    "page": page,
-                    "page_size": page_size,
-                    "total_items": 0,
-                    "total_pages": 0,
-                    "has_next": False,
-                    "has_previous": False
-                }
-            }
-            
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error getting residual preview: {str(e)}", exc_info=True)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error getting residual preview: {str(e)}"
-            )
+        """
+        Get preview data from the residual dataset.
+        
+        Implementation Notes:
+        1. Check job is completed
+        2. Check residual was exported
+        3. Load residual file
+        4. Apply pagination
+        5. Return data with residual info
+        
+        Request:
+        - job_id: str
+        - page: int - 1-indexed
+        - page_size: int
+        
+        Response:
+        {
+            "data": [...],  # Paginated residual data
+            "residual_info": {
+                "size": 5000,
+                "uri": "file://...",
+                "summary": {...}
+            },
+            "pagination": {...}
+        }
+        
+        Error Responses:
+        - 404: Job not found or no residual
+        - 400: Job not completed
+        - 500: Internal error
+        
+        Raises:
+            HTTPException: With appropriate status code
+        """
+        raise NotImplementedError()
     
     async def execute_multi_round_sampling_sync(
         self,
@@ -343,108 +239,51 @@ class SamplingController:
         """
         Execute multi-round sampling synchronously and return paginated results.
         
-        Args:
-            dataset_id: The ID of the dataset
-            version_id: The ID of the version
-            request: The multi-round sampling request with rounds configuration
-            user_id: The ID of the user making the request
-            page: Page number for pagination (1-indexed)
-            page_size: Number of items per page
-            
-        Returns:
-            Dictionary with paginated round results and residual data
-            
-        Raises:
-            HTTPException: If an error occurs during execution
-        """
-        try:
-            logger.info(f"User {user_id} executing multi-round sampling synchronously for dataset {dataset_id}, version {version_id}")
-            
-            # Call service method
-            results = await self.service.execute_multi_round_sampling_synchronously(
-                dataset_id=dataset_id,
-                version_id=version_id,
-                request=request
-            )
-            
-            logger.info(f"Synchronous multi-round sampling completed for dataset {dataset_id}, version {version_id}. Rounds: {len(request.rounds)}")
-            
-            # Apply pagination to each round's data
-            paginated_rounds = []
-            for round_result in results["rounds"]:
-                round_data = round_result["data"]
-                total_items = len(round_data)
-                total_pages = (total_items + page_size - 1) // page_size
-                start_idx = (page - 1) * page_size
-                end_idx = start_idx + page_size
-                
-                paginated_round = {
-                    "round_number": round_result["round_number"],
-                    "method": round_result["method"],
-                    "sample_size": round_result["sample_size"],
-                    "data": round_data[start_idx:end_idx],
-                    "summary": round_result["summary"],
-                    "pagination": {
-                        "page": page,
-                        "page_size": page_size,
-                        "total_items": total_items,
-                        "total_pages": total_pages,
-                        "has_next": page < total_pages,
-                        "has_previous": page > 1
-                    }
+        WARNING: This loads data into memory - not for production use
+        
+        Implementation Notes:
+        1. Execute sampling synchronously
+        2. Apply pagination to each round's data
+        3. Apply pagination to residual if present
+        4. Return complete results
+        
+        Request:
+        - dataset_id: int
+        - version_id: int
+        - request: MultiRoundSamplingRequest
+        - user_id: int
+        - page: int - 1-indexed
+        - page_size: int
+        
+        Response:
+        {
+            "rounds": [
+                {
+                    "round_number": 1,
+                    "method": "random",
+                    "sample_size": 1000,
+                    "data": [...],  # Paginated
+                    "summary": {...},
+                    "pagination": {...}
                 }
-                paginated_rounds.append(paginated_round)
-            
-            # Apply pagination to residual data if present
-            paginated_residual = None
-            if results["residual"]:
-                residual_data = results["residual"]["data"]
-                if residual_data:
-                    total_items = len(residual_data)
-                    total_pages = (total_items + page_size - 1) // page_size
-                    start_idx = (page - 1) * page_size
-                    end_idx = start_idx + page_size
-                    
-                    paginated_residual = {
-                        "size": results["residual"]["size"],
-                        "data": residual_data[start_idx:end_idx],
-                        "summary": results["residual"]["summary"],
-                        "pagination": {
-                            "page": page,
-                            "page_size": page_size,
-                            "total_items": total_items,
-                            "total_pages": total_pages,
-                            "has_next": page < total_pages,
-                            "has_previous": page > 1
-                        }
-                    }
-                else:
-                    paginated_residual = results["residual"]
-            
-            return {
-                "rounds": paginated_rounds,
-                "residual": paginated_residual
+            ],
+            "residual": {
+                "size": 5000,
+                "data": [...],  # Paginated
+                "summary": {...},
+                "pagination": {...}
             }
-            
-        except ValueError as e:
-            # Handle validation errors from service
-            logger.warning(f"Validation error during synchronous multi-round sampling: {str(e)}")
-            if "not found" in str(e).lower():
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=str(e)
-                )
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(e)
-            )
-        except Exception as e:
-            # Handle all other errors
-            logger.error(f"Error executing multi-round sampling synchronously: {str(e)}", exc_info=True)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error executing multi-round sampling: {str(e)}"
-            )
+        }
+        
+        Error Responses:
+        - 400: Validation error
+        - 404: Dataset/version not found
+        - 500: Internal error
+        
+        Raises:
+            HTTPException: With appropriate status code
+        """
+        raise NotImplementedError()
     
     async def get_merged_sample_data(
         self,
@@ -455,54 +294,49 @@ class SamplingController:
         export_format: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Get paginated data from the merged sample file
+        Get paginated data from the merged sample file.
         
-        Args:
-            job_id: The multi-round sampling job ID
-            page: Page number (1-indexed)
-            page_size: Number of items per page
-            columns: Optional list of columns to return
-            export_format: Optional export format (csv, json)
-            
-        Returns:
-            Dictionary containing paginated data and metadata
-            
+        Implementation Notes:
+        1. Get job output_file_id
+        2. Load merged sample file
+        3. Apply column selection if specified
+        4. Apply pagination
+        5. Support export formats (csv, json)
+        
+        Request:
+        - job_id: str
+        - page: int - 1-indexed
+        - page_size: int
+        - columns: Optional[List[str]] - Column subset
+        - export_format: Optional[str] - "csv" or "json"
+        
+        Response:
+        For paginated view:
+        {
+            "data": [...],
+            "pagination": {...},
+            "columns": ["col1", "col2"],
+            "summary": {...},
+            "file_path": "/path/to/merged.parquet",
+            "job_id": "123"
+        }
+        
+        For export format:
+        {
+            "format": "csv",
+            "data": "csv content" or [...],
+            "filename": "job_123_page_1.csv"
+        }
+        
+        Error Responses:
+        - 404: Job not found
+        - 400: Invalid columns or job not completed
+        - 500: Internal error
+        
         Raises:
-            HTTPException: If job not found or data retrieval fails
+            HTTPException: With appropriate status code
         """
-        try:
-            logger.info(f"Getting merged sample data for job {job_id}, page {page}")
-            
-            # Call service method to get the paginated data
-            result = await self.service.get_merged_sample_data(
-                job_id=job_id,
-                page=page,
-                page_size=page_size,
-                columns=columns,
-                export_format=export_format
-            )
-            
-            return result
-            
-        except ValueError as e:
-            # Handle validation errors
-            logger.warning(f"Validation error getting merged sample: {str(e)}")
-            if "not found" in str(e).lower():
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=str(e)
-                )
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(e)
-            )
-        except Exception as e:
-            # Handle all other errors
-            logger.error(f"Error getting merged sample data: {str(e)}", exc_info=True)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error retrieving merged sample data: {str(e)}"
-            )
+        raise NotImplementedError()
     
     async def get_samplings_by_user(
         self,
@@ -511,54 +345,49 @@ class SamplingController:
         page_size: int = 10
     ) -> Dict[str, Any]:
         """
-        Get all sampling runs created by a specific user
+        Get all sampling runs created by a specific user.
         
-        Args:
-            user_id: The user ID to filter by
-            page: Page number (1-indexed)
-            page_size: Number of items per page
-            
-        Returns:
-            Dictionary with sampling runs and pagination info
-            
+        Implementation Notes:
+        1. Query analysis_runs by user_id
+        2. Filter by sampling analysis types
+        3. Apply pagination
+        4. Return with pagination info
+        
+        Request:
+        - user_id: int
+        - page: int - 1-indexed
+        - page_size: int
+        
+        Response:
+        {
+            "runs": [
+                {
+                    "id": 123,
+                    "dataset_id": 1,
+                    "dataset_name": "Sales Data",
+                    "dataset_version_id": 10,
+                    "analysis_type": "multi_round_sampling",
+                    "status": "completed",
+                    "run_timestamp": "2024-01-01T00:00:00Z",
+                    "execution_time_ms": 5000
+                }
+            ],
+            "total_count": 50,
+            "page": 1,
+            "page_size": 10,
+            "total_pages": 5,
+            "has_next": true,
+            "has_previous": false
+        }
+        
+        Error Responses:
+        - 400: Invalid pagination params
+        - 500: Internal error
+        
         Raises:
-            HTTPException: If an error occurs
+            HTTPException: With appropriate status code
         """
-        try:
-            logger.info(f"Getting sampling runs for user {user_id}, page {page}")
-            
-            # Call service method
-            runs, total_count = await self.service.get_samplings_by_user(
-                user_id=user_id,
-                page=page,
-                page_size=page_size
-            )
-            
-            # Calculate pagination info
-            total_pages = (total_count + page_size - 1) // page_size
-            
-            return {
-                "runs": runs,
-                "total_count": total_count,
-                "page": page,
-                "page_size": page_size,
-                "total_pages": total_pages,
-                "has_next": page < total_pages,
-                "has_previous": page > 1
-            }
-            
-        except ValueError as e:
-            logger.warning(f"Validation error: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(e)
-            )
-        except Exception as e:
-            logger.error(f"Error getting samplings by user: {str(e)}", exc_info=True)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error retrieving sampling runs: {str(e)}"
-            )
+        raise NotImplementedError()
     
     async def get_samplings_by_dataset_version(
         self,
@@ -567,54 +396,30 @@ class SamplingController:
         page_size: int = 10
     ) -> Dict[str, Any]:
         """
-        Get all sampling runs for a specific dataset version
+        Get all sampling runs for a specific dataset version.
         
-        Args:
-            dataset_version_id: The dataset version ID to filter by
-            page: Page number (1-indexed)
-            page_size: Number of items per page
-            
-        Returns:
-            Dictionary with sampling runs and pagination info
-            
+        Implementation Notes:
+        1. Query analysis_runs by dataset_version_id
+        2. Filter by sampling analysis types
+        3. Include user info
+        4. Apply pagination
+        
+        Request:
+        - dataset_version_id: int
+        - page: int - 1-indexed
+        - page_size: int
+        
+        Response:
+        Similar to get_samplings_by_user but filtered by version
+        
+        Error Responses:
+        - 400: Invalid pagination params
+        - 500: Internal error
+        
         Raises:
-            HTTPException: If an error occurs
+            HTTPException: With appropriate status code
         """
-        try:
-            logger.info(f"Getting sampling runs for dataset version {dataset_version_id}, page {page}")
-            
-            # Call service method
-            runs, total_count = await self.service.get_samplings_by_dataset_version(
-                dataset_version_id=dataset_version_id,
-                page=page,
-                page_size=page_size
-            )
-            
-            # Calculate pagination info
-            total_pages = (total_count + page_size - 1) // page_size
-            
-            return {
-                "runs": runs,
-                "total_count": total_count,
-                "page": page,
-                "page_size": page_size,
-                "total_pages": total_pages,
-                "has_next": page < total_pages,
-                "has_previous": page > 1
-            }
-            
-        except ValueError as e:
-            logger.warning(f"Validation error: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(e)
-            )
-        except Exception as e:
-            logger.error(f"Error getting samplings by dataset version: {str(e)}", exc_info=True)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error retrieving sampling runs: {str(e)}"
-            )
+        raise NotImplementedError()
     
     async def get_samplings_by_dataset(
         self,
@@ -623,52 +428,27 @@ class SamplingController:
         page_size: int = 10
     ) -> Dict[str, Any]:
         """
-        Get all sampling runs for a specific dataset (across all versions)
+        Get all sampling runs for a specific dataset (across all versions).
         
-        Args:
-            dataset_id: The dataset ID to filter by
-            page: Page number (1-indexed)
-            page_size: Number of items per page
-            
-        Returns:
-            Dictionary with sampling runs and pagination info
-            
+        Implementation Notes:
+        1. Join analysis_runs with dataset_versions
+        2. Filter by dataset_id
+        3. Include version info in results
+        4. Apply pagination
+        
+        Request:
+        - dataset_id: int
+        - page: int - 1-indexed
+        - page_size: int
+        
+        Response:
+        Similar to get_samplings_by_user but includes version info
+        
+        Error Responses:
+        - 400: Invalid pagination params
+        - 500: Internal error
+        
         Raises:
-            HTTPException: If an error occurs
+            HTTPException: With appropriate status code
         """
-        try:
-            logger.info(f"Getting sampling runs for dataset {dataset_id}, page {page}")
-            
-            # Call service method
-            runs, total_count = await self.service.get_samplings_by_dataset(
-                dataset_id=dataset_id,
-                page=page,
-                page_size=page_size
-            )
-            
-            # Calculate pagination info
-            total_pages = (total_count + page_size - 1) // page_size
-            
-            return {
-                "runs": runs,
-                "total_count": total_count,
-                "page": page,
-                "page_size": page_size,
-                "total_pages": total_pages,
-                "has_next": page < total_pages,
-                "has_previous": page > 1
-            }
-            
-        except ValueError as e:
-            logger.warning(f"Validation error: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(e)
-            )
-        except Exception as e:
-            logger.error(f"Error getting samplings by dataset: {str(e)}", exc_info=True)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error retrieving sampling runs: {str(e)}"
-            )
-
+        raise NotImplementedError()

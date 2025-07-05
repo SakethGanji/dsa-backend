@@ -1,257 +1,259 @@
-"""Service for calculating dataset statistics from Parquet files"""
-import os
-import json
+"""Service for calculating dataset statistics - HOLLOWED OUT FOR BACKEND RESET"""
 import logging
 import time
-from datetime import datetime
 from typing import Dict, Any, Optional, List, Tuple
-import numpy as np
-import pandas as pd
-import pyarrow.parquet as pq
-from collections import Counter
 
 logger = logging.getLogger(__name__)
 
 
 class StatisticsService:
-    """Service for calculating statistics from Parquet files using metadata and optional data scanning"""
+    """Service for calculating statistics from dataset commits using PostgreSQL JSONB"""
+    
+    @staticmethod
+    async def calculate_statistics(commit_id: str) -> Dict[str, Any]:
+        """
+        Calculate statistics for a commit.
+        
+        Implementation Notes:
+        1. Count rows in commit_rows
+        2. Calculate size from rows content
+        3. Use PostgreSQL JSONB functions for column statistics:
+           - Extract columns using jsonb_object_keys
+           - Numeric: Calculate min, max, avg using JSONB operators
+           - Categorical: COUNT DISTINCT on JSONB fields
+           - Use jsonb_typeof to detect data types
+           - Null counts using JSONB IS NULL checks
+        4. Store in commit_statistics table
+        
+        Request:
+        - commit_id: str - Commit SHA to analyze
+        
+        Response:
+        - Dict containing:
+          - row_count: int
+          - column_count: int
+          - size_bytes: int (estimated from JSONB)
+          - statistics: Dict with column details
+        
+        SQL Examples:
+        -- Column extraction
+        SELECT DISTINCT jsonb_object_keys(data) as column_name
+        FROM rows r JOIN commit_rows cr ON r.row_hash = cr.row_hash
+        WHERE cr.commit_id = :commit_id
+        
+        -- Type detection
+        SELECT column_name, jsonb_typeof(data->column_name) as type
+        FROM (SELECT jsonb_object_keys(data) as column_name, data FROM ...) t
+        
+        -- Numeric stats
+        SELECT 
+            MIN((data->>'price')::numeric) as min_val,
+            MAX((data->>'price')::numeric) as max_val,
+            AVG((data->>'price')::numeric) as avg_val
+        FROM rows r JOIN commit_rows cr ON r.row_hash = cr.row_hash
+        WHERE cr.commit_id = :commit_id
+        """
+        raise NotImplementedError()
     
     @staticmethod
     async def calculate_parquet_statistics(file_path: str, detailed: bool = False, sample_size: Optional[int] = None) -> Dict[str, Any]:
         """
-        Calculate statistics from Parquet file
+        Legacy method for compatibility - calculates from Parquet file.
         
-        Args:
-            file_path: Path to the Parquet file
-            detailed: Whether to calculate detailed statistics (requires data scanning)
-            sample_size: Number of rows to sample for detailed statistics
-            
-        Returns:
-            Dictionary containing statistics
+        Implementation Notes:
+        1. This is for backwards compatibility during migration
+        2. In new system, data is in rows table, not files
+        3. May need to generate Parquet on-the-fly from commit data
+        
+        Request:
+        - file_path: str - Path to Parquet file
+        - detailed: bool - Whether to scan data
+        - sample_size: Optional[int] - Rows to sample
+        
+        Response:
+        - Dict with statistics in legacy format
         """
-        start_time = time.time()
-        
-        try:
-            # Read Parquet metadata
-            parquet_file = pq.ParquetFile(file_path)
-            metadata = parquet_file.metadata
-            schema = parquet_file.schema_arrow
-            
-            # High-level stats
-            row_count = metadata.num_rows
-            column_count = len(schema)
-            size_bytes = os.path.getsize(file_path)
-            
-            # Column-level stats from Parquet metadata
-            column_stats = StatisticsService._extract_metadata_statistics(parquet_file, metadata)
-            
-            # If detailed statistics requested, scan the data
-            if detailed:
-                detailed_stats = await StatisticsService._calculate_detailed_statistics(
-                    file_path, column_stats, sample_size
-                )
-                # Merge detailed stats with metadata stats
-                for col_name, stats in detailed_stats.items():
-                    if col_name in column_stats:
-                        column_stats[col_name].update(stats)
-            
-            # Calculate null percentages
-            for col_name, stats in column_stats.items():
-                if "null_count" in stats and row_count > 0:
-                    stats["null_percentage"] = round((stats["null_count"] / row_count) * 100, 2)
-                else:
-                    stats["null_percentage"] = 0.0
-            
-            duration_ms = int((time.time() - start_time) * 1000)
-            
-            return {
-                "row_count": row_count,
-                "column_count": column_count,
-                "size_bytes": size_bytes,
-                "statistics": {
-                    "columns": column_stats,
-                    "metadata": {
-                        "profiling_method": "parquet_metadata" if not detailed else "detailed_scan",
-                        "sampling_applied": sample_size is not None and sample_size < row_count,
-                        "sample_size": sample_size if sample_size else row_count,
-                        "profiling_duration_ms": duration_ms
-                    }
-                }
-            }
-            
-        except Exception as e:
-            logger.error(f"Error calculating statistics for {file_path}: {str(e)}")
-            raise
+        raise NotImplementedError()
     
     @staticmethod
-    def _extract_metadata_statistics(parquet_file: pq.ParquetFile, metadata: Any) -> Dict[str, Dict[str, Any]]:
-        """Extract statistics from Parquet metadata without reading data"""
-        column_stats = {}
-        schema = parquet_file.schema_arrow
+    async def calculate_column_statistics(commit_id: str, column_name: str) -> Dict[str, Any]:
+        """
+        Calculate detailed statistics for a single column.
         
-        # Initialize stats for each column
-        for field in schema:
-            column_stats[field.name] = {
-                "data_type": str(field.type),
-                "nullable": field.nullable,
-                "null_count": 0,
-                "min_value": None,
-                "max_value": None
-            }
+        Implementation Notes:
+        1. Extract column data using JSONB operators
+        2. Detect data type using jsonb_typeof
+        3. For numeric columns:
+           - Calculate min, max, mean, median, std_dev
+           - Generate histogram using width_bucket
+           - Calculate percentiles using percentile_cont
+        4. For string columns:
+           - Get top N values with counts
+           - Calculate distinct count
+        5. For date columns:
+           - Extract min/max dates
+           - Calculate range
         
-        # Aggregate statistics from all row groups
-        for i in range(metadata.num_row_groups):
-            row_group = metadata.row_group(i)
-            
-            for j in range(row_group.num_columns):
-                col_meta = row_group.column(j)
-                col_name = parquet_file.schema.names[j]
-                
-                if col_meta.statistics and col_meta.statistics.has_min_max:
-                    stats = col_meta.statistics
-                    
-                    # Accumulate null counts
-                    column_stats[col_name]["null_count"] += stats.null_count
-                    
-                    # Update min/max values
-                    current_min = column_stats[col_name]["min_value"]
-                    current_max = column_stats[col_name]["max_value"]
-                    
-                    try:
-                        # Convert min/max to Python types
-                        min_val = StatisticsService._convert_arrow_value(stats.min)
-                        max_val = StatisticsService._convert_arrow_value(stats.max)
-                        
-                        if current_min is None or (min_val is not None and min_val < current_min):
-                            column_stats[col_name]["min_value"] = min_val
-                        
-                        if current_max is None or (max_val is not None and max_val > current_max):
-                            column_stats[col_name]["max_value"] = max_val
-                    except Exception as e:
-                        logger.debug(f"Could not extract min/max for column {col_name}: {e}")
+        SQL Examples:
+        -- Numeric histogram
+        SELECT 
+            width_bucket((data->>'price')::numeric, min_val, max_val, 20) as bucket,
+            COUNT(*) as count
+        FROM rows r JOIN commit_rows cr ON r.row_hash = cr.row_hash,
+        LATERAL (SELECT MIN((data->>'price')::numeric) as min_val, 
+                        MAX((data->>'price')::numeric) as max_val FROM ...) bounds
+        WHERE cr.commit_id = :commit_id
+        GROUP BY bucket
+        ORDER BY bucket
         
-        return column_stats
+        -- Top string values
+        SELECT data->>'category' as value, COUNT(*) as count
+        FROM rows r JOIN commit_rows cr ON r.row_hash = cr.row_hash
+        WHERE cr.commit_id = :commit_id AND data ? 'category'
+        GROUP BY value
+        ORDER BY count DESC
+        LIMIT 10
+        
+        Request:
+        - commit_id: str
+        - column_name: str
+        
+        Response:
+        - Dict with column-specific statistics
+        """
+        raise NotImplementedError()
     
     @staticmethod
-    def _convert_arrow_value(value: Any) -> Any:
-        """Convert Arrow/Parquet value to Python type"""
-        if value is None:
-            return None
+    async def calculate_sample_statistics(commit_id: str, sample_size: int) -> Dict[str, Any]:
+        """
+        Calculate statistics on a sample of rows.
         
-        # Handle common types
-        if hasattr(value, 'as_py'):
-            return value.as_py()
+        Implementation Notes:
+        1. Use TABLESAMPLE or ORDER BY RANDOM() LIMIT
+        2. Calculate same statistics as full scan
+        3. Include sampling metadata in response
         
-        # Handle date/timestamp types
-        if hasattr(value, 'isoformat'):
-            return value.isoformat()
+        SQL Example:
+        WITH sampled_rows AS (
+            SELECT r.data
+            FROM commit_rows cr
+            JOIN rows r ON cr.row_hash = r.row_hash
+            WHERE cr.commit_id = :commit_id
+            ORDER BY RANDOM()
+            LIMIT :sample_size
+        )
+        -- Run statistics queries on sampled_rows CTE
         
-        # Handle bytes
-        if isinstance(value, bytes):
-            try:
-                return value.decode('utf-8')
-            except:
-                return str(value)
+        Request:
+        - commit_id: str
+        - sample_size: int
         
-        return value
+        Response:
+        - Dict with sampled statistics
+        """
+        raise NotImplementedError()
     
     @staticmethod
-    async def _calculate_detailed_statistics(
-        file_path: str, 
-        column_stats: Dict[str, Dict[str, Any]], 
-        sample_size: Optional[int] = None
-    ) -> Dict[str, Dict[str, Any]]:
-        """Calculate detailed statistics by scanning the data"""
-        # Read the Parquet file
-        df = pd.read_parquet(file_path)
+    def infer_column_type(values: List[Any]) -> str:
+        """
+        Infer column data type from sample values.
         
-        # Apply sampling if needed
-        if sample_size and len(df) > sample_size:
-            df = df.sample(n=sample_size, random_state=42)
-            logger.info(f"Sampled {sample_size} rows from {len(df)} total rows for detailed statistics")
+        Implementation Notes:
+        1. Check jsonb_typeof for each value
+        2. Handle mixed types gracefully
+        3. Return most specific compatible type
         
-        detailed_stats = {}
+        Type hierarchy:
+        - number → integer/float
+        - string → date/time if parseable
+        - boolean
+        - null
         
-        for column in df.columns:
-            col_data = df[column]
-            col_stats = {}
-            
-            # Distinct count
-            try:
-                col_stats["distinct_count"] = int(col_data.nunique())
-            except:
-                col_stats["distinct_count"] = None
-            
-            # Type-specific statistics
-            if pd.api.types.is_numeric_dtype(col_data):
-                # Numeric columns: calculate histogram
-                non_null_data = col_data.dropna()
-                if len(non_null_data) > 0:
-                    try:
-                        # Calculate histogram with 20 bins
-                        hist, bin_edges = np.histogram(non_null_data, bins=20)
-                        col_stats["histogram"] = {
-                            "bins": [float(x) for x in bin_edges.tolist()],
-                            "counts": [int(x) for x in hist.tolist()]
-                        }
-                        
-                        # Additional numeric stats
-                        col_stats["mean"] = float(non_null_data.mean())
-                        col_stats["median"] = float(non_null_data.median())
-                        col_stats["std_dev"] = float(non_null_data.std())
-                        
-                        # Quartiles
-                        col_stats["percentiles"] = {
-                            "25": float(non_null_data.quantile(0.25)),
-                            "50": float(non_null_data.quantile(0.50)),
-                            "75": float(non_null_data.quantile(0.75))
-                        }
-                    except Exception as e:
-                        logger.debug(f"Could not calculate numeric statistics for column {column}: {e}")
-            
-            elif pd.api.types.is_string_dtype(col_data) or pd.api.types.is_categorical_dtype(col_data):
-                # String/categorical columns: top values
-                try:
-                    value_counts = col_data.value_counts()
-                    top_n = min(10, len(value_counts))
-                    
-                    if top_n > 0:
-                        top_values = value_counts.head(top_n)
-                        col_stats["top_values"] = [
-                            {"value": str(val), "count": int(count)} 
-                            for val, count in top_values.items()
-                        ]
-                        
-                        # Add percentage for top values
-                        total_non_null = len(col_data.dropna())
-                        if total_non_null > 0:
-                            for item in col_stats["top_values"]:
-                                item["percentage"] = round((item["count"] / total_non_null) * 100, 2)
-                except Exception as e:
-                    logger.debug(f"Could not calculate top values for column {column}: {e}")
-            
-            elif pd.api.types.is_datetime64_any_dtype(col_data):
-                # Date/time columns: date range statistics
-                try:
-                    non_null_data = col_data.dropna()
-                    if len(non_null_data) > 0:
-                        col_stats["date_range"] = {
-                            "min": non_null_data.min().isoformat(),
-                            "max": non_null_data.max().isoformat(),
-                            "range_days": (non_null_data.max() - non_null_data.min()).days
-                        }
-                except Exception as e:
-                    logger.debug(f"Could not calculate date statistics for column {column}: {e}")
-            
-            detailed_stats[column] = col_stats
+        Request:
+        - values: List[Any] - Sample values
         
-        return detailed_stats
+        Response:
+        - str - Inferred type name
+        """
+        raise NotImplementedError()
     
     @staticmethod
     def format_size(size_bytes: int) -> str:
-        """Format bytes to human-readable size"""
-        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-            if size_bytes < 1024.0:
-                return f"{size_bytes:.1f} {unit}"
-            size_bytes /= 1024.0
-        return f"{size_bytes:.1f} PB"
+        """
+        Format bytes to human-readable size.
+        
+        Implementation Notes:
+        1. Convert bytes to appropriate unit
+        2. Format with 1 decimal place
+        
+        Request:
+        - size_bytes: int
+        
+        Response:
+        - str - Formatted size (e.g., "1.5 MB")
+        """
+        raise NotImplementedError()
+    
+    @staticmethod
+    async def compare_commit_statistics(commit_a: str, commit_b: str) -> Dict[str, Any]:
+        """
+        Compare statistics between two commits.
+        
+        Implementation Notes:
+        1. Get statistics for both commits
+        2. Calculate differences
+        3. Identify schema changes
+        4. Return comparison summary
+        
+        Request:
+        - commit_a: str - First commit
+        - commit_b: str - Second commit
+        
+        Response:
+        - Dict with:
+          - row_count_change: int
+          - size_change: int
+          - columns_added: List[str]
+          - columns_removed: List[str]
+          - type_changes: List[Dict]
+        """
+        raise NotImplementedError()
+    
+    @staticmethod
+    async def get_column_value_distribution(commit_id: str, column_name: str, bins: int = 20) -> Dict[str, Any]:
+        """
+        Get value distribution for a column.
+        
+        Implementation Notes:
+        1. For numeric: Create histogram with specified bins
+        2. For categorical: Get all values with counts
+        3. For dates: Create time-based buckets
+        
+        Request:
+        - commit_id: str
+        - column_name: str
+        - bins: int - Number of histogram bins
+        
+        Response:
+        - Dict with distribution data
+        """
+        raise NotImplementedError()
+    
+    @staticmethod
+    async def estimate_storage_size(row_count: int, columns: List[Dict[str, Any]]) -> int:
+        """
+        Estimate storage size for dataset.
+        
+        Implementation Notes:
+        1. Calculate average JSONB size per row
+        2. Include index overhead
+        3. Account for compression
+        
+        Request:
+        - row_count: int
+        - columns: List[Dict] - Column definitions
+        
+        Response:
+        - int - Estimated bytes
+        """
+        raise NotImplementedError()

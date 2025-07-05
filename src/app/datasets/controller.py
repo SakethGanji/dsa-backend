@@ -1,3 +1,4 @@
+"""Controller layer handling HTTP requests/responses for datasets - HOLLOWED OUT FOR BACKEND RESET"""
 from fastapi import HTTPException, status, UploadFile
 from typing import List, Optional, Dict, Any
 import json
@@ -21,22 +22,26 @@ class DatasetsController:
         self.service = service
 
     def _parse_tags(self, tags: Optional[str]) -> Optional[List[str]]:
-        """Parse tags from JSON or comma-separated string"""
-        if not tags:
-            return None
-        try:
-            parsed = json.loads(tags)
-            if not isinstance(parsed, list):
-                raise ValueError("Tags must be a list")
-            return parsed
-        except json.JSONDecodeError:
-            # Fallback to comma-separated format
-            return [t.strip() for t in tags.split(',') if t.strip()]
-        except ValueError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid tags format: {str(e)}"
-            )
+        """
+        Parse tags from JSON or comma-separated string.
+        
+        Implementation Notes:
+        1. Try JSON.parse first
+        2. Fallback to comma-split
+        3. Raise HTTPException on invalid format
+        
+        Keep exact same parsing logic for UI compatibility
+        
+        Request:
+        - tags: Optional[str] - JSON array or comma-separated string
+        
+        Response:
+        - Optional[List[str]] - Parsed tag list
+        
+        Errors:
+        - 400 Bad Request if invalid format
+        """
+        raise NotImplementedError()
 
     async def upload_dataset(
         self,
@@ -47,39 +52,39 @@ class DatasetsController:
         description: Optional[str],
         tags: Optional[str],
     ) -> DatasetUploadResponse:
-        """Handle dataset upload request"""
-        request = DatasetUploadRequest(
-            dataset_id=dataset_id,
-            name=name,
-            description=description,
-            tags=self._parse_tags(tags)
-        )
+        """
+        Handle dataset upload request.
         
-        try:
-            # Get user ID from the database based on soeid
-            user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
-            if not user_id:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="User not found in the system"
-                )
-            
-            return await self.service.upload_dataset(file, request, user_id)
-            
-        except (FileProcessingError, StorageError) as e:
-            logger.error(f"Dataset upload error: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=str(e)
-            )
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Unexpected error during dataset upload: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="An unexpected error occurred during upload"
-            )
+        Implementation Notes:
+        1. Validate file type/size
+        2. Parse tags using _parse_tags
+        3. Call service.upload_dataset_version
+        4. Transform service response to HTTP response
+        5. Handle service exceptions → HTTP errors
+        
+        Error Mapping:
+        - FileProcessingError → 400
+        - DatasetNotFound → 404
+        - StorageError → 500
+        
+        Request:
+        - file: UploadFile - File to upload
+        - current_user: Any - Authenticated user
+        - dataset_id: Optional[int] - Existing dataset or None
+        - name: str - Dataset name
+        - description: Optional[str]
+        - tags: Optional[str] - JSON or comma-separated
+        
+        Response:
+        - DatasetUploadResponse with dataset_id, version_id, sheets
+        
+        HTTP Errors:
+        - 400: Invalid file/tags
+        - 403: User not found/no permission
+        - 404: Dataset not found
+        - 500: Storage/processing error
+        """
+        raise NotImplementedError()
 
     async def list_datasets(
         self,
@@ -93,73 +98,56 @@ class DatasetsController:
         sort_order: Optional[str],
         current_user: Any = None
     ) -> List[Dataset]:
-        """List datasets with filtering and pagination"""
-        try:
-            # Get all datasets first
-            datasets = await self.service.list_datasets(
-                limit=limit,
-                offset=offset,
-                name=name,
-                description=description,
-                created_by=created_by,
-                tags=tags,
-                sort_by=sort_by,
-                sort_order=sort_order
-            )
-            
-            # If user is provided, filter by permissions
-            if current_user:
-                user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
-                if user_id:
-                    # Filter datasets where user has at least read permission
-                    filtered_datasets = []
-                    for dataset in datasets:
-                        has_permission = await self.service.check_dataset_permission(
-                            dataset.id, user_id, "read"
-                        )
-                        if has_permission:
-                            filtered_datasets.append(dataset)
-                    return filtered_datasets
-            
-            return datasets
-        except Exception as e:
-            logger.error(f"Error listing datasets: {str(e)}", exc_info=True)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to retrieve datasets"
-            )
+        """
+        List datasets with filtering and pagination.
+        
+        Implementation Notes:
+        1. Call service.list_datasets with filters
+        2. If current_user provided, filter by permissions
+        3. Check read permission for each dataset
+        4. Return only permitted datasets
+        
+        Request:
+        - limit: int - Max results (default: 10)
+        - offset: int - Skip results (default: 0)
+        - name: Optional[str] - Filter by name (ILIKE)
+        - description: Optional[str] - Filter by description
+        - created_by: Optional[int] - Filter by creator
+        - tags: Optional[List[str]] - Filter by tags
+        - sort_by: Optional[str] - Sort field
+        - sort_order: Optional[str] - ASC/DESC
+        - current_user: Optional[Any] - For permission filtering
+        
+        Response:
+        - List[Dataset] - Filtered and permitted datasets
+        
+        HTTP Errors:
+        - 500: Database error
+        """
+        raise NotImplementedError()
 
     async def get_dataset(self, dataset_id: int, current_user: Any = None) -> Dataset:
-        """Get a single dataset by ID"""
-        try:
-            # Check read permission if user provided
-            if current_user:
-                user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
-                if user_id:
-                    has_permission = await self.service.check_dataset_permission(dataset_id, user_id, "read")
-                    if not has_permission:
-                        raise HTTPException(
-                            status_code=status.HTTP_403_FORBIDDEN,
-                            detail="Read permission required to view dataset"
-                        )
-            
-            result = await self.service.get_dataset(dataset_id)
-            if not result:
-                raise DatasetNotFound(dataset_id)
-            return result
-        except DatasetNotFound:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Dataset {dataset_id} not found"
-            )
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error retrieving dataset {dataset_id}: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to retrieve dataset"
-            )
+        """
+        Get a single dataset by ID.
+        
+        Implementation Notes:
+        1. Check read permission if user provided
+        2. Call service.get_dataset
+        3. Return dataset with version info
+        
+        Request:
+        - dataset_id: int
+        - current_user: Optional[Any] - For permission check
+        
+        Response:
+        - Dataset object with tags and versions
+        
+        HTTP Errors:
+        - 403: No read permission
+        - 404: Dataset not found
+        - 500: Database error
+        """
+        raise NotImplementedError()
 
     async def update_dataset(
         self,
@@ -167,102 +155,160 @@ class DatasetsController:
         data: DatasetUpdate,
         current_user: Any
     ) -> Dataset:
-        """Update dataset metadata"""
-        try:
-            # Check permission
-            user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
-            if not user_id:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="User not found"
-                )
-            
-            has_permission = await self.service.check_dataset_permission(dataset_id, user_id, "write")
-            if not has_permission:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Write permission required to update dataset"
-                )
-            
-            updated = await self.service.update_dataset(dataset_id, data)
-            if not updated:
-                raise DatasetNotFound(dataset_id)
-            return updated
-        except DatasetNotFound:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Dataset {dataset_id} not found"
-            )
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error updating dataset {dataset_id}: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to update dataset"
-            )
+        """
+        Update dataset metadata.
+        
+        Implementation Notes:
+        1. Check write permission
+        2. Call service.update_dataset
+        3. Return updated dataset
+        
+        Request:
+        - dataset_id: int
+        - data: DatasetUpdate with name/description/tags
+        - current_user: Any
+        
+        Response:
+        - Updated Dataset object
+        
+        HTTP Errors:
+        - 403: No write permission
+        - 404: Dataset not found
+        - 500: Database error
+        """
+        raise NotImplementedError()
+
+    async def delete_dataset(self, dataset_id: int, current_user: Any) -> Dict[str, Any]:
+        """
+        Delete an entire dataset (requires admin permission).
+        
+        Implementation Notes:
+        1. Check admin permission
+        2. Call service.delete_dataset
+        3. Return success message
+        
+        Request:
+        - dataset_id: int
+        - current_user: Any
+        
+        Response:
+        - {"message": "Dataset {id} deleted successfully"}
+        
+        HTTP Errors:
+        - 403: No admin permission
+        - 404: Dataset not found
+        - 500: Database error
+        """
+        raise NotImplementedError()
 
     async def list_dataset_versions(self, dataset_id: int) -> List[DatasetVersion]:
-        return await self.service.list_dataset_versions(dataset_id)
-    
+        """
+        List all versions of a dataset.
+        
+        Implementation Notes:
+        1. Call service.list_dataset_versions
+        2. Return ordered by version number DESC
+        
+        Request:
+        - dataset_id: int
+        
+        Response:
+        - List[DatasetVersion] ordered by version
+        
+        HTTP Errors:
+        - 404: Dataset not found
+        - 500: Database error
+        """
+        raise NotImplementedError()
 
     async def get_dataset_version(self, version_id: int) -> DatasetVersion:
-        version = await self.service.get_dataset_version(version_id)
-        if not version:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Version {version_id} not found"
-            )
-        return version
+        """
+        Get a single dataset version.
+        
+        Implementation Notes:
+        1. Call service.get_dataset_version
+        2. Include file metadata
+        
+        Request:
+        - version_id: int
+        
+        Response:
+        - DatasetVersion object
+        
+        HTTP Errors:
+        - 404: Version not found
+        - 500: Database error
+        """
+        raise NotImplementedError()
 
     async def get_dataset_version_file(self, version_id: int) -> File:
-        file_info = await self.service.get_dataset_version_file(version_id)
-        if not file_info:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"File for version {version_id} not found"
-            )
-        return file_info
+        """
+        Get primary file info for a version.
+        
+        Implementation Notes:
+        1. For backwards compatibility
+        2. Call service.get_dataset_version_file
+        
+        Request:
+        - version_id: int
+        
+        Response:
+        - File object
+        
+        HTTP Errors:
+        - 404: File not found
+        - 500: Database error
+        """
+        raise NotImplementedError()
 
     async def delete_dataset_version(self, version_id: int, current_user: Any) -> None:
-        # Get version to check dataset
-        version = await self.service.get_dataset_version(version_id)
-        if not version:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Version {version_id} not found"
-            )
+        """
+        Delete a dataset version.
         
-        # Check write permission
-        user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
-        if not user_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="User not found"
-            )
+        Implementation Notes:
+        1. Get version to check dataset
+        2. Check write permission on dataset
+        3. Call service.delete_dataset_version
         
-        has_permission = await self.service.check_dataset_permission(version.dataset_id, user_id, "write")
-        if not has_permission:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Write permission required to delete version"
-            )
+        Request:
+        - version_id: int
+        - current_user: Any
         
-        success = await self.service.delete_dataset_version(version_id)
-        if not success:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Version {version_id} not found"
-            )
+        HTTP Errors:
+        - 403: No write permission
+        - 404: Version not found
+        - 500: Database error
+        """
+        raise NotImplementedError()
 
     async def list_tags(self) -> List[Tag]:
-        return await self.service.list_tags()
+        """
+        List all available tags.
+        
+        Implementation Notes:
+        1. Call service.list_tags
+        2. Return with usage counts
+        
+        Response:
+        - List[Tag] with usage_count
+        """
+        raise NotImplementedError()
 
     async def list_version_sheets(self, version_id: int) -> List[SheetInfo]:
-        sheets = await self.service.list_version_sheets(version_id)
-        # The service already handles the case where the version doesn't exist and returns [].
-        # If sheets is an empty list, it will be returned as such, which is appropriate.
-        return sheets
+        """
+        List sheets for a version (legacy compatibility).
+        
+        Implementation Notes:
+        1. Call service.list_version_sheets
+        2. Return synthetic sheet info
+        
+        Request:
+        - version_id: int
+        
+        Response:
+        - List[SheetInfo] - Usually single sheet
+        """
+        raise NotImplementedError()
 
     async def get_sheet_data(
         self,
@@ -271,66 +317,94 @@ class DatasetsController:
         limit: int,
         offset: int
     ) -> Dict[str, Any]:
-        headers, rows, has_more = await self.service.get_sheet_data(
-            version_id=version_id,
-            sheet_name=sheet_name,
-            limit=limit,
-            offset=offset
-        )
-        if not headers:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Sheet not found or invalid"
-            )
-        return {
-            "headers": headers,
-            "rows": rows,
-            "has_more": has_more,
-            "offset": offset,
-            "limit": limit,
-            "total": None
+        """
+        Get paginated sheet data.
+        
+        Implementation Notes:
+        1. Call service.get_sheet_data
+        2. Format response for UI compatibility
+        
+        Request:
+        - version_id: int
+        - sheet_name: Optional[str] (ignored)
+        - limit: int
+        - offset: int
+        
+        Response:
+        {
+            "headers": List[str],
+            "rows": List[Dict],
+            "has_more": bool,
+            "offset": int,
+            "limit": int,
+            "total": null  # For compatibility
         }
+        
+        HTTP Errors:
+        - 404: Sheet not found
+        """
+        raise NotImplementedError()
 
     async def get_version_for_dataset(self, dataset_id: int, version_id: int) -> DatasetVersion:
-        version = await self.get_dataset_version(version_id)
-        if version.dataset_id != dataset_id:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Version {version_id} does not belong to dataset {dataset_id}"
-            )
-        return version
-    
+        """
+        Get version ensuring it belongs to dataset.
+        
+        Implementation Notes:
+        1. Get version by ID
+        2. Verify dataset_id matches
+        
+        Request:
+        - dataset_id: int
+        - version_id: int
+        
+        Response:
+        - DatasetVersion
+        
+        HTTP Errors:
+        - 404: Version not found or wrong dataset
+        """
+        raise NotImplementedError()
+
     async def get_schema_for_version(self, version_id: int) -> SchemaVersion:
-        """Get schema for a dataset version"""
-        try:
-            schema = await self.service.get_schema_for_version(version_id)
-            if not schema:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Schema not found for version {version_id}"
-                )
-            return schema
-        except DatasetVersionNotFound:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Version {version_id} not found"
-            )
-    
+        """
+        Get schema for a dataset version.
+        
+        Implementation Notes:
+        1. Call service.get_schema_for_version
+        2. Return schema JSON
+        
+        Request:
+        - version_id: int
+        
+        Response:
+        - SchemaVersion with column info
+        
+        HTTP Errors:
+        - 404: Schema/version not found
+        """
+        raise NotImplementedError()
+
     async def compare_version_schemas(self, version_id1: int, version_id2: int) -> Dict[str, Any]:
-        """Compare schemas between two versions"""
-        try:
-            return await self.service.compare_version_schemas(version_id1, version_id2)
-        except DatasetVersionNotFound as e:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=str(e)
-            )
-        except ValueError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(e)
-            )
-    
+        """
+        Compare schemas between two versions.
+        
+        Implementation Notes:
+        1. Call service.compare_version_schemas
+        2. Return diff summary
+        
+        Request:
+        - version_id1: int
+        - version_id2: int
+        
+        Response:
+        - Dict with columns_added, columns_removed, type_changes
+        
+        HTTP Errors:
+        - 404: Version not found
+        - 400: Versions from different datasets
+        """
+        raise NotImplementedError()
+
     async def attach_file_to_version(
         self,
         version_id: int,
@@ -339,128 +413,79 @@ class DatasetsController:
         component_name: Optional[str],
         current_user: Any
     ) -> Dict[str, Any]:
-        """Attach a file to an existing dataset version"""
-        try:
-            # Get user ID
-            user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
-            if not user_id:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="User not found in the system"
-                )
-            
-            # Get version to check dataset
-            version = await self.service.get_dataset_version(version_id)
-            if not version:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Version {version_id} not found"
-                )
-            
-            # Check write permission
-            has_permission = await self.service.check_dataset_permission(version.dataset_id, user_id, "write")
-            if not has_permission:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Write permission required to attach files"
-                )
-            
-            file_id = await self.service.attach_file_to_version(
-                version_id=version_id,
-                file=file,
-                component_type=component_type,
-                component_name=component_name,
-                user_id=user_id
-            )
-            
-            return {
-                "file_id": file_id,
-                "message": f"File attached successfully to version {version_id}"
-            }
-            
-        except DatasetVersionNotFound:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Version {version_id} not found"
-            )
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error attaching file to version {version_id}: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to attach file"
-            )
-    
+        """
+        Attach supplementary file to version.
+        
+        Implementation Notes:
+        1. Check write permission on dataset
+        2. Call service.attach_file_to_version
+        3. Return success response
+        
+        Request:
+        - version_id: int
+        - file: UploadFile
+        - component_type: str (e.g., "documentation")
+        - component_name: Optional[str]
+        - current_user: Any
+        
+        Response:
+        {
+            "file_id": int,
+            "message": "File attached successfully..."
+        }
+        
+        HTTP Errors:
+        - 403: No write permission
+        - 404: Version not found
+        - 500: Storage error
+        """
+        raise NotImplementedError()
+
     async def list_version_files(self, version_id: int) -> List[VersionFile]:
-        """List all files attached to a version"""
-        try:
-            return await self.service.list_version_files(version_id)
-        except DatasetVersionNotFound:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Version {version_id} not found"
-            )
-    
+        """
+        List all files attached to a version.
+        
+        Implementation Notes:
+        1. Call service.list_version_files
+        2. Include file metadata
+        
+        Request:
+        - version_id: int
+        
+        Response:
+        - List[VersionFile] with file details
+        
+        HTTP Errors:
+        - 404: Version not found
+        """
+        raise NotImplementedError()
+
     async def get_version_file(
         self,
         version_id: int,
         component_type: str,
         component_name: Optional[str] = None
     ) -> VersionFile:
-        """Get a specific file from a version"""
-        try:
-            version_file = await self.service.get_version_file(
-                version_id=version_id,
-                component_type=component_type,
-                component_name=component_name
-            )
-            if not version_file:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"File with component type '{component_type}' not found in version {version_id}"
-                )
-            return version_file
-        except DatasetVersionNotFound:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Version {version_id} not found"
-            )
-    
-    
-    async def delete_dataset(self, dataset_id: int, current_user: Any) -> Dict[str, Any]:
-        """Delete an entire dataset (requires admin permission)"""
-        # Check admin permission
-        user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
-        if not user_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="User not found"
-            )
+        """
+        Get specific file from version.
         
-        has_permission = await self.service.check_dataset_permission(dataset_id, user_id, "admin")
-        if not has_permission:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Admin permission required to delete dataset"
-            )
+        Implementation Notes:
+        1. Call service.get_version_file
+        2. Match by component type/name
         
-        try:
-            success = await self.service.delete_dataset(dataset_id)
-            if not success:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Dataset {dataset_id} not found"
-                )
-            return {
-                "message": f"Dataset {dataset_id} deleted successfully"
-            }
-        except DatasetNotFound:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Dataset {dataset_id} not found"
-            )
-    
+        Request:
+        - version_id: int
+        - component_type: str
+        - component_name: Optional[str]
+        
+        Response:
+        - VersionFile with file object
+        
+        HTTP Errors:
+        - 404: File/version not found
+        """
+        raise NotImplementedError()
+
     # Version tag operations
     async def create_version_tag(
         self,
@@ -469,267 +494,228 @@ class DatasetsController:
         version_id: int,
         current_user: Any
     ) -> Dict[str, Any]:
-        """Create a version tag"""
-        # Check permissions
-        user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
-        if not user_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="User not found"
-            )
+        """
+        Create a version tag.
         
-        has_permission = await self.service.check_dataset_permission(dataset_id, user_id, "write")
-        if not has_permission:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Write permission required to create version tags"
-            )
+        Implementation Notes:
+        1. Check write permission
+        2. Call service.create_version_tag
+        3. Handle duplicate tag error
         
-        try:
-            tag_id = await self.service.create_version_tag(dataset_id, tag_name, version_id)
-            return {
-                "id": tag_id,
-                "dataset_id": dataset_id,
-                "tag_name": tag_name,
-                "dataset_version_id": version_id
-            }
-        except DatasetNotFound:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Dataset {dataset_id} not found"
-            )
-        except DatasetVersionNotFound:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Version {version_id} not found"
-            )
-        except Exception as e:
-            if "duplicate key" in str(e).lower():
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=f"Tag '{tag_name}' already exists for this dataset"
-                )
-            raise
-    
+        Request:
+        - dataset_id: int
+        - tag_name: str (e.g., "production")
+        - version_id: int
+        - current_user: Any
+        
+        Response:
+        {
+            "id": int,
+            "dataset_id": int,
+            "tag_name": str,
+            "dataset_version_id": int
+        }
+        
+        HTTP Errors:
+        - 403: No write permission
+        - 404: Dataset/version not found
+        - 409: Tag already exists
+        """
+        raise NotImplementedError()
+
     async def get_version_tag(
         self,
         dataset_id: int,
         tag_name: str,
         current_user: Any
     ) -> VersionTag:
-        """Get a version tag by name"""
-        # Check permissions
-        user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
-        if not user_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="User not found"
-            )
+        """
+        Get version tag by name.
         
-        has_permission = await self.service.check_dataset_permission(dataset_id, user_id, "read")
-        if not has_permission:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Read permission required to view version tags"
-            )
+        Implementation Notes:
+        1. Check read permission
+        2. Call service.get_version_tag
         
-        tag = await self.service.get_version_tag(dataset_id, tag_name)
-        if not tag:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Tag '{tag_name}' not found for dataset {dataset_id}"
-            )
+        Request:
+        - dataset_id: int
+        - tag_name: str
+        - current_user: Any
         
-        return tag
-    
+        Response:
+        - VersionTag object
+        
+        HTTP Errors:
+        - 403: No read permission
+        - 404: Tag not found
+        """
+        raise NotImplementedError()
+
     async def list_version_tags(
         self,
         dataset_id: int,
         current_user: Any
     ) -> List[VersionTag]:
-        """List all version tags for a dataset"""
-        # Check permissions
-        user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
-        if not user_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="User not found"
-            )
+        """
+        List all version tags for dataset.
         
-        has_permission = await self.service.check_dataset_permission(dataset_id, user_id, "read")
-        if not has_permission:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Read permission required to view version tags"
-            )
+        Implementation Notes:
+        1. Check read permission
+        2. Call service.list_version_tags
         
-        try:
-            return await self.service.list_version_tags(dataset_id)
-        except DatasetNotFound:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Dataset {dataset_id} not found"
-            )
-    
+        Request:
+        - dataset_id: int
+        - current_user: Any
+        
+        Response:
+        - List[VersionTag]
+        
+        HTTP Errors:
+        - 403: No read permission
+        - 404: Dataset not found
+        """
+        raise NotImplementedError()
+
     async def delete_version_tag(
         self,
         dataset_id: int,
         tag_name: str,
         current_user: Any
     ) -> Dict[str, str]:
-        """Delete a version tag"""
-        # Check permissions
-        user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
-        if not user_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="User not found"
-            )
+        """
+        Delete a version tag.
         
-        has_permission = await self.service.check_dataset_permission(dataset_id, user_id, "write")
-        if not has_permission:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Write permission required to delete version tags"
-            )
+        Implementation Notes:
+        1. Check write permission
+        2. Call service.delete_version_tag
         
-        success = await self.service.delete_version_tag(dataset_id, tag_name)
-        if not success:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Tag '{tag_name}' not found for dataset {dataset_id}"
-            )
+        Request:
+        - dataset_id: int
+        - tag_name: str
+        - current_user: Any
         
-        return {"message": f"Tag '{tag_name}' deleted successfully"}
-    
+        Response:
+        - {"message": "Tag '{name}' deleted successfully"}
+        
+        HTTP Errors:
+        - 403: No write permission
+        - 404: Tag not found
+        """
+        raise NotImplementedError()
+
     # Advanced versioning operations
     async def create_version_from_changes(
         self,
+        dataset_id: int,
         request: VersionCreateRequest,
         current_user: Any
     ) -> VersionCreateResponse:
-        """Create a new version using overlay-based file changes"""
-        # Check permission
-        user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
-        if not user_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="User not found"
-            )
+        """
+        Create new version from overlay changes.
         
-        has_permission = await self.service.check_dataset_permission(request.dataset_id, user_id, "write")
-        if not has_permission:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Write permission required to create versions"
-            )
+        Implementation Notes:
+        1. Check write permission
+        2. Validate request.changes format
+        3. Call service.create_version_from_changes
+        4. Transform response maintaining same structure
+        5. Include backwards-compatible version_number
         
-        try:
-            return await self.service.create_version_from_changes(request, user_id)
-        except DatasetNotFound:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Dataset {request.dataset_id} not found"
-            )
-        except Exception as e:
-            logger.error(f"Error creating version: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to create version"
-            )
-    
+        Request:
+        - dataset_id: int
+        - request: VersionCreateRequest with:
+          - parent_version: Optional[int]
+          - file_changes: List[OverlayFileAction]
+          - message: str
+        - current_user: Any
+        
+        Response:
+        - VersionCreateResponse with version_id, version_number
+        
+        HTTP Errors:
+        - 403: No write permission
+        - 404: Dataset not found
+        - 500: Creation failed
+        """
+        raise NotImplementedError()
+
     async def get_latest_version(
         self,
         dataset_id: int,
         current_user: Any
     ) -> DatasetVersion:
-        """Get the latest version of a dataset"""
-        # Check permission
-        user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
-        if not user_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="User not found"
-            )
+        """
+        Get latest version of dataset.
         
-        has_permission = await self.service.check_dataset_permission(dataset_id, user_id, "read")
-        if not has_permission:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Read permission required to view versions"
-            )
+        Implementation Notes:
+        1. Check read permission
+        2. Call service.get_latest_version
         
-        version = await self.service.get_latest_version(dataset_id)
-        if not version:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"No versions found for dataset {dataset_id}"
-            )
+        Request:
+        - dataset_id: int
+        - current_user: Any
         
-        return version
-    
+        Response:
+        - DatasetVersion (latest)
+        
+        HTTP Errors:
+        - 403: No read permission
+        - 404: No versions found
+        """
+        raise NotImplementedError()
+
     async def get_version_by_number(
         self,
         dataset_id: int,
         version_number: int,
         current_user: Any
     ) -> DatasetVersion:
-        """Get a version by its number"""
-        # Check permission
-        user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
-        if not user_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="User not found"
-            )
+        """
+        Get version by number.
         
-        has_permission = await self.service.check_dataset_permission(dataset_id, user_id, "read")
-        if not has_permission:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Read permission required to view versions"
-            )
+        Implementation Notes:
+        1. Check read permission
+        2. Call service.get_dataset_version_by_number
         
-        version = await self.service.get_dataset_version_by_number(dataset_id, version_number)
-        if not version:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Version {version_number} not found for dataset {dataset_id}"
-            )
+        Request:
+        - dataset_id: int
+        - version_number: int
+        - current_user: Any
         
-        return version
-    
+        Response:
+        - DatasetVersion
+        
+        HTTP Errors:
+        - 403: No read permission
+        - 404: Version not found
+        """
+        raise NotImplementedError()
+
     async def get_version_by_tag(
         self,
         dataset_id: int,
         tag_name: str,
         current_user: Any
     ) -> DatasetVersion:
-        """Get a version by its tag"""
-        # Check permission
-        user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
-        if not user_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="User not found"
-            )
+        """
+        Get version by tag name.
         
-        has_permission = await self.service.check_dataset_permission(dataset_id, user_id, "read")
-        if not has_permission:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Read permission required to view versions"
-            )
+        Implementation Notes:
+        1. Check read permission
+        2. Call service.get_version_by_tag
         
-        version = await self.service.get_version_by_tag(dataset_id, tag_name)
-        if not version:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Version with tag '{tag_name}' not found for dataset {dataset_id}"
-            )
+        Request:
+        - dataset_id: int
+        - tag_name: str
+        - current_user: Any
         
-        return version
-    
+        Response:
+        - DatasetVersion
+        
+        HTTP Errors:
+        - 403: No read permission
+        - 404: Tag not found
+        """
+        raise NotImplementedError()
+
     # Statistics operations
     async def get_version_statistics(
         self,
@@ -737,79 +723,54 @@ class DatasetsController:
         version_id: int,
         current_user: Any
     ) -> Dict[str, Any]:
-        """Get pre-computed statistics for a dataset version"""
-        # Check read permission
-        user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
-        if not user_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="User not found"
-            )
+        """
+        Get pre-computed statistics for version.
         
-        has_permission = await self.service.check_dataset_permission(dataset_id, user_id, "read")
-        if not has_permission:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Read permission required to view statistics"
-            )
+        Implementation Notes:
+        1. Check read permission
+        2. Verify version belongs to dataset
+        3. Call service.get_version_statistics
         
-        # Verify version belongs to dataset
-        version = await self.service.get_dataset_version(version_id)
-        if not version or version.dataset_id != dataset_id:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Version {version_id} not found for dataset {dataset_id}"
-            )
+        Request:
+        - dataset_id: int
+        - version_id: int
+        - current_user: Any
         
-        # Get statistics
-        stats = await self.service.get_version_statistics(version_id)
-        if not stats:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Statistics not found for this version. They may still be calculating."
-            )
+        Response:
+        - Dict with row_count, column_count, statistics
         
-        return stats
-    
+        HTTP Errors:
+        - 403: No read permission
+        - 404: Statistics/version not found
+        """
+        raise NotImplementedError()
+
     async def get_latest_statistics(
         self,
         dataset_id: int,
         current_user: Any
     ) -> Dict[str, Any]:
-        """Get statistics for the latest version of a dataset"""
-        # Check read permission
-        user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
-        if not user_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="User not found"
-            )
+        """
+        Get statistics for latest version.
         
-        has_permission = await self.service.check_dataset_permission(dataset_id, user_id, "read")
-        if not has_permission:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Read permission required to view statistics"
-            )
+        Implementation Notes:
+        1. Check read permission
+        2. Get latest version
+        3. Get its statistics
         
-        # Get latest version
-        latest_version = await self.service.get_latest_version(dataset_id)
-        if not latest_version:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"No versions found for dataset {dataset_id}"
-            )
+        Request:
+        - dataset_id: int
+        - current_user: Any
         
-        # Get statistics
-        stats = await self.service.get_version_statistics(latest_version.id)
-        if not stats:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Statistics not found for the latest version. They may still be calculating."
-            )
+        Response:
+        - Dict with statistics
         
-        return stats
-    
+        HTTP Errors:
+        - 403: No read permission
+        - 404: No versions/statistics
+        """
+        raise NotImplementedError()
+
     async def refresh_version_statistics(
         self,
         dataset_id: int,
@@ -818,40 +779,32 @@ class DatasetsController:
         sample_size: Optional[int],
         current_user: Any
     ) -> Dict[str, Any]:
-        """Refresh statistics for a dataset version"""
-        # Check write permission (since this modifies data)
-        user_id = await self.service.get_user_id_from_soeid(current_user.soeid)
-        if not user_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="User not found"
-            )
+        """
+        Refresh statistics for a version.
         
-        has_permission = await self.service.check_dataset_permission(dataset_id, user_id, "write")
-        if not has_permission:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Write permission required to refresh statistics"
-            )
+        Implementation Notes:
+        1. Check write permission
+        2. Verify version belongs to dataset
+        3. Call service.refresh_version_statistics
+        4. Return job status
         
-        # Verify version belongs to dataset
-        version = await self.service.get_dataset_version(version_id)
-        if not version or version.dataset_id != dataset_id:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Version {version_id} not found for dataset {dataset_id}"
-            )
+        Request:
+        - dataset_id: int
+        - version_id: int
+        - detailed: bool
+        - sample_size: Optional[int]
+        - current_user: Any
         
-        try:
-            result = await self.service.refresh_version_statistics(
-                version_id=version_id,
-                detailed=detailed,
-                sample_size=sample_size,
-                user_id=user_id
-            )
-            return result
-        except FileProcessingError as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=str(e)
-            )
+        Response:
+        {
+            "message": "Statistics refresh completed",
+            "analysis_run_id": int,
+            "status": "completed"
+        }
+        
+        HTTP Errors:
+        - 403: No write permission
+        - 404: Version not found
+        - 500: Processing error
+        """
+        raise NotImplementedError()

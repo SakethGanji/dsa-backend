@@ -1,3 +1,4 @@
+"""Database repository for sampling jobs - HOLLOWED OUT FOR BACKEND RESET"""
 from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime
 import json
@@ -13,6 +14,7 @@ class SamplingDBRepository:
     Database repository for sampling jobs using the analysis_runs table.
     
     This replaces the in-memory repository with persistent storage.
+    Works with the Git-like dataset versioning system.
     """
     
     def __init__(self, session: AsyncSession):
@@ -25,7 +27,42 @@ class SamplingDBRepository:
         request: MultiRoundSamplingRequest
     ) -> int:
         """
-        Create a new analysis run for multi-round sampling
+        Create a new analysis run for multi-round sampling.
+        
+        Implementation Notes:
+        1. Map dataset_version_id to commit_id
+        2. Create analysis_run record
+        3. Store request config in run_parameters JSONB
+        4. Set initial status to 'pending'
+        5. Return generated run ID
+        
+        SQL:
+        INSERT INTO analysis_runs (
+            dataset_version_id,
+            user_id,
+            analysis_type,
+            run_parameters,
+            status,
+            run_timestamp
+        )
+        VALUES (
+            :dataset_version_id,
+            :user_id,
+            'multi_round_sampling',
+            :run_parameters::jsonb,
+            'pending',
+            NOW()
+        )
+        RETURNING id;
+        
+        run_parameters structure:
+        {
+            "request": {...},  # Full MultiRoundSamplingRequest
+            "total_rounds": 3,
+            "completed_rounds": 0,
+            "round_results": [],
+            "job_type": "multi_round_sampling"
+        }
         
         Args:
             dataset_version_id: The dataset version to sample from
@@ -35,48 +72,7 @@ class SamplingDBRepository:
         Returns:
             The ID of the created analysis run
         """
-        # Prepare the run parameters with the full request configuration
-        run_parameters = {
-            "request": request.dict(),
-            "total_rounds": len(request.rounds),
-            "completed_rounds": 0,
-            "round_results": [],
-            "job_type": "multi_round_sampling"
-        }
-        
-        query = sa.text("""
-            INSERT INTO analysis_runs (
-                dataset_version_id,
-                user_id,
-                run_type,
-                run_parameters,
-                status,
-                run_timestamp
-            )
-            VALUES (
-                :dataset_version_id,
-                :user_id,
-                CAST('sampling' AS analysis_run_type),
-                :run_parameters,
-                CAST('pending' AS analysis_run_status),
-                NOW()
-            )
-            RETURNING id;
-        """)
-        
-        values = {
-            "dataset_version_id": dataset_version_id,
-            "user_id": user_id,
-            "run_parameters": json.dumps(run_parameters)
-        }
-        
-        result = await self.session.execute(query, values)
-        await self.session.commit()
-        
-        run_id = result.scalar_one()
-        logger.info(f"Created analysis run {run_id} for multi-round sampling")
-        
-        return run_id
+        raise NotImplementedError()
     
     async def update_analysis_run(
         self,
@@ -89,7 +85,22 @@ class SamplingDBRepository:
         run_parameters_update: Optional[dict] = None
     ) -> None:
         """
-        Update an existing analysis run
+        Update an existing analysis run.
+        
+        Implementation Notes:
+        1. Build dynamic UPDATE query
+        2. Use JSONB merge operator || for run_parameters
+        3. Update only provided fields
+        4. Commit transaction
+        
+        SQL Example:
+        UPDATE analysis_runs
+        SET status = 'completed',
+            output_file_id = 123,
+            output_summary = :summary::jsonb,
+            execution_time_ms = 5000,
+            run_parameters = run_parameters || :updates::jsonb
+        WHERE id = :run_id;
         
         Args:
             run_id: The ID of the run to update
@@ -100,54 +111,42 @@ class SamplingDBRepository:
             execution_time_ms: Execution time in milliseconds
             run_parameters_update: Updates to merge into run_parameters
         """
-        # Build dynamic update query
-        update_fields = []
-        values = {"run_id": run_id}
-        
-        if status is not None:
-            update_fields.append("status = CAST(:status AS analysis_run_status)")
-            values["status"] = status
-            
-        if output_file_id is not None:
-            update_fields.append("output_file_id = :output_file_id")
-            values["output_file_id"] = output_file_id
-            
-        if output_summary is not None:
-            update_fields.append("output_summary = :output_summary")
-            values["output_summary"] = json.dumps(output_summary)
-            
-        if notes is not None:
-            update_fields.append("notes = :notes")
-            values["notes"] = notes
-            
-        if execution_time_ms is not None:
-            update_fields.append("execution_time_ms = :execution_time_ms")
-            values["execution_time_ms"] = execution_time_ms
-            
-        if run_parameters_update is not None:
-            # Merge updates into existing run_parameters
-            update_fields.append("""
-                run_parameters = run_parameters || :run_parameters_update
-            """)
-            values["run_parameters_update"] = json.dumps(run_parameters_update)
-        
-        if not update_fields:
-            return
-            
-        query = sa.text(f"""
-            UPDATE analysis_runs
-            SET {', '.join(update_fields)}
-            WHERE id = :run_id;
-        """)
-        
-        await self.session.execute(query, values)
-        await self.session.commit()
-        
-        logger.info(f"Updated analysis run {run_id}")
+        raise NotImplementedError()
     
     async def get_analysis_run(self, run_id: int) -> Optional[dict]:
         """
-        Get an analysis run by ID
+        Get an analysis run by ID.
+        
+        Implementation Notes:
+        1. Query analysis_runs with joins
+        2. Include dataset info from dataset_versions
+        3. Include output file path if completed
+        4. Filter by analysis_type for sampling
+        
+        SQL:
+        SELECT 
+            ar.id,
+            ar.dataset_version_id,
+            ar.user_id,
+            ar.analysis_type,
+            ar.run_parameters,
+            ar.status,
+            ar.run_timestamp,
+            ar.execution_time_ms,
+            ar.notes,
+            ar.output_file_id,
+            ar.output_summary,
+            dv.dataset_id,
+            f.file_path as output_file_path
+        FROM 
+            analysis_runs ar
+        JOIN 
+            dataset_versions dv ON ar.dataset_version_id = dv.id
+        LEFT JOIN
+            files f ON ar.output_file_id = f.id
+        WHERE 
+            ar.id = :run_id
+            AND ar.analysis_type IN ('sampling', 'multi_round_sampling');
         
         Args:
             run_id: The ID of the run to retrieve
@@ -155,53 +154,7 @@ class SamplingDBRepository:
         Returns:
             Dictionary with run data or None if not found
         """
-        query = sa.text("""
-            SELECT 
-                ar.id,
-                ar.dataset_version_id,
-                ar.user_id,
-                ar.run_type,
-                ar.run_parameters,
-                ar.status,
-                ar.run_timestamp,
-                ar.execution_time_ms,
-                ar.notes,
-                ar.output_file_id,
-                ar.output_summary,
-                dv.dataset_id,
-                f.file_path as output_file_path
-            FROM 
-                analysis_runs ar
-            JOIN 
-                dataset_versions dv ON ar.dataset_version_id = dv.id
-            LEFT JOIN
-                files f ON ar.output_file_id = f.id
-            WHERE 
-                ar.id = :run_id
-                AND ar.run_type = 'sampling';
-        """)
-        
-        result = await self.session.execute(query, {"run_id": run_id})
-        row = result.fetchone()
-        
-        if not row:
-            return None
-            
-        return {
-            "id": row.id,
-            "dataset_id": row.dataset_id,
-            "dataset_version_id": row.dataset_version_id,
-            "user_id": row.user_id,
-            "run_type": row.run_type,
-            "run_parameters": row.run_parameters,
-            "status": row.status,
-            "run_timestamp": row.run_timestamp,
-            "execution_time_ms": row.execution_time_ms,
-            "notes": row.notes,
-            "output_file_id": row.output_file_id,
-            "output_file_path": row.output_file_path,
-            "output_summary": row.output_summary
-        }
+        raise NotImplementedError()
     
     async def list_analysis_runs(
         self,
@@ -299,10 +252,22 @@ class SamplingDBRepository:
         Get all jobs that are currently running.
         Used for recovery after server restart.
         
+        Implementation Notes:
+        1. Query for status='running' jobs
+        2. Filter by sampling analysis types
+        3. Order by run_timestamp to prioritize older jobs
+        4. Return all running jobs for recovery
+        
+        SQL:
+        SELECT * FROM analysis_runs
+        WHERE status = 'running'
+          AND analysis_type IN ('sampling', 'multi_round_sampling')
+        ORDER BY run_timestamp ASC;
+        
         Returns:
             List of running analysis runs
         """
-        return await self.list_analysis_runs(status="running", limit=1000)
+        raise NotImplementedError()
     
     async def update_round_progress(
         self,
@@ -312,7 +277,27 @@ class SamplingDBRepository:
         round_results: List[dict]
     ) -> None:
         """
-        Update the progress of multi-round sampling
+        Update the progress of multi-round sampling.
+        
+        Implementation Notes:
+        1. Update run_parameters JSONB with progress
+        2. Store round results for UI display
+        3. Use JSONB merge to preserve other fields
+        
+        Updates these fields in run_parameters:
+        {
+            "current_round": 2,
+            "completed_rounds": 1,
+            "round_results": [
+                {
+                    "round_number": 1,
+                    "method": "random",
+                    "sample_size": 1000,
+                    "output_uri": "file://...",
+                    "completed_at": "2024-01-01T00:00:00Z"
+                }
+            ]
+        }
         
         Args:
             run_id: The analysis run ID
@@ -320,16 +305,7 @@ class SamplingDBRepository:
             completed_rounds: Number of completed rounds
             round_results: Results from completed rounds
         """
-        run_parameters_update = {
-            "current_round": current_round,
-            "completed_rounds": completed_rounds,
-            "round_results": round_results
-        }
-        
-        await self.update_analysis_run(
-            run_id=run_id,
-            run_parameters_update=run_parameters_update
-        )
+        raise NotImplementedError()
     
     async def get_samplings_by_user(
         self,
@@ -439,7 +415,13 @@ class SamplingDBRepository:
         offset: int = 0
     ) -> Tuple[List[dict], int]:
         """
-        Get all sampling runs for a specific dataset (across all versions)
+        Get all sampling runs for a specific dataset (across all versions).
+        
+        Implementation Notes:
+        1. Join analysis_runs with dataset_versions
+        2. Filter by dataset_id through the join
+        3. Include version info in results
+        4. Show samplings across all commits/versions
         
         Args:
             dataset_id: The dataset ID to filter by
@@ -449,90 +431,7 @@ class SamplingDBRepository:
         Returns:
             Tuple of (list of sampling runs, total count)
         """
-        # Count total matching records
-        count_query = sa.text("""
-            SELECT COUNT(*) as total
-            FROM analysis_runs ar
-            JOIN dataset_versions dv ON ar.dataset_version_id = dv.id
-            WHERE ar.run_type = 'sampling'
-                AND dv.dataset_id = :dataset_id;
-        """)
-        
-        count_result = await self.session.execute(count_query, {"dataset_id": dataset_id})
-        total_count = count_result.scalar()
-        
-        # Get paginated results
-        query = sa.text("""
-            SELECT 
-                ar.id,
-                ar.dataset_version_id,
-                ar.user_id,
-                ar.run_type,
-                ar.run_parameters,
-                ar.status,
-                ar.run_timestamp,
-                ar.execution_time_ms,
-                ar.notes,
-                ar.output_file_id,
-                ar.output_summary,
-                dv.dataset_id,
-                d.name as dataset_name,
-                dv.version_number,
-                u.soeid as user_soeid,
-                f.file_path as output_file_path,
-                f.file_size as output_file_size
-            FROM 
-                analysis_runs ar
-            JOIN 
-                dataset_versions dv ON ar.dataset_version_id = dv.id
-            JOIN
-                datasets d ON dv.dataset_id = d.id
-            LEFT JOIN
-                users u ON ar.user_id = u.id
-            LEFT JOIN
-                files f ON ar.output_file_id = f.id
-            WHERE 
-                ar.run_type = 'sampling'
-                AND dv.dataset_id = :dataset_id
-            ORDER BY 
-                ar.run_timestamp DESC
-            LIMIT :limit
-            OFFSET :offset;
-        """)
-        
-        values = {
-            "dataset_id": dataset_id,
-            "limit": limit,
-            "offset": offset
-        }
-        
-        result = await self.session.execute(query, values)
-        rows = result.fetchall()
-        
-        runs = [
-            {
-                "id": row.id,
-                "dataset_id": row.dataset_id,
-                "dataset_name": row.dataset_name,
-                "dataset_version_id": row.dataset_version_id,
-                "version_number": row.version_number,
-                "user_id": row.user_id,
-                "user_soeid": row.user_soeid,
-                "run_type": row.run_type,
-                "run_parameters": row.run_parameters,
-                "status": row.status,
-                "run_timestamp": row.run_timestamp,
-                "execution_time_ms": row.execution_time_ms,
-                "notes": row.notes,
-                "output_file_id": row.output_file_id,
-                "output_file_path": row.output_file_path,
-                "output_file_size": row.output_file_size,
-                "output_summary": row.output_summary
-            }
-            for row in rows
-        ]
-        
-        return runs, total_count
+        raise NotImplementedError()
     
     async def get_samplings_by_dataset_version(
         self,
@@ -642,7 +541,13 @@ class SamplingDBRepository:
         offset: int = 0
     ) -> Tuple[List[dict], int]:
         """
-        Get all sampling runs for a specific dataset (across all versions)
+        Get all sampling runs for a specific dataset (across all versions).
+        
+        Implementation Notes:
+        1. Join analysis_runs with dataset_versions
+        2. Filter by dataset_id through the join
+        3. Include version info in results
+        4. Show samplings across all commits/versions
         
         Args:
             dataset_id: The dataset ID to filter by
@@ -652,87 +557,4 @@ class SamplingDBRepository:
         Returns:
             Tuple of (list of sampling runs, total count)
         """
-        # Count total matching records
-        count_query = sa.text("""
-            SELECT COUNT(*) as total
-            FROM analysis_runs ar
-            JOIN dataset_versions dv ON ar.dataset_version_id = dv.id
-            WHERE ar.run_type = 'sampling'
-                AND dv.dataset_id = :dataset_id;
-        """)
-        
-        count_result = await self.session.execute(count_query, {"dataset_id": dataset_id})
-        total_count = count_result.scalar()
-        
-        # Get paginated results
-        query = sa.text("""
-            SELECT 
-                ar.id,
-                ar.dataset_version_id,
-                ar.user_id,
-                ar.run_type,
-                ar.run_parameters,
-                ar.status,
-                ar.run_timestamp,
-                ar.execution_time_ms,
-                ar.notes,
-                ar.output_file_id,
-                ar.output_summary,
-                dv.dataset_id,
-                d.name as dataset_name,
-                dv.version_number,
-                u.soeid as user_soeid,
-                f.file_path as output_file_path,
-                f.file_size as output_file_size
-            FROM 
-                analysis_runs ar
-            JOIN 
-                dataset_versions dv ON ar.dataset_version_id = dv.id
-            JOIN
-                datasets d ON dv.dataset_id = d.id
-            LEFT JOIN
-                users u ON ar.user_id = u.id
-            LEFT JOIN
-                files f ON ar.output_file_id = f.id
-            WHERE 
-                ar.run_type = 'sampling'
-                AND dv.dataset_id = :dataset_id
-            ORDER BY 
-                ar.run_timestamp DESC
-            LIMIT :limit
-            OFFSET :offset;
-        """)
-        
-        values = {
-            "dataset_id": dataset_id,
-            "limit": limit,
-            "offset": offset
-        }
-        
-        result = await self.session.execute(query, values)
-        rows = result.fetchall()
-        
-        runs = [
-            {
-                "id": row.id,
-                "dataset_id": row.dataset_id,
-                "dataset_name": row.dataset_name,
-                "dataset_version_id": row.dataset_version_id,
-                "version_number": row.version_number,
-                "user_id": row.user_id,
-                "user_soeid": row.user_soeid,
-                "run_type": row.run_type,
-                "run_parameters": row.run_parameters,
-                "status": row.status,
-                "run_timestamp": row.run_timestamp,
-                "execution_time_ms": row.execution_time_ms,
-                "notes": row.notes,
-                "output_file_id": row.output_file_id,
-                "output_file_path": row.output_file_path,
-                "output_file_size": row.output_file_size,
-                "output_summary": row.output_summary
-            }
-            for row in rows
-        ]
-        
-        return runs, total_count
+        raise NotImplementedError()

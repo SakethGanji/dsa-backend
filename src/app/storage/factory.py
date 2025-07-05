@@ -18,16 +18,44 @@ class StorageFactory:
     def register_backend(cls, name: str, backend_class: Type[StorageBackend]) -> None:
         """Register a new storage backend type.
         
+        Implementation Notes:
+        In new Git-like system:
+        1. Validate backend implements required methods
+        2. Register in _backends dict
+        3. Log registration for debugging
+        4. Consider adding S3/cloud backends later
+        
+        Current backends:
+        - local: LocalStorageBackend for file operations
+        - Future: S3Backend, AzureBackend, etc.
+        
         Args:
             name: Name identifier for the backend
             backend_class: The backend class to register
         """
-        cls._backends[name] = backend_class
+        raise NotImplementedError("Implement backend registration")
     
     @classmethod
     def create(cls, backend_type: str = "local", **kwargs) -> StorageBackend:
         """Create a storage backend instance.
         
+        Implementation Notes:
+        1. Validate backend_type exists
+        2. Get backend class from registry
+        3. Pass configuration kwargs
+        4. Initialize backend with Git-like system support
+        
+        Configuration per backend:
+        - local: base_path for file storage
+        - future S3: bucket, prefix, credentials
+        
+        Example:
+        backend = StorageFactory.create(
+            "local",
+            base_path="/data",
+            enable_compression=True
+        )
+        
         Args:
             backend_type: Type of backend to create
             **kwargs: Arguments to pass to the backend constructor
@@ -35,16 +63,29 @@ class StorageFactory:
         Returns:
             StorageBackend instance
         """
-        if backend_type not in cls._backends:
-            raise ValueError(f"Unknown backend type: {backend_type}")
-        
-        backend_class = cls._backends[backend_type]
-        return backend_class(**kwargs)
+        raise NotImplementedError("Implement backend creation")
     
     @classmethod
     def get_instance(cls, backend_type: str = "local", **kwargs) -> StorageBackend:
         """Get a singleton instance of the storage backend.
         
+        Implementation Notes:
+        1. Check if instance exists and matches type
+        2. Create new instance if needed
+        3. Handle default configuration
+        4. Store singleton reference
+        
+        Default configurations:
+        - local: /data directory relative to project root
+        - Samples: /data/samples/
+        - Temporary: /data/temp/
+        - Export cache: /data/export/
+        
+        Singleton behavior:
+        - Reuses instance if backend_type matches
+        - Creates new if type changes
+        - Thread-safe initialization needed
+        
         Args:
             backend_type: Type of backend to create
             **kwargs: Arguments to pass to the backend constructor
@@ -52,21 +93,21 @@ class StorageFactory:
         Returns:
             StorageBackend instance
         """
-        if cls._instance is None or cls._backend_type != backend_type:
-            # Default to local data directory if not specified
-            if backend_type == "local" and "base_path" not in kwargs:
-                import os
-                # Use relative path from project root
-                base_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
-                kwargs["base_path"] = base_path
-            
-            cls._instance = cls.create(backend_type, **kwargs)
-            cls._backend_type = backend_type
-        
-        return cls._instance
+        raise NotImplementedError("Implement singleton pattern")
     
     @classmethod
     def reset(cls) -> None:
-        """Reset the singleton instance."""
-        cls._instance = None
-        cls._backend_type = None
+        """Reset the singleton instance.
+        
+        Implementation Notes:
+        1. Clear singleton instance
+        2. Reset backend type
+        3. Clean up any resources
+        4. Used mainly for testing
+        
+        Usage:
+        - Test teardown
+        - Configuration changes
+        - Backend switching
+        """
+        raise NotImplementedError("Implement singleton reset")

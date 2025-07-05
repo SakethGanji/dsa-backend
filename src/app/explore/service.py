@@ -1,16 +1,10 @@
+"""Service for dataset exploration - HOLLOWED OUT FOR BACKEND RESET"""
 import pandas as pd
 import logging
-import numpy as np
-from io import BytesIO
 from typing import Dict, List, Optional, Any, Tuple
 from app.explore.models import ProfileFormat
 from app.storage.backend import StorageBackend
-from ydata_profiling import ProfileReport
-import matplotlib
-matplotlib.use('Agg')  # Set non-interactive backend for matplotlib
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class ExploreService:
@@ -21,229 +15,246 @@ class ExploreService:
     async def explore_dataset(
         self,
         dataset_id: int,
-        version_id: int,
-        request,
-        user_id: int
+        version_id: int, 
+        params: ExploreRequest
     ) -> Dict[str, Any]:
         """
-        Load a dataset and generate a profile report
-
-        NOTE: This operation can be time-consuming for large datasets.
-        The profiling especially can take considerable time even with minimal=True.
+        Generate profile report for dataset commit.
+        
+        Implementation Notes:
+        1. Map version_id to commit_id
+        2. Load commit data into pandas DataFrame
+        3. Apply sampling if needed (>threshold)
+        4. Generate profile using ydata-profiling
+        5. Return HTML or JSON report
+        
+        Note: Consider memory limits for large commits
+        
+        Request:
+        - dataset_id: int
+        - version_id: int - Version to explore
+        - params: ExploreRequest containing:
+          - format: ProfileFormat (HTML/JSON)
+          - sample_size: Optional[int]
+          - sampling_method: str - "random", "systematic", "stratified"
+          - auto_sample_threshold: int - Auto-sample if larger
+          - run_profiling: bool - Whether to run full profiling
+          - sheet: Optional[str] - Legacy compatibility
+        
+        Response:
+        - Dict containing:
+          - profile: Profile report (if run_profiling=True)
+          - summary: Basic dataset info
+          - sampling_info: Sampling details if applied
+          - format: "html" or "json"
         """
-        try:
-            # Validate dataset and version
-            version, file_info = await self._validate_and_get_data(dataset_id, version_id)
-            
-            # Load file into pandas DataFrame
-            df = self._load_dataframe(file_info, request.sheet)
-            original_row_count = len(df)
-            logger.info(f"Loaded DataFrame with {original_row_count} rows and {len(df.columns)} columns")
-            
-            # Apply sampling if needed
-            sampled_df, sampling_info = self._apply_sampling(df, request)
-            
-            # Generate response
-            return self._create_response(sampled_df, request, sampling_info, original_row_count)
-            
-        except ValueError as e:
-            # Specific error handling for validation errors
-            logger.warning(f"Validation error in explore_dataset: {str(e)}")
-            raise
-        except Exception as e:
-            # General error handling
-            logger.error(f"Error in explore_dataset: {str(e)}", exc_info=True)
-            raise
+        raise NotImplementedError()
     
-    async def _validate_and_get_data(self, dataset_id: int, version_id: int) -> Tuple[Any, Any]:
-        """Validate dataset and version IDs and get file data"""
-        # Get version info
-        logger.info(f"Exploring dataset {dataset_id}, version {version_id}")
-        version = await self.repository.get_dataset_version(version_id)
-        if not version:
-            raise ValueError(f"Dataset version with ID {version_id} not found")
-            
-        # Verify dataset ID matches
-        if version.dataset_id != dataset_id:
-            raise ValueError(f"Version {version_id} does not belong to dataset {dataset_id}")
-            
-        # Get primary file from dataset_version_files
-        primary_file = await self.repository.get_version_file_by_component(
-            version_id, "primary", "main"
-        )
-        
-        if primary_file and primary_file.file:
-            file_info = primary_file.file
-        else:
-            # Fallback to overlay file if no primary file exists
-            file_id = version.overlay_file_id
-            file_info = await self.repository.get_file(file_id)
-            
-        if not file_info or not file_info.file_path:
-            raise ValueError("File path not found")
-            
-        return version, file_info
-    
-    def _load_dataframe(self, file_info: Any, sheet_name: Optional[str] = None) -> pd.DataFrame:
-        """Load file data into a pandas DataFrame"""
-        # Use storage backend to read the dataset
-        # We'll get dataset_id and version_id from the file_info or version info
-        # For now, we'll use the file_path directly since we're transitioning
-        try:
-            # Since the files are stored as Parquet in the new system
-            # We can read them directly using pandas
-            return pd.read_parquet(file_info.file_path)
-        except Exception as e:
-            logger.error(f"Error loading file: {str(e)}")
-            # Return an empty DataFrame with a message column
-            return pd.DataFrame({"message": [f"Error loading file: {str(e)}"]})
-
-    def _apply_sampling(self, df: pd.DataFrame, request) -> Tuple[pd.DataFrame, Optional[Dict[str, Any]]]:
-        """Apply sampling to the DataFrame if needed"""
-        original_rows = len(df)
-        
-        # Determine if sampling is needed
-        should_sample = (
-            request.sample_size is not None or 
-            original_rows > request.auto_sample_threshold
-        )
-        
-        if not should_sample:
-            return df, None
-            
-        # Determine sample size
-        if request.sample_size is not None:
-            sample_size = min(request.sample_size, original_rows)
-        else:
-            # Auto-sampling: use a reasonable default based on dataset size
-            sample_size = min(request.auto_sample_threshold, original_rows)
-            
-        logger.info(f"Sampling {sample_size} rows from {original_rows} total rows using {request.sampling_method} method")
-        
-        # Apply sampling method
-        try:
-            if request.sampling_method == "random":
-                sampled_df = df.sample(n=sample_size, random_state=42)
-            elif request.sampling_method == "systematic":
-                # Systematic sampling: select every k-th row
-                step = max(1, original_rows // sample_size)
-                indices = list(range(0, original_rows, step))[:sample_size]
-                sampled_df = df.iloc[indices]
-            elif request.sampling_method == "stratified":
-                # Simple stratified sampling based on first categorical column
-                categorical_cols = df.select_dtypes(include=['object', 'category']).columns
-                if len(categorical_cols) > 0:
-                    strat_col = categorical_cols[0]
-                    # Calculate proportional sample sizes
-                    strat_counts = df[strat_col].value_counts()
-                    sample_sizes = (strat_counts / original_rows * sample_size).round().astype(int)
-                    
-                    sampled_dfs = []
-                    for value, size in sample_sizes.items():
-                        if size > 0:
-                            subset = df[df[strat_col] == value]
-                            if len(subset) > 0:
-                                sample_n = min(size, len(subset))
-                                sampled_dfs.append(subset.sample(n=sample_n, random_state=42))
-                    
-                    if sampled_dfs:
-                        sampled_df = pd.concat(sampled_dfs, ignore_index=True)
-                    else:
-                        # Fallback to random sampling
-                        sampled_df = df.sample(n=sample_size, random_state=42)
-                else:
-                    # No categorical columns, fallback to random sampling
-                    sampled_df = df.sample(n=sample_size, random_state=42)
-            else:
-                # Default to random sampling
-                sampled_df = df.sample(n=sample_size, random_state=42)
-                
-            sampling_info = {
-                "applied": True,
-                "method": request.sampling_method,
-                "original_rows": original_rows,
-                "sampled_rows": len(sampled_df),
-                "sampling_ratio": len(sampled_df) / original_rows,
-                "reason": "auto_sampling" if request.sample_size is None else "user_requested"
-            }
-            
-            return sampled_df, sampling_info
-            
-        except Exception as e:
-            logger.warning(f"Error during sampling: {str(e)}, using full dataset")
-            return df, {
-                "applied": False,
-                "error": str(e),
-                "original_rows": original_rows
-            }
-
-    def _create_response(self, df: pd.DataFrame, request, sampling_info: Optional[Dict[str, Any]] = None, original_row_count: Optional[int] = None) -> Dict[str, Any]:
-        """Create response with summary and optional profile"""
-        # Create a simple data summary
-        summary = {
-            "rows": len(df),
-            "columns": len(df.columns),
-            "column_names": list(df.columns),
-            "memory_usage_mb": df.memory_usage(deep=True).sum() / (1024 * 1024),
-            "sample": df.head(10).to_dict(orient="records")
-        }
-        
-        # Add original row count if sampling was applied
-        if sampling_info and sampling_info.get("applied", False):
-            summary["original_rows"] = original_row_count or sampling_info.get("original_rows")
-
-        # Only run profiling if specifically requested via a flag
-        if getattr(request, 'run_profiling', False):
-            # Generate a profiling report using ydata-profiling
-            profile = self._generate_profile(df, request.format)
-
-            # Format the response based on the requested format
-            if request.format == ProfileFormat.HTML:
-                response = {"profile": profile, "format": "html", "summary": summary}
-            else:  # Default to JSON
-                response = {"profile": profile, "format": "json", "summary": summary}
-        else:
-            # Return just the summary for faster response
-            response = {"summary": summary, "format": "json", "message": "Profiling skipped. Set run_profiling=true to enable full profiling."}
-        
-        # Add sampling information if available
-        if sampling_info:
-            response["sampling_info"] = sampling_info
-            
-        return response
-    
-    def _generate_profile(self, df: pd.DataFrame, output_format: ProfileFormat = ProfileFormat.JSON) -> Any:
+    async def load_commit_data(self, commit_id: str, limit: Optional[int] = None) -> pd.DataFrame:
         """
-        Generate a profile report for the DataFrame using ydata-profiling
-
-        Args:
-            df: The DataFrame to profile
-            output_format: The desired output format (HTML or JSON)
-
-        Returns:
-            HTML string or JSON dict based on the output_format
+        Load data from a commit into DataFrame.
+        
+        Implementation Notes:
+        1. Query commit_rows with rows join
+        2. Convert JSONB data to DataFrame
+        3. Apply limit if specified
+        4. Handle memory efficiently for large datasets
+        
+        SQL:
+        SELECT r.data
+        FROM commit_rows cr
+        JOIN rows r ON cr.row_hash = r.row_hash
+        WHERE cr.commit_id = :commit_id
+        ORDER BY cr.logical_row_id
+        LIMIT :limit
+        
+        Request:
+        - commit_id: str - Commit to load
+        - limit: Optional[int] - Max rows to load
+        
+        Response:
+        - pd.DataFrame with commit data
         """
-        try:
-            # Create a profile report
-            profile = ProfileReport(
-                df,
-                title="Dataset Profiling Report",
-                explorative=True,
-                minimal=True  # Set to True for faster but less detailed reports
-            )
-
-            # Return based on requested format
-            if output_format == ProfileFormat.HTML:
-                return profile.to_html()
-            else:
-                return profile.to_json()
-        except Exception as e:
-            logger.error(f"Error generating profile with ydata-profiling: {str(e)}")
-            # Instead of a fallback profile, just return basic DataFrame info
-            return {
-                "error": f"Could not generate profile: {str(e)}",
-                "rows": len(df),
-                "columns": len(df.columns),
-                "column_names": list(df.columns),
-                "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()}
-            }
+        raise NotImplementedError()
+    
+    def generate_basic_summary(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """
+        Generate basic dataset summary without full profiling.
+        
+        Implementation Notes:
+        1. Calculate row/column counts
+        2. Get column names and types
+        3. Calculate memory usage
+        4. Get sample rows (first 10)
+        5. Basic null counts per column
+        
+        Request:
+        - df: pd.DataFrame
+        
+        Response:
+        - Dict with:
+          - rows: int
+          - columns: int
+          - column_names: List[str]
+          - dtypes: Dict[str, str]
+          - memory_usage_mb: float
+          - sample: List[Dict] - First 10 rows
+          - null_counts: Dict[str, int]
+        """
+        raise NotImplementedError()
+    
+    def apply_sampling(
+        self,
+        df: pd.DataFrame,
+        method: str,
+        sample_size: Optional[int],
+        auto_threshold: int
+    ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+        """
+        Apply sampling to DataFrame if needed.
+        
+        Implementation Notes:
+        1. Check if sampling needed (size > threshold)
+        2. Apply specified sampling method:
+           - random: df.sample()
+           - systematic: Every k-th row
+           - stratified: Proportional by first categorical column
+        3. Return sampled df and sampling info
+        
+        Request:
+        - df: pd.DataFrame - Input data
+        - method: str - Sampling method
+        - sample_size: Optional[int] - Explicit size
+        - auto_threshold: int - Auto-sample if larger
+        
+        Response:
+        - Tuple of (sampled_df, sampling_info)
+        """
+        raise NotImplementedError()
+    
+    async def create_exploration_job(
+        self,
+        dataset_id: int,
+        version_id: int,
+        params: Dict[str, Any],
+        user_id: int
+    ) -> str:
+        """
+        Create async exploration job for large datasets.
+        
+        Implementation Notes:
+        1. Create analysis_run record
+        2. Submit job to background worker
+        3. Return job ID for polling
+        4. Job will generate profile and save to storage
+        
+        Request:
+        - dataset_id: int
+        - version_id: int
+        - params: Dict - Exploration parameters
+        - user_id: int
+        
+        Response:
+        - str - Job ID
+        """
+        raise NotImplementedError()
+    
+    async def get_exploration_job_status(self, job_id: str) -> Dict[str, Any]:
+        """
+        Get status of exploration job.
+        
+        Implementation Notes:
+        1. Query analysis_runs by job_id
+        2. Return status and result location
+        3. Include progress percentage if available
+        
+        Request:
+        - job_id: str
+        
+        Response:
+        - Dict with:
+          - status: str - "pending", "running", "completed", "failed"
+          - progress: Optional[int] - Percentage
+          - result_url: Optional[str] - If completed
+          - error: Optional[str] - If failed
+        """
+        raise NotImplementedError()
+    
+    def generate_profile_report(
+        self,
+        df: pd.DataFrame,
+        format: ProfileFormat,
+        minimal: bool = True
+    ) -> Any:
+        """
+        Generate profile report using ydata-profiling.
+        
+        Implementation Notes:
+        1. Create ProfileReport with appropriate settings
+        2. Use minimal=True for faster generation
+        3. Convert to requested format
+        4. Handle errors gracefully
+        
+        Request:
+        - df: pd.DataFrame
+        - format: ProfileFormat - HTML or JSON
+        - minimal: bool - Use minimal profiling
+        
+        Response:
+        - Profile report in requested format
+        """
+        raise NotImplementedError()
+    
+    async def get_column_distributions(
+        self,
+        commit_id: str,
+        columns: List[str],
+        bins: int = 20
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        Get value distributions for specific columns.
+        
+        Implementation Notes:
+        1. Query specific columns from commit
+        2. Calculate distributions:
+           - Numeric: Histogram with bins
+           - Categorical: Value counts
+           - Date: Time buckets
+        3. Use PostgreSQL aggregation where possible
+        
+        Request:
+        - commit_id: str
+        - columns: List[str] - Columns to analyze
+        - bins: int - Number of histogram bins
+        
+        Response:
+        - Dict mapping column names to distributions
+        """
+        raise NotImplementedError()
+    
+    async def detect_data_quality_issues(
+        self,
+        commit_id: str,
+        sample_size: Optional[int] = None
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Detect common data quality issues.
+        
+        Implementation Notes:
+        1. Check for:
+           - High null percentages
+           - Duplicate rows
+           - Outliers (numeric columns)
+           - Invalid dates/formats
+           - Constant columns
+        2. Use sampling for performance
+        3. Return issues grouped by type
+        
+        Request:
+        - commit_id: str
+        - sample_size: Optional[int]
+        
+        Response:
+        - Dict mapping issue types to list of issues
+        """
+        raise NotImplementedError()

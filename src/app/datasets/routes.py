@@ -1,18 +1,17 @@
-"""Routes for datasets API - simplified following sampling slice pattern"""
+"""Routes for datasets API v2 - Git-like versioning system"""
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query, Path, Body, status
 from fastapi.responses import StreamingResponse
 from typing import List, Optional, Dict, Any, Annotated
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
+import uuid
 
 from app.datasets.controller import DatasetsController
 from app.datasets.service import DatasetsService
 from app.datasets.repository import DatasetsRepository
 from app.datasets.models import (
-    Dataset, DatasetUploadResponse, DatasetUpdate,
-    DatasetVersion, Tag, SheetInfo, SchemaVersion, VersionFile, VersionTag,
-    VersionCreateRequest, VersionCreateResponse, VersionResolution, VersionResolutionType,
-    DatasetStatistics, StatisticsRefreshResponse
+    Dataset, DatasetUpdate,
+    Tag, DatasetStatistics
 )
 from app.users.models import DatasetPermission, PermissionGrant, DatasetPermissionType
 from app.datasets.constants import DEFAULT_PAGE_SIZE, MAX_ROWS_PER_PAGE
@@ -25,7 +24,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/datasets", tags=["Datasets"])
+router = APIRouter(prefix="/datasets", tags=["Datasets"])
 
 # Include search sub-router
 router.include_router(search_router)
@@ -47,29 +46,27 @@ UserDep = Annotated[CurrentUser, Depends(get_current_user_info)]
 
 
 @router.post(
-    "/upload",
-    response_model=DatasetUploadResponse,
-    summary="Upload a dataset",
-    description="Upload a new dataset or create a new version of an existing dataset"
+    "/{dataset_id}/refs/{ref_name}/uploads",
+    response_model=Dict[str, Any],
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Upload data to a dataset branch",
+    description="""Upload a file to create a new commit on a branch. 
+    This is an asynchronous operation that returns a job ID."""
 )
-async def upload_dataset(
+async def upload_to_branch(
+    dataset_id: int = Path(..., description="Dataset ID"),
+    ref_name: str = Path(..., description="Branch/ref name (e.g., 'main')"),
     file: UploadFile = File(..., description="The dataset file to upload"),
-    dataset_id: Optional[int] = Form(None, description="ID of existing dataset for versioning"),
-    name: str = Form(..., description="Name of the dataset"),
-    description: Optional[str] = Form(None, description="Description of the dataset"),
-    tags: Optional[str] = Form(None, description="Tags as JSON array or comma-separated string"),
+    message: str = Form(..., description="Commit message"),
     controller: ControllerDep = None,
     current_user: UserDep = None
-) -> DatasetUploadResponse:
-    """Upload a new dataset or create a new version of an existing dataset."""
-    return await controller.upload_dataset(
-        file=file,
-        current_user=current_user,
-        dataset_id=dataset_id,
-        name=name,
-        description=description,
-        tags=tags,
-    )
+) -> Dict[str, Any]:
+    """Upload a file to create a new commit on a branch."""
+    # This will be implemented to:
+    # 1. Create an import job in analysis_runs table
+    # 2. Return job_id for status tracking
+    # 3. Background worker processes file and creates commit
+    raise NotImplementedError("Upload to branch endpoint - returns job_id")
 
 
 @router.get(
@@ -85,7 +82,7 @@ async def list_datasets(
     description: Optional[str] = Query(None, description="Filter by description (partial match)"),
     created_by: Optional[int] = Query(None, description="Filter by creator user ID"),
     tags: Optional[List[str]] = Query(None, description="Filter by tags"),
-    sort_by: Optional[str] = Query(None, description="Sort field: name, created_at, updated_at, file_size, current_version"),
+    sort_by: Optional[str] = Query(None, description="Sort field: name, created_at, updated_at"),
     sort_order: Optional[str] = Query(None, description="Sort order: asc or desc"),
     controller: ControllerDep = None,
     current_user: UserDep = None
@@ -105,20 +102,6 @@ async def list_datasets(
 
 
 @router.get(
-    "/tags",
-    response_model=List[Tag],
-    summary="List all tags",
-    description="Retrieve all available tags with usage counts"
-)
-async def list_tags(
-    controller: ControllerDep = None,
-    current_user: UserDep = None
-) -> List[Tag]:
-    """Get all tags used across datasets."""
-    return await controller.list_tags()
-
-
-@router.get(
     "/{dataset_id}",
     response_model=Dataset,
     summary="Get dataset details",
@@ -129,7 +112,7 @@ async def get_dataset(
     controller: ControllerDep = None,
     current_user: UserDep = None
 ) -> Dataset:
-    """Get complete dataset information including versions and tags."""
+    """Get complete dataset information including refs and metadata."""
     return await controller.get_dataset(dataset_id, current_user)
 
 
@@ -153,7 +136,7 @@ async def update_dataset(
     "/{dataset_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete dataset",
-    description="Delete an entire dataset and all its versions (requires admin permission)"
+    description="Delete an entire dataset and all its commits (requires admin permission)"
 )
 async def delete_dataset(
     dataset_id: int = Path(..., gt=0, description="Dataset ID"),
@@ -165,302 +148,161 @@ async def delete_dataset(
 
 
 @router.get(
-    "/{dataset_id}/versions",
-    response_model=List[DatasetVersion],
-    summary="List dataset versions",
-    description="Get all versions of a dataset"
+    "/{dataset_id}/commits",
+    response_model=List[Dict[str, Any]],
+    summary="List dataset commits",
+    description="Get commit history for a dataset"
 )
-async def list_dataset_versions(
+async def list_dataset_commits(
     dataset_id: int = Path(..., gt=0, description="Dataset ID"),
+    ref_name: Optional[str] = Query(None, description="Filter by ref (branch/tag)"),
+    limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     controller: ControllerDep = None,
     current_user: UserDep = None
-) -> List[DatasetVersion]:
-    """Retrieve all versions for a specific dataset."""
-    return await controller.list_dataset_versions(dataset_id)
-
+) -> List[Dict[str, Any]]:
+    """Retrieve commit history for a dataset."""
+    # Returns list of commits with commit_id, message, author, timestamp
+    raise NotImplementedError("List commits endpoint")
 
 
 @router.get(
-    "/{dataset_id}/versions/latest",
-    response_model=DatasetVersion,
-    summary="Get latest version",
-    description="Get the latest version of a dataset"
+    "/{dataset_id}/refs",
+    response_model=List[Dict[str, Any]],
+    summary="List dataset refs",
+    description="List all refs (branches and tags) for a dataset"
 )
-async def get_latest_version(
+async def list_dataset_refs(
     dataset_id: int = Path(..., gt=0, description="Dataset ID"),
     controller: ControllerDep = None,
     current_user: UserDep = None
-) -> DatasetVersion:
-    """Get the most recent version of the dataset."""
-    return await controller.get_latest_version(dataset_id, current_user)
+) -> List[Dict[str, Any]]:
+    """List all refs (branches and tags) for a dataset."""
+    # Returns list of refs with name, commit_id, type (branch/tag)
+    raise NotImplementedError("List refs endpoint")
 
 
 @router.get(
-    "/{dataset_id}/versions/number/{version_number}",
-    response_model=DatasetVersion,
-    summary="Get version by number",
-    description="Get a specific version by its number"
+    "/{dataset_id}/refs/{ref_name}",
+    response_model=Dict[str, Any],
+    summary="Get ref details",
+    description="Get details about a specific ref"
 )
-async def get_version_by_number(
+async def get_ref_details(
     dataset_id: int = Path(..., gt=0, description="Dataset ID"),
-    version_number: int = Path(..., gt=0, description="Version number"),
+    ref_name: str = Path(..., description="Ref name (e.g., 'main', 'v1.0')"),
     controller: ControllerDep = None,
     current_user: UserDep = None
-) -> DatasetVersion:
-    """Get a version by its version number."""
-    return await controller.get_version_by_number(dataset_id, version_number, current_user)
+) -> Dict[str, Any]:
+    """Get details about a specific ref."""
+    # Returns ref details including commit it points to
+    raise NotImplementedError("Get ref details endpoint")
 
 
 @router.get(
-    "/{dataset_id}/versions/tag/{tag_name}",
-    response_model=DatasetVersion,
-    summary="Get version by tag",
-    description="Get a version by its tag name"
+    "/{dataset_id}/commits/{commit_hash}",
+    response_model=Dict[str, Any],
+    summary="Get commit details",
+    description="Get detailed information about a specific commit"
 )
-async def get_version_by_tag_name(
+async def get_commit_details(
     dataset_id: int = Path(..., gt=0, description="Dataset ID"),
-    tag_name: str = Path(..., description="Tag name"),
+    commit_hash: str = Path(..., regex="^[a-f0-9]{64}$", description="Commit SHA256 hash"),
     controller: ControllerDep = None,
     current_user: UserDep = None
-) -> DatasetVersion:
-    """Get a version by its tag name."""
-    return await controller.get_version_by_tag(dataset_id, tag_name, current_user)
+) -> Dict[str, Any]:
+    """Get commit details including parent, message, and manifest."""
+    raise NotImplementedError("Get commit details endpoint")
 
 
 @router.get(
-    "/{dataset_id}/versions/{version_id}",
-    response_model=DatasetVersion,
-    summary="Get dataset version",
-    description="Get detailed information about a specific version"
+    "/{dataset_id}/refs/{ref_name}/download",
+    summary="Download dataset from ref",
+    description="Download the dataset file from a specific ref (branch/tag)"
 )
-async def get_dataset_version(
+async def download_dataset_from_ref(
     dataset_id: int = Path(..., gt=0, description="Dataset ID"),
-    version_id: int = Path(..., gt=0, description="Version ID"),
-    controller: ControllerDep = None,
-    current_user: UserDep = None
-) -> DatasetVersion:
-    """Get version details including sheets and metadata."""
-    return await controller.get_version_for_dataset(dataset_id, version_id)
-
-
-@router.get(
-    "/{dataset_id}/versions/{version_id}/download",
-    summary="Download dataset version",
-    description="Download the raw file for a specific version"
-)
-async def download_dataset_version(
-    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
-    version_id: int = Path(..., gt=0, description="Version ID"),
+    ref_name: str = Path(..., description="Ref name (e.g., 'main', 'v1.0')"),
     controller: ControllerDep = None,
     current_user: UserDep = None
 ):
-    """Stream the dataset file for download."""
-    version = await controller.get_version_for_dataset(dataset_id, version_id)
-    file_info = await controller.get_dataset_version_file(version_id)
-    if not file_info:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="File data not found"
-        )
-    
-    # Handle filesystem storage
-    if file_info.storage_type == "filesystem" and file_info.file_path:
-        import asyncio
-        
-        # Update file extension to .parquet since we store all files as Parquet
-        file_name = f"{version.dataset_id}_v{version.version_number}.parquet"
-        media_type = "application/parquet"
-        
-        async def iter_file():
-            loop = asyncio.get_event_loop()
-            with open(file_info.file_path, 'rb') as f:
-                chunk_size = 1024 * 1024  # 1MB chunks
-                while True:
-                    chunk = await loop.run_in_executor(None, f.read, chunk_size)
-                    if not chunk:
-                        break
-                    yield chunk
-        
-        return StreamingResponse(
-            iter_file(),
-            media_type=media_type,
-            headers={
-                "Content-Disposition": f"attachment; filename={file_name}",
-                "Content-Length": str(file_info.file_size) if file_info.file_size else None
-            }
-        )
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="File data not found or unsupported storage type"
-        )
+    """Stream the dataset file for download from a ref."""
+    # This will:
+    # 1. Resolve ref to commit
+    # 2. Get commit manifest
+    # 3. Reconstruct file from rows
+    # 4. Stream as download
+    raise NotImplementedError("Download from ref endpoint")
 
 
 @router.delete(
-    "/{dataset_id}/versions/{version_id}",
+    "/{dataset_id}/refs/{ref_name}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Delete dataset version",
-    description="Delete a specific version of a dataset"
+    summary="Delete a ref",
+    description="Delete a branch or tag (commits remain in history)"
 )
-async def delete_dataset_version(
+async def delete_ref(
     dataset_id: int = Path(..., gt=0, description="Dataset ID"),
-    version_id: int = Path(..., gt=0, description="Version ID"),
+    ref_name: str = Path(..., description="Ref name to delete"),
     controller: ControllerDep = None,
     current_user: UserDep = None
 ) -> None:
-    """Delete a dataset version. This operation cannot be undone."""
-    await controller.get_version_for_dataset(dataset_id, version_id)
-    await controller.delete_dataset_version(version_id, current_user)
+    """Delete a ref. Commits remain accessible by hash."""
+    raise NotImplementedError("Delete ref endpoint")
 
 
 @router.get(
-    "/{dataset_id}/versions/{version_id}/sheets",
-    response_model=List[SheetInfo],
-    summary="List version sheets",
-    description="Get all sheets in a dataset version"
+    "/{dataset_id}/refs/{ref_name}/data",
+    summary="Get data from ref",
+    description="Retrieve paginated data from a dataset ref"
 )
-async def list_version_sheets(
+async def get_data_from_ref(
     dataset_id: int = Path(..., gt=0, description="Dataset ID"),
-    version_id: int = Path(..., gt=0, description="Version ID"),
-    controller: ControllerDep = None,
-    current_user: UserDep = None
-) -> List[SheetInfo]:
-    """List all sheets/tables in the dataset version."""
-    await controller.get_version_for_dataset(dataset_id, version_id)
-    return await controller.list_version_sheets(version_id)
-
-
-@router.get(
-    "/{dataset_id}/versions/{version_id}/data",
-    summary="Get sheet data",
-    description="Retrieve paginated data from a dataset sheet"
-)
-async def get_sheet_data(
-    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
-    version_id: int = Path(..., gt=0, description="Version ID"),
-    sheet: Optional[str] = Query(None, description="Sheet name (optional for single-sheet files)"),
+    ref_name: str = Path(..., description="Ref name (e.g., 'main')"),
     limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_ROWS_PER_PAGE, description="Rows per page"),
     offset: int = Query(0, ge=0, description="Number of rows to skip"),
     controller: ControllerDep = None,
     current_user: UserDep = None
 ) -> Dict[str, Any]:
-    """Get paginated data from a specific sheet in the dataset."""
-    await controller.get_version_for_dataset(dataset_id, version_id)
-    return await controller.get_sheet_data(
-        version_id=version_id,
-        sheet_name=sheet,
-        limit=limit,
-        offset=offset
-    )
+    """Get paginated data from a ref."""
+    # This will:
+    # 1. Resolve ref to commit
+    # 2. Get commit manifest
+    # 3. Fetch rows and reconstruct data
+    raise NotImplementedError("Get data from ref endpoint")
 
 
 @router.get(
-    "/{dataset_id}/versions/{version_id}/schema",
-    response_model=SchemaVersion,
-    summary="Get version schema",
-    description="Get schema information for a dataset version"
-)
-async def get_version_schema(
-    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
-    version_id: int = Path(..., gt=0, description="Version ID"),
-    controller: ControllerDep = None,
-    current_user: UserDep = None
-) -> SchemaVersion:
-    """Get schema information including column names, types, and metadata."""
-    await controller.get_version_for_dataset(dataset_id, version_id)
-    return await controller.get_schema_for_version(version_id)
-
-
-@router.post(
-    "/{dataset_id}/schema/compare",
+    "/{dataset_id}/commits/{commit_hash}/schema",
     response_model=Dict[str, Any],
-    summary="Compare version schemas",
-    description="Compare schemas between two dataset versions"
+    summary="Get commit schema",
+    description="Get schema information for a specific commit"
 )
-async def compare_schemas(
+async def get_commit_schema(
     dataset_id: int = Path(..., gt=0, description="Dataset ID"),
-    comparison_request: Dict[str, int] = Body(..., example={"version1_id": 1, "version2_id": 2}),
+    commit_hash: str = Path(..., regex="^[a-f0-9]{64}$", description="Commit SHA256 hash"),
     controller: ControllerDep = None,
     current_user: UserDep = None
 ) -> Dict[str, Any]:
-    """Compare schemas to identify added/removed columns and type changes."""
-    version1_id = comparison_request.get("version1_id")
-    version2_id = comparison_request.get("version2_id")
-    
-    if not version1_id or not version2_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Both version1_id and version2_id are required"
-        )
-    
-    # Verify both versions belong to the dataset
-    await controller.get_version_for_dataset(dataset_id, version1_id)
-    await controller.get_version_for_dataset(dataset_id, version2_id)
-    return await controller.compare_version_schemas(version1_id, version2_id)
+    """Get schema information for a commit."""
+    raise NotImplementedError("Get commit schema endpoint")
 
 
-@router.post(
-    "/{dataset_id}/versions/{version_id}/files",
+@router.get(
+    "/{dataset_id}/commits/diff",
     response_model=Dict[str, Any],
-    summary="Attach file to version",
-    description="Attach an additional file to an existing dataset version"
+    summary="Diff between commits",
+    description="Get differences between two commits"
 )
-async def attach_file_to_version(
+async def diff_commits(
     dataset_id: int = Path(..., gt=0, description="Dataset ID"),
-    version_id: int = Path(..., gt=0, description="Version ID"),
-    file: UploadFile = File(..., description="File to attach"),
-    component_type: str = Form(..., description="Component type (e.g., metadata, schema, supplement)"),
-    component_name: Optional[str] = Form(None, description="Optional component name"),
+    from_commit: str = Query(..., regex="^[a-f0-9]{64}$", description="From commit hash"),
+    to_commit: str = Query(..., regex="^[a-f0-9]{64}$", description="To commit hash"),
     controller: ControllerDep = None,
     current_user: UserDep = None
 ) -> Dict[str, Any]:
-    """Attach additional files to a dataset version for multi-file support."""
-    await controller.get_version_for_dataset(dataset_id, version_id)
-    return await controller.attach_file_to_version(
-        version_id=version_id,
-        file=file,
-        component_type=component_type,
-        component_name=component_name,
-        current_user=current_user
-    )
-
-
-@router.get(
-    "/{dataset_id}/versions/{version_id}/files",
-    response_model=List[VersionFile],
-    summary="List version files",
-    description="List all files attached to a dataset version"
-)
-async def list_version_files(
-    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
-    version_id: int = Path(..., gt=0, description="Version ID"),
-    controller: ControllerDep = None,
-    current_user: UserDep = None
-) -> List[VersionFile]:
-    """Get all files attached to a specific version."""
-    await controller.get_version_for_dataset(dataset_id, version_id)
-    return await controller.list_version_files(version_id)
-
-
-@router.get(
-    "/{dataset_id}/versions/{version_id}/files/{component_type}",
-    response_model=VersionFile,
-    summary="Get specific file",
-    description="Get a specific file by component type"
-)
-async def get_version_file(
-    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
-    version_id: int = Path(..., gt=0, description="Version ID"),
-    component_type: str = Path(..., description="Component type"),
-    component_name: Optional[str] = Query(None, description="Optional component name"),
-    controller: ControllerDep = None,
-    current_user: UserDep = None
-) -> VersionFile:
-    """Get a specific file from a version by component type and optional name."""
-    await controller.get_version_for_dataset(dataset_id, version_id)
-    return await controller.get_version_file(version_id, component_type, component_name)
-
-
+    """Get diff between two commits showing added/removed/modified rows."""
+    raise NotImplementedError("Diff commits endpoint")
 
 
 # Permission operations
@@ -535,19 +377,18 @@ async def grant_dataset_permission(
 
 
 @router.delete(
-    "/{dataset_id}/permissions/{user_id}/{permission_type}",
+    "/{dataset_id}/permissions/{user_id}",
     response_model=Dict[str, Any],
-    summary="Revoke permission",
-    description="Revoke a specific permission from a user"
+    summary="Revoke all permissions",
+    description="Revoke all permissions from a user for this dataset"
 )
-async def revoke_dataset_permission(
+async def revoke_all_permissions(
     dataset_id: int = Path(..., gt=0, description="Dataset ID"),
-    user_id: int = Path(..., description="User ID to revoke permission from"),
-    permission_type: DatasetPermissionType = Path(..., description="Permission type to revoke"),
+    user_id: int = Path(..., description="User ID to revoke permissions from"),
     controller: ControllerDep = None,
     current_user: UserDep = None
 ) -> Dict[str, Any]:
-    """Revoke permission from a user for this dataset (requires admin permission)."""
+    """Revoke all permissions from a user for this dataset."""
     # Check if current user has admin permission
     current_user_id = await controller.service.get_user_id_from_soeid(current_user.soeid)
     if not current_user_id:
@@ -563,185 +404,87 @@ async def revoke_dataset_permission(
             detail="Admin permission required to revoke permissions"
         )
     
-    # Don't allow revoking own admin permission
-    if user_id == current_user_id and permission_type == DatasetPermissionType.ADMIN:
+    # Don't allow revoking own permissions
+    if user_id == current_user_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot revoke your own admin permission"
+            detail="Cannot revoke your own permissions"
         )
     
-    success = await controller.service.user_service.revoke_dataset_permission(
-        dataset_id,
-        user_id,
-        permission_type
-    )
-    
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Permission not found"
-        )
-    
-    return {"message": f"Permission {permission_type} revoked from user {user_id}"}
+    # Implementation would revoke all permissions for user
+    raise NotImplementedError("Revoke all permissions endpoint")
 
 
-# Version Tag Routes
+# Ref Management Routes
 @router.post(
-    "/{dataset_id}/tags/{tag_name}",
+    "/{dataset_id}/refs",
     response_model=Dict[str, Any],
-    summary="Create version tag",
-    description="Create a named tag for a specific dataset version"
+    summary="Create a new ref",
+    description="Create a new branch or tag pointing to a commit"
 )
-async def create_version_tag(
+async def create_ref(
     dataset_id: int = Path(..., gt=0, description="Dataset ID"),
-    tag_name: str = Path(..., description="Tag name (e.g., 'v1.0', 'stable')"),
-    version_id: int = Body(..., description="Version ID to tag"),
+    ref_name: str = Body(..., description="Ref name (e.g., 'feature-branch', 'v1.0')"),
+    commit_hash: str = Body(..., regex="^[a-f0-9]{64}$", description="Commit hash to point to"),
     controller: ControllerDep = None,
     current_user: UserDep = None
 ) -> Dict[str, Any]:
-    """Create a version tag pointing to a specific version."""
-    return await controller.create_version_tag(
-        dataset_id=dataset_id,
-        tag_name=tag_name,
-        version_id=version_id,
-        current_user=current_user
-    )
+    """Create a new ref pointing to a commit."""
+    raise NotImplementedError("Create ref endpoint")
 
 
-@router.get(
-    "/{dataset_id}/tags",
-    response_model=List[VersionTag],
-    summary="List version tags",
-    description="List all version tags for a dataset"
+@router.put(
+    "/{dataset_id}/refs/{ref_name}",
+    response_model=Dict[str, Any],
+    summary="Update ref",
+    description="Update a ref to point to a different commit"
 )
-async def list_version_tags(
+async def update_ref(
     dataset_id: int = Path(..., gt=0, description="Dataset ID"),
+    ref_name: str = Path(..., description="Ref name to update"),
+    commit_hash: str = Body(..., regex="^[a-f0-9]{64}$", description="New commit hash"),
     controller: ControllerDep = None,
     current_user: UserDep = None
-) -> List[VersionTag]:
-    """List all version tags for a dataset."""
-    return await controller.list_version_tags(
-        dataset_id=dataset_id,
-        current_user=current_user
-    )
+) -> Dict[str, Any]:
+    """Update a ref to point to a different commit."""
+    raise NotImplementedError("Update ref endpoint")
 
 
-@router.get(
-    "/{dataset_id}/tags/{tag_name}",
-    response_model=VersionTag,
-    summary="Get version tag",
-    description="Get a specific version tag"
-)
-async def get_version_tag(
-    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
-    tag_name: str = Path(..., description="Tag name"),
-    controller: ControllerDep = None,
-    current_user: UserDep = None
-) -> VersionTag:
-    """Get a specific version tag."""
-    return await controller.get_version_tag(
-        dataset_id=dataset_id,
-        tag_name=tag_name,
-        current_user=current_user
-    )
-
-
-@router.delete(
-    "/{dataset_id}/tags/{tag_name}",
-    response_model=Dict[str, str],
-    summary="Delete version tag",
-    description="Delete a version tag"
-)
-async def delete_version_tag(
-    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
-    tag_name: str = Path(..., description="Tag name"),
-    controller: ControllerDep = None,
-    current_user: UserDep = None
-) -> Dict[str, str]:
-    """Delete a version tag."""
-    return await controller.delete_version_tag(
-        dataset_id=dataset_id,
-        tag_name=tag_name,
-        current_user=current_user
-    )
-
-
-# Advanced Versioning Endpoints
+# Statistics Routes (Now async job-based)
 @router.post(
-    "/{dataset_id}/versions",
-    response_model=VersionCreateResponse,
-    summary="Create version from changes",
-    description="Create a new dataset version using overlay-based file changes"
+    "/{dataset_id}/commits/{commit_hash}/explorations",
+    response_model=Dict[str, Any],
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Create exploration job",
+    description="Create an async job to explore/profile a dataset commit"
 )
-async def create_version_from_changes(
+async def create_exploration_job(
     dataset_id: int = Path(..., gt=0, description="Dataset ID"),
-    request: VersionCreateRequest = Body(..., description="Version creation request with file changes"),
+    commit_hash: str = Path(..., regex="^[a-f0-9]{64}$", description="Commit hash"),
+    parameters: Dict[str, Any] = Body(default={}, description="Exploration parameters"),
     controller: ControllerDep = None,
     current_user: UserDep = None
-) -> VersionCreateResponse:
-    """Create a new version by specifying file changes (add/remove/update operations)."""
-    # Ensure the dataset_id in the path matches the request
-    if request.dataset_id != dataset_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Dataset ID in path must match request body"
-        )
-    
-    return await controller.create_version_from_changes(request, current_user)
+) -> Dict[str, Any]:
+    """Create an async exploration job for a commit."""
+    # Returns job_id for status tracking via /jobs endpoint
+    raise NotImplementedError("Create exploration job endpoint")
 
 
-# Statistics Routes
+# Job Management Routes (moved here for dataset-specific jobs)
 @router.get(
-    "/{dataset_id}/statistics",
-    response_model=DatasetStatistics,
-    summary="Get latest version statistics",
-    description="Get pre-computed statistics for the latest version"
+    "/{dataset_id}/jobs",
+    response_model=List[Dict[str, Any]],
+    summary="List dataset jobs",
+    description="List all jobs for a specific dataset"
 )
-async def get_latest_statistics(
+async def list_dataset_jobs(
     dataset_id: int = Path(..., gt=0, description="Dataset ID"),
+    job_type: Optional[str] = Query(None, enum=["import", "sampling", "exploration", "profiling"]),
+    status: Optional[str] = Query(None, enum=["pending", "running", "completed", "failed"]),
+    limit: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     controller: ControllerDep = None,
     current_user: UserDep = None
-) -> DatasetStatistics:
-    """Get statistics for the latest version of the dataset."""
-    return await controller.get_latest_statistics(dataset_id, current_user)
-
-
-@router.get(
-    "/{dataset_id}/versions/{version_id}/statistics",
-    response_model=DatasetStatistics,
-    summary="Get dataset version statistics",
-    description="Get pre-computed statistics for a dataset version"
-)
-async def get_version_statistics(
-    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
-    version_id: int = Path(..., gt=0, description="Version ID"),
-    controller: ControllerDep = None,
-    current_user: UserDep = None
-) -> DatasetStatistics:
-    """Get pre-computed statistics for a dataset version."""
-    return await controller.get_version_statistics(dataset_id, version_id, current_user)
-
-
-@router.post(
-    "/{dataset_id}/versions/{version_id}/statistics/refresh",
-    response_model=StatisticsRefreshResponse,
-    summary="Refresh dataset statistics",
-    description="Recalculate statistics for a dataset version"
-)
-async def refresh_version_statistics(
-    dataset_id: int = Path(..., gt=0, description="Dataset ID"),
-    version_id: int = Path(..., gt=0, description="Version ID"),
-    detailed: bool = Query(False, description="Calculate detailed statistics including histograms"),
-    sample_size: Optional[int] = Query(None, description="Number of rows to sample for detailed statistics"),
-    controller: ControllerDep = None,
-    current_user: UserDep = None
-) -> StatisticsRefreshResponse:
-    """Trigger recalculation of statistics for a dataset version."""
-    result = await controller.refresh_version_statistics(
-        dataset_id, version_id, detailed, sample_size, current_user
-    )
-    return StatisticsRefreshResponse(**result)
-
-
-
-
+) -> List[Dict[str, Any]]:
+    """List all jobs for a dataset with optional filtering."""
+    raise NotImplementedError("List dataset jobs endpoint")

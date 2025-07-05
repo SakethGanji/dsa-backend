@@ -1,4 +1,4 @@
-"""Local file system storage backend implementation."""
+"""Local file system storage backend implementation - HOLLOWED OUT FOR BACKEND RESET"""
 import os
 import uuid
 import logging
@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
-import duckdb
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from .backend import StorageBackend, DatasetReader
 
@@ -14,22 +14,54 @@ logger = logging.getLogger(__name__)
 
 
 class LocalDatasetReader:
-    """Local file system dataset reader with enhanced functionality."""
+    """Local file system dataset reader - HOLLOWED OUT FOR BACKEND RESET"""
     
     def __init__(self, file_path: str):
         self.file_path = file_path
     
     def to_pandas(self) -> pd.DataFrame:
-        """Read dataset as pandas DataFrame."""
-        return pd.read_parquet(self.file_path)
+        """
+        Read dataset as pandas DataFrame.
+        
+        Implementation Notes:
+        In new system, data is stored as JSONB rows in PostgreSQL.
+        This method should:
+        1. Query commit_rows for the given commit
+        2. Extract JSONB data into DataFrame format
+        3. Handle data type conversions appropriately
+        
+        Response:
+        - pd.DataFrame with dataset content
+        """
+        raise NotImplementedError()
     
-    def to_duckdb(self, conn: duckdb.DuckDBPyConnection, view_name: str = "main_data") -> None:
-        """Create a DuckDB view from the dataset."""
-        conn.execute(f"CREATE VIEW {view_name} AS SELECT * FROM read_parquet('{self.file_path}')")
+    async def to_postgresql_temp_table(self, conn: AsyncConnection, table_name: str = "temp_data") -> None:
+        """
+        Create a temporary PostgreSQL table from the dataset.
+        
+        Implementation Notes:
+        For Git-like system:
+        1. Create temporary table with appropriate schema
+        2. Insert data from commit_rows joined with rows
+        3. Use for efficient querying/sampling
+        
+        Request:
+        - conn: PostgreSQL async connection
+        - table_name: str - Name for the temporary table
+        """
+        raise NotImplementedError()
     
     def get_path(self) -> str:
-        """Get the path of the dataset."""
-        return self.file_path
+        """
+        Get the path of the dataset.
+        
+        Implementation Notes:
+        In new system, return commit ID or URI instead of file path
+        
+        Response:
+        - str - Dataset identifier/URI
+        """
+        raise NotImplementedError()
     
     def read_with_selection(
         self,
@@ -37,33 +69,39 @@ class LocalDatasetReader:
         limit: Optional[int] = None,
         offset: Optional[int] = None
     ) -> List[Dict[str, Any]]:
-        """Read dataset with column selection and pagination using DuckDB."""
-        conn = duckdb.connect(':memory:')
-        try:
-            # Build column list
-            col_list = ', '.join([f'"{col}"' for col in columns]) if columns else '*'
-            
-            # Build query with pagination
-            query = f"SELECT {col_list} FROM read_parquet('{self.file_path}')"
-            if limit:
-                query += f" LIMIT {limit}"
-                if offset:
-                    query += f" OFFSET {offset}"
-            
-            result = conn.execute(query).fetchall()
-            cols = [desc[0] for desc in conn.description]
-            
-            # Return as list of dicts
-            return [dict(zip(cols, row)) for row in result]
-        except Exception as e:
-            logger.error(f"Error reading dataset file {self.file_path}: {str(e)}")
-            raise ValueError(f"Failed to read dataset file: {str(e)}")
-        finally:
-            conn.close()
+        """
+        Read dataset with column selection and pagination.
+        
+        Implementation Notes:
+        1. Build PostgreSQL query with JSONB operators
+        2. Apply column projection using JSONB
+        3. Apply limit/offset for pagination
+        4. Return results as list of dicts
+        
+        SQL Example:
+        SELECT 
+            jsonb_build_object(
+                'col1', data->>'col1',
+                'col2', data->>'col2'
+            ) as row_data
+        FROM rows r
+        JOIN commit_rows cr ON r.row_hash = cr.row_hash
+        WHERE cr.commit_id = :commit_id
+        LIMIT :limit OFFSET :offset
+        
+        Request:
+        - columns: Optional[List[str]] - Column subset
+        - limit: Optional[int] - Max rows
+        - offset: Optional[int] - Skip rows
+        
+        Response:
+        - List[Dict[str, Any]] - Row data
+        """
+        raise NotImplementedError()
 
 
 class LocalStorageBackend(StorageBackend):
-    """Local file system storage backend."""
+    """Local file system storage backend - HOLLOWED OUT FOR BACKEND RESET"""
     
     def __init__(self, base_path: str = "/data"):
         """Initialize local storage backend.
@@ -77,136 +115,137 @@ class LocalStorageBackend(StorageBackend):
         self.ensure_directories()
     
     def ensure_directories(self) -> None:
-        """Ensure required directories exist."""
-        self.datasets_dir.mkdir(parents=True, exist_ok=True)
-        self.samples_dir.mkdir(parents=True, exist_ok=True)
-        (self.base_path / "uploads").mkdir(parents=True, exist_ok=True)
+        """
+        Ensure required directories exist.
+        
+        Implementation Notes:
+        Create directory structure for:
+        - Temporary uploads
+        - Sample outputs
+        - Export cache
+        """
+        raise NotImplementedError()
     
     def read_dataset(self, dataset_id: int, version_id: int, file_path: str) -> DatasetReader:
-        """Read a dataset by its ID and version.
-        
-        Args:
-            dataset_id: The dataset identifier
-            version_id: The version identifier
-            file_path: The file path from database
-            
-        Returns:
-            LocalDatasetReader instance
         """
-        # For now, we use the file_path directly from the database
-        # In future, we could construct paths based on dataset_id/version_id
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"Dataset file not found: {file_path}")
+        Read a dataset by its ID and version.
         
-        return LocalDatasetReader(file_path)
+        Implementation Notes:
+        1. Map version_id to commit_id
+        2. Return reader that accesses commit data
+        3. file_path parameter is legacy - use commit_id instead
+        
+        Request:
+        - dataset_id: int
+        - version_id: int
+        - file_path: str - Legacy, ignored
+        
+        Response:
+        - DatasetReader instance for commit data
+        """
+        raise NotImplementedError()
     
-    def save_sample(
+    async def save_sample(
         self, 
-        conn: duckdb.DuckDBPyConnection,
+        conn: AsyncConnection,
         query: str,
         dataset_id: int,
         sample_id: str,
         metadata: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """Save a sample from a DuckDB query.
-        
-        Args:
-            conn: DuckDB connection with the data
-            query: SQL query to execute for the sample
-            dataset_id: The dataset identifier
-            sample_id: Unique identifier for the sample
-            metadata: Optional metadata to store with the sample
-            
-        Returns:
-            Dictionary with sample information
         """
-        # Create dataset-specific sample directory
-        dataset_samples_dir = self.samples_dir / str(dataset_id)
-        dataset_samples_dir.mkdir(parents=True, exist_ok=True)
+        Save a sample from a PostgreSQL query.
         
-        # Generate sample file path
-        sample_file = dataset_samples_dir / f"{sample_id}.parquet"
+        Implementation Notes:
+        1. Execute sampling query on PostgreSQL
+        2. Export results to parquet file using pandas
+        3. Register file in files table
+        4. Return file metadata
         
-        # Execute query and save to parquet
-        conn.execute(f"COPY ({query}) TO '{sample_file}' (FORMAT PARQUET)")
+        Note: Samples are exported as files for performance,
+        not stored as rows in database
         
-        # Get file info
-        file_size = sample_file.stat().st_size
+        Request:
+        - conn: PostgreSQL async connection
+        - query: str - Sampling query
+        - dataset_id: int
+        - sample_id: str
+        - metadata: Optional[Dict[str, Any]]
         
-        return {
-            "path": str(sample_file),
-            "size": file_size,
-            "format": "parquet",
-            "metadata": metadata or {}
-        }
+        Response:
+        - Dict with:
+          - path: str
+          - size: int
+          - format: str
+          - metadata: Dict
+        """
+        raise NotImplementedError()
     
     def list_samples(self, dataset_id: int) -> List[Dict[str, Any]]:
-        """List all samples for a dataset.
-        
-        Args:
-            dataset_id: The dataset identifier
-            
-        Returns:
-            List of sample information dictionaries
         """
-        dataset_samples_dir = self.samples_dir / str(dataset_id)
-        if not dataset_samples_dir.exists():
-            return []
+        List all samples for a dataset.
         
-        samples = []
-        for sample_file in dataset_samples_dir.glob("*.parquet"):
-            samples.append({
-                "sample_id": sample_file.stem,
-                "path": str(sample_file),
-                "size": sample_file.stat().st_size,
-                "format": "parquet"
-            })
+        Implementation Notes:
+        Query analysis_runs table for sampling results
         
-        return samples
+        Request:
+        - dataset_id: int
+        
+        Response:
+        - List[Dict] with sample info
+        """
+        raise NotImplementedError()
     
     def delete_sample(self, dataset_id: int, sample_id: str) -> bool:
-        """Delete a sample.
-        
-        Args:
-            dataset_id: The dataset identifier
-            sample_id: The sample identifier
-            
-        Returns:
-            True if deleted successfully, False otherwise
         """
-        sample_file = self.samples_dir / str(dataset_id) / f"{sample_id}.parquet"
-        if sample_file.exists():
-            sample_file.unlink()
-            return True
-        return False
+        Delete a sample.
+        
+        Implementation Notes:
+        1. Delete physical file
+        2. Update analysis_run status
+        3. Clean up file record
+        
+        Request:
+        - dataset_id: int
+        - sample_id: str
+        
+        Response:
+        - bool - Success status
+        """
+        raise NotImplementedError()
     
     def get_sample_path(self, dataset_id: int, sample_id: str) -> str:
-        """Get the path for a sample.
-        
-        Args:
-            dataset_id: The dataset identifier
-            sample_id: The sample identifier
-            
-        Returns:
-            Path to the sample file
         """
-        return str(self.samples_dir / str(dataset_id) / f"{sample_id}.parquet")
+        Get the path for a sample.
+        
+        Implementation Notes:
+        Build standard path: /data/samples/{dataset_id}/{sample_id}.parquet
+        
+        Request:
+        - dataset_id: int
+        - sample_id: str
+        
+        Response:
+        - str - Sample file path
+        """
+        raise NotImplementedError()
     
     def get_sample_save_path(self, dataset_id: int, version_id: int, job_id: str) -> str:
-        """Get the path where a sample should be saved.
-        
-        Args:
-            dataset_id: The dataset identifier
-            version_id: The version identifier
-            job_id: The sampling job identifier
-            
-        Returns:
-            Path where the sample should be saved
         """
-        # Create the directory structure if it doesn't exist
-        sample_dir = self.samples_dir / str(dataset_id) / str(version_id)
-        sample_dir.mkdir(parents=True, exist_ok=True)
-        return str(sample_dir / f"{job_id}.parquet")
+        Get the path where a sample should be saved.
+        
+        Implementation Notes:
+        Build path: /data/samples/{dataset_id}/{version_id}/{job_id}.parquet
+        
+        Request:
+        - dataset_id: int
+        - version_id: int
+        - job_id: str
+        
+        Response:
+        - str - Target save path
+        """
+        raise NotImplementedError()
     
     def get_multi_round_sample_path(
         self, 
@@ -215,21 +254,22 @@ class LocalStorageBackend(StorageBackend):
         job_id: str, 
         round_number: int
     ) -> str:
-        """Get the path where a multi-round sample should be saved.
-        
-        Args:
-            dataset_id: The dataset identifier
-            version_id: The version identifier
-            job_id: The multi-round sampling job identifier
-            round_number: The round number
-            
-        Returns:
-            Path where the round sample should be saved
         """
-        # Create directory structure for multi-round samples
-        sample_dir = self.samples_dir / str(dataset_id) / str(version_id) / "multi_round" / job_id
-        sample_dir.mkdir(parents=True, exist_ok=True)
-        return str(sample_dir / f"round_{round_number}.parquet")
+        Get the path where a multi-round sample should be saved.
+        
+        Implementation Notes:
+        Build path: /data/samples/{dataset_id}/{version_id}/multi_round/{job_id}/round_{round_number}.parquet
+        
+        Request:
+        - dataset_id: int
+        - version_id: int
+        - job_id: str
+        - round_number: int
+        
+        Response:
+        - str - Round sample path
+        """
+        raise NotImplementedError()
     
     def get_multi_round_residual_path(
         self,
@@ -237,20 +277,21 @@ class LocalStorageBackend(StorageBackend):
         version_id: int,
         job_id: str
     ) -> str:
-        """Get the path where the residual dataset should be saved.
-        
-        Args:
-            dataset_id: The dataset identifier
-            version_id: The version identifier
-            job_id: The multi-round sampling job identifier
-            
-        Returns:
-            Path where the residual should be saved
         """
-        # Create directory structure for residuals
-        residual_dir = self.samples_dir / str(dataset_id) / str(version_id) / "multi_round" / job_id
-        residual_dir.mkdir(parents=True, exist_ok=True)
-        return str(residual_dir / "residual.parquet")
+        Get the path where the residual dataset should be saved.
+        
+        Implementation Notes:
+        Build path: /data/samples/{dataset_id}/{version_id}/multi_round/{job_id}/residual.parquet
+        
+        Request:
+        - dataset_id: int
+        - version_id: int
+        - job_id: str
+        
+        Response:
+        - str - Residual path
+        """
+        raise NotImplementedError()
     
     async def save_dataset_file(
         self,
@@ -259,216 +300,133 @@ class LocalStorageBackend(StorageBackend):
         version_id: int,
         file_name: str
     ) -> Dict[str, Any]:
-        """Save a dataset file with automatic conversion to Parquet format.
-        
-        Args:
-            file_content: The file content as bytes
-            dataset_id: The dataset identifier
-            version_id: The version identifier
-            file_name: Original filename
-            
-        Returns:
-            Dictionary with file information (path, size, etc.)
         """
-        # Determine file type from extension
-        file_type = os.path.splitext(file_name)[1].lower()[1:]
+        Save a dataset file with conversion to rows.
         
-        # Create unique filename
-        file_uuid = str(uuid.uuid4())
-        if version_id == 0:
-            # Temporary path before we know the version ID
-            parquet_filename = f"{dataset_id}_temp_{file_uuid}.parquet"
-            parquet_path = self.datasets_dir / str(dataset_id) / "temp" / parquet_filename
-        else:
-            parquet_filename = f"{dataset_id}_{version_id}_{file_uuid}.parquet"
-            parquet_path = self.datasets_dir / str(dataset_id) / str(version_id) / parquet_filename
+        Implementation Notes:
+        In new Git-like system:
+        1. Parse file content based on type
+        2. Convert each row to JSONB
+        3. Calculate SHA256 hash for each row
+        4. Insert into rows table (deduped by hash)
+        5. Create commit with row references
+        6. Return commit info, not file info
         
-        parquet_path.parent.mkdir(parents=True, exist_ok=True)
+        Process:
+        - CSV/Excel → Parse → Rows → Commit
+        - Parquet → Read → Rows → Commit
         
-        # Create temporary file for input
-        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_type}") as tmp_file:
-            tmp_file.write(file_content)
-            tmp_file_path = tmp_file.name
+        Request:
+        - file_content: bytes
+        - dataset_id: int
+        - version_id: int - Legacy, create new version
+        - file_name: str - For type detection
         
-        try:
-            # Use DuckDB to convert to Parquet
-            conn = duckdb.connect(':memory:')
-            
-            if file_type == "csv":
-                # Read CSV with lenient parsing options to handle edge cases
-                conn.execute(f"""
-                    COPY (SELECT * FROM read_csv_auto('{tmp_file_path}', 
-                        ignore_errors=true,
-                        quote='"',
-                        escape='"',
-                        header=true)) 
-                    TO '{parquet_path}' (FORMAT PARQUET)
-                """)
-            
-            elif file_type == "parquet":
-                # Already in Parquet format, just copy
-                with open(parquet_path, 'wb') as f:
-                    f.write(file_content)
-            
-            elif file_type in ["xls", "xlsx", "xlsm"]:
-                # Handle Excel files
-                df = pd.read_excel(tmp_file_path)
-                df.to_parquet(parquet_path)
-            
-            else:
-                # Try to read as CSV for other formats with lenient parsing
-                try:
-                    conn.execute(f"""
-                        COPY (SELECT * FROM read_csv_auto('{tmp_file_path}', 
-                            ignore_errors=true,
-                            quote='"',
-                            escape='"',
-                            header=true)) 
-                        TO '{parquet_path}' (FORMAT PARQUET)
-                    """)
-                except Exception as e:
-                    logger.error(f"Failed to convert {file_type} to Parquet: {str(e)}")
-                    raise ValueError(f"Unsupported file type: {file_type}")
-            
-            conn.close()
-            file_size = os.path.getsize(parquet_path)
-            
-            return {
-                "path": str(parquet_path),
-                "size": file_size,
-                "format": "parquet"
-            }
-            
-        finally:
-            # Clean up temp file
-            if os.path.exists(tmp_file_path):
-                os.unlink(tmp_file_path)
+        Response:
+        - Dict with:
+          - commit_id: str
+          - row_count: int
+          - size_estimate: int
+        """
+        raise NotImplementedError()
     
     def get_file_metadata(self, file_path: str) -> Dict[str, Any]:
-        """Get metadata about a Parquet file without loading the data.
-        
-        Args:
-            file_path: Path to the Parquet file
-            
-        Returns:
-            Dictionary with file metadata including columns, types, row count, etc.
         """
-        conn = duckdb.connect(':memory:')
-        try:
-            # Create a view to inspect metadata
-            conn.execute(f"CREATE VIEW metadata AS SELECT * FROM read_parquet('{file_path}') LIMIT 0")
-            
-            # Get column information
-            columns_info = conn.execute("PRAGMA table_info('metadata')").fetchall()
-            columns = []
-            column_types = {}
-            for col_info in columns_info:
-                col_name = col_info[1]
-                col_type = col_info[2]
-                columns.append(col_name)
-                column_types[col_name] = col_type
-            
-            # Get row count
-            row_count = conn.execute(f"SELECT COUNT(*) FROM read_parquet('{file_path}')").fetchone()[0]
-            
-            return {
-                "num_rows": row_count,
-                "num_columns": len(columns),
-                "columns": columns,
-                "column_types": column_types,
-                "file_size": os.path.getsize(file_path),
-                "created": os.path.getctime(file_path),
-                "modified": os.path.getmtime(file_path)
-            }
-        except Exception as e:
-            logger.error(f"Error getting file metadata for {file_path}: {str(e)}")
-            raise ValueError(f"Failed to get file metadata: {str(e)}")
-        finally:
-            conn.close()
+        Get metadata about a file without loading data.
+        
+        Implementation Notes:
+        For commits in new system:
+        1. Query commit_statistics table
+        2. Get schema from commit_schemas
+        3. Return metadata without loading rows
+        
+        Request:
+        - file_path: str - Can be commit_id in new system
+        
+        Response:
+        - Dict with:
+          - num_rows: int
+          - num_columns: int
+          - columns: List[str]
+          - column_types: Dict[str, str]
+          - size_estimate: int
+        """
+        raise NotImplementedError()
     
     def get_dataset_path(self, dataset_id: int, version_id: int, filename: str) -> str:
-        """Get the standard path for a dataset file.
-        
-        Args:
-            dataset_id: The dataset identifier
-            version_id: The version identifier
-            filename: The filename
-            
-        Returns:
-            Full path to the dataset file
         """
-        return str(self.datasets_dir / str(dataset_id) / str(version_id) / filename)
+        Get the standard path for a dataset file.
+        
+        DEPRECATED: Use commit IDs instead of file paths
+        
+        Request:
+        - dataset_id: int
+        - version_id: int
+        - filename: str
+        
+        Response:
+        - str - File path (legacy)
+        """
+        raise NotImplementedError()
     
     async def list_dataset_files(self, dataset_id: int, version_id: Optional[int] = None) -> List[str]:
-        """List all files for a dataset or specific version.
-        
-        Args:
-            dataset_id: The dataset identifier
-            version_id: Optional version identifier
-            
-        Returns:
-            List of file paths
         """
-        if version_id:
-            path = self.datasets_dir / str(dataset_id) / str(version_id)
-        else:
-            path = self.datasets_dir / str(dataset_id)
+        List all files for a dataset or version.
         
-        if not path.exists():
-            return []
+        DEPRECATED: In new system, list commits instead
         
-        files = []
-        for file_path in path.rglob("*.parquet"):
-            files.append(str(file_path))
+        Implementation Notes:
+        Query commits table for dataset
         
-        return files
+        Request:
+        - dataset_id: int
+        - version_id: Optional[int]
+        
+        Response:
+        - List[str] - Commit IDs
+        """
+        raise NotImplementedError()
     
     async def list_sample_files(self, dataset_id: int, version_id: int) -> List[str]:
-        """List all sample files for a dataset version.
-        
-        Args:
-            dataset_id: The dataset identifier
-            version_id: The version identifier
-            
-        Returns:
-            List of sample file paths
         """
-        path = self.samples_dir / str(dataset_id) / str(version_id)
+        List all sample files for a dataset version.
         
-        if not path.exists():
-            return []
+        Implementation Notes:
+        Query analysis_runs for sampling outputs
         
-        files = []
-        for file_path in path.glob("*.parquet"):
-            files.append(str(file_path))
+        Request:
+        - dataset_id: int
+        - version_id: int
         
-        return files
+        Response:
+        - List[str] - Sample file paths
+        """
+        raise NotImplementedError()
     
     async def file_exists(self, file_path: str) -> bool:
-        """Check if a file exists.
-        
-        Args:
-            file_path: Path to check
-            
-        Returns:
-            True if file exists, False otherwise
         """
-        return Path(file_path).exists()
+        Check if a file exists.
+        
+        Request:
+        - file_path: str
+        
+        Response:
+        - bool - Exists status
+        """
+        raise NotImplementedError()
     
     async def delete_file(self, file_path: str) -> bool:
-        """Delete a file.
-        
-        Args:
-            file_path: Path to the file to delete
-            
-        Returns:
-            True if deleted successfully, False otherwise
         """
-        try:
-            if await self.file_exists(file_path):
-                os.unlink(file_path)
-                return True
-            return False
-        except Exception as e:
-            logger.error(f"Error deleting file {file_path}: {str(e)}")
-            return False
+        Delete a file.
+        
+        Implementation Notes:
+        1. Delete physical file
+        2. Clean up file record if needed
+        
+        Request:
+        - file_path: str
+        
+        Response:
+        - bool - Success status
+        """
+        raise NotImplementedError()

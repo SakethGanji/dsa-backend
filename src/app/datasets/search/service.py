@@ -1,4 +1,4 @@
-"""Service layer for dataset search functionality"""
+"""Service layer for dataset search functionality - HOLLOWED OUT FOR BACKEND RESET"""
 import time
 from typing import List, Optional, Dict, Any
 from datetime import datetime
@@ -25,54 +25,48 @@ class SearchService:
     ) -> SearchResponse:
         """
         Search datasets with permissions check and faceting.
+        
+        Implementation Notes:
+        1. Get user ID from soeid
+        2. Build search query with FTS on name/description
+        3. Apply filters (tags, creators, date ranges, file sizes)
+        4. Check permissions for each dataset
+        5. Calculate facets from filtered results
+        6. Return paginated results with facets
+        
+        Note: Search works on dataset level, not commit level
+        Each dataset shows latest commit info
+        
+        Request:
+        - request: SearchRequest containing:
+          - query: Optional[str] - Search text
+          - tags: Optional[List[str]] - Filter by tags
+          - created_by: Optional[List[int]] - Filter by creator IDs
+          - created_at: Optional[DateRange] - Date filter
+          - updated_at: Optional[DateRange] - Date filter
+          - file_size: Optional[NumericRange] - Size filter
+          - file_types: Optional[List[str]] - File type filter
+          - version_count: Optional[NumericRange] - Version count filter
+          - limit: int - Results per page
+          - offset: int - Skip results
+          - sort_by: Optional[str] - Sort field
+          - sort_order: Optional[str] - ASC/DESC
+          - include_facets: bool - Include facet counts
+          - facet_fields: Optional[List[str]] - Specific facets to include
+        - current_user: CurrentUser - For permission filtering
+        
+        Response:
+        - SearchResponse containing:
+          - results: List[SearchResult] - Dataset results
+          - total: int - Total matching datasets
+          - limit: int
+          - offset: int  
+          - has_more: bool
+          - query: Optional[str]
+          - execution_time_ms: float
+          - facets: Optional[SearchFacets]
         """
-        start_time = time.time()
-        
-        # Get user ID from soeid
-        user = await self.user_service.get_user_by_soeid(current_user.soeid)
-        if not user:
-            user_id = None
-        else:
-            user_id = user.id
-        if not user_id:
-            # Return empty results if user not found
-            return SearchResponse(
-                results=[],
-                total=0,
-                limit=request.limit,
-                offset=request.offset,
-                has_more=False,
-                query=request.query,
-                execution_time_ms=0,
-                facets=None
-            )
-        
-        # Perform search
-        results, total = await self.search_repo.search_datasets(request, user_id)
-        
-        # Get facets if requested
-        facets = None
-        if request.include_facets:
-            facet_data = await self.search_repo.get_search_facets(request, user_id)
-            if facet_data:
-                facets = SearchFacets(**facet_data)
-        
-        # Calculate execution time
-        execution_time_ms = (time.time() - start_time) * 1000
-        
-        # Check if there are more results
-        has_more = (request.offset + request.limit) < total
-        
-        return SearchResponse(
-            results=results,
-            total=total,
-            limit=request.limit,
-            offset=request.offset,
-            has_more=has_more,
-            query=request.query,
-            execution_time_ms=execution_time_ms,
-            facets=facets
-        )
+        raise NotImplementedError()
     
     async def get_suggestions(
         self,
@@ -80,53 +74,127 @@ class SearchService:
     ) -> SearchSuggestResponse:
         """
         Get search suggestions/autocomplete results.
+        
+        Implementation Notes:
+        1. Use PostgreSQL pg_trgm for similarity matching
+        2. Search across dataset names, descriptions, and tags
+        3. Return ranked suggestions by relevance
+        4. Group by type (dataset_name, tag, etc.)
+        
+        Request:
+        - request: SearchSuggestRequest containing:
+          - query: str - Partial search query
+          - limit: int - Max suggestions
+          - types: Optional[List[str]] - Filter suggestion types
+        
+        Response:
+        - SearchSuggestResponse containing:
+          - suggestions: List[SearchSuggestion]
+          - query: str
+          - execution_time_ms: float
         """
-        start_time = time.time()
-        
-        suggestions = await self.search_repo.get_search_suggestions(
-            query=request.query,
-            limit=request.limit,
-            types=request.types
-        )
-        
-        execution_time_ms = (time.time() - start_time) * 1000
-        
-        return SearchSuggestResponse(
-            suggestions=suggestions,
-            query=request.query,
-            execution_time_ms=execution_time_ms
-        )
-    
+        raise NotImplementedError()
     
     def validate_search_request(self, request: SearchRequest) -> None:
         """
         Validate search request parameters.
+        
+        Implementation Notes:
+        1. Validate date ranges (start <= end)
+        2. Validate numeric ranges (min <= max)
+        3. Validate facet fields are allowed
+        4. Raise ValueError for invalid params
+        
+        Valid facet fields: ['tags', 'file_types', 'created_by', 'years']
+        
+        Request:
+        - request: SearchRequest to validate
+        
+        Raises:
+        - ValueError: If validation fails
         """
-        # Validate date ranges
-        if request.created_at:
-            if request.created_at.start and request.created_at.end:
-                if request.created_at.start > request.created_at.end:
-                    raise ValueError("Created date start must be before end")
+        raise NotImplementedError()
+    
+    async def search_by_schema(
+        self,
+        column_names: List[str],
+        column_types: Optional[Dict[str, str]] = None,
+        current_user: CurrentUser = None
+    ) -> SearchResponse:
+        """
+        Search datasets by schema columns.
         
-        if request.updated_at:
-            if request.updated_at.start and request.updated_at.end:
-                if request.updated_at.start > request.updated_at.end:
-                    raise ValueError("Updated date start must be before end")
+        Implementation Notes:
+        1. Query commit_schemas table for matching columns
+        2. Join with commits to get dataset IDs
+        3. Filter by column names and optionally types
+        4. Apply permission filtering
+        5. Return matching datasets
         
-        # Validate numeric ranges
-        if request.file_size:
-            if request.file_size.min is not None and request.file_size.max is not None:
-                if request.file_size.min > request.file_size.max:
-                    raise ValueError("File size min must be less than max")
+        Request:
+        - column_names: List[str] - Required columns
+        - column_types: Optional[Dict[str, str]] - Column type constraints
+        - current_user: CurrentUser - For permissions
         
-        if request.version_count:
-            if request.version_count.min is not None and request.version_count.max is not None:
-                if request.version_count.min > request.version_count.max:
-                    raise ValueError("Version count min must be less than max")
+        Response:
+        - SearchResponse with matching datasets
+        """
+        raise NotImplementedError()
+    
+    async def get_popular_tags(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """
+        Get most popular tags with usage counts.
         
-        # Validate facet fields
-        valid_facet_fields = ['tags', 'file_types', 'created_by', 'years']
-        if request.facet_fields:
-            invalid_fields = [f for f in request.facet_fields if f not in valid_facet_fields]
-            if invalid_fields:
-                raise ValueError(f"Invalid facet fields: {invalid_fields}")
+        Implementation Notes:
+        1. Query tags with dataset counts
+        2. Order by usage count DESC
+        3. Return top N tags
+        
+        Request:
+        - limit: int - Max tags to return
+        
+        Response:
+        - List of {"tag": str, "count": int}
+        """
+        raise NotImplementedError()
+    
+    async def search_similar_datasets(
+        self,
+        dataset_id: int,
+        limit: int = 10,
+        current_user: CurrentUser = None
+    ) -> List[SearchResult]:
+        """
+        Find datasets similar to a given dataset.
+        
+        Implementation Notes:
+        1. Get tags and schema from source dataset
+        2. Find datasets with overlapping tags
+        3. Score by tag similarity and schema similarity
+        4. Apply permission filtering
+        5. Return top matches
+        
+        Request:
+        - dataset_id: int - Source dataset
+        - limit: int - Max results
+        - current_user: CurrentUser - For permissions
+        
+        Response:
+        - List[SearchResult] - Similar datasets
+        """
+        raise NotImplementedError()
+    
+    async def build_search_index(self) -> Dict[str, Any]:
+        """
+        Rebuild search indexes and materialized views.
+        
+        Implementation Notes:
+        1. Refresh dataset_search_facets materialized view
+        2. Update FTS indexes
+        3. Analyze tables for query optimization
+        4. Return indexing statistics
+        
+        Response:
+        - Dict with indexing stats and duration
+        """
+        raise NotImplementedError()

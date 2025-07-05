@@ -1,3 +1,4 @@
+"""Routes for users API v2"""
 from fastapi import APIRouter, Depends, status, HTTPException
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +14,8 @@ from app.users.auth import (
 from app.db.connection import get_session
 from app.core.logging_config import logger
 
-router = APIRouter(prefix="/api/users", tags=["Users"])
+# Remove /api prefix for v2
+router = APIRouter(prefix="/users", tags=["Users"])
 
 # OAuth2 token endpoint
 @router.post(
@@ -105,7 +107,7 @@ async def register_user(
 
 # Protected: List users
 @router.get(
-    "/", response_model=list[UserOut], summary="List all users"
+    "", response_model=list[UserOut], summary="List all users"
 )
 async def get_users(
     current_user: CurrentUser = Depends(get_current_user_info),
@@ -116,7 +118,7 @@ async def get_users(
 
 # Protected: Create user
 @router.post(
-    "/", response_model=UserOut,
+    "", response_model=UserOut,
     status_code=status.HTTP_201_CREATED,
     summary="Create a new user (requires authentication, for admin use)"
 )
@@ -130,4 +132,3 @@ async def create_user(
     # if current_user.role_id != ADMIN_ROLE_ID:
     #     raise HTTPException(status_code=403, detail="Not authorized")
     return await create_user_ctrl(payload, session)
-

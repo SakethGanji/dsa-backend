@@ -1,6 +1,8 @@
+"""Routes for sampling API v2 - Git-like versioning system"""
 from fastapi import APIRouter, Depends, Path, Body, HTTPException, status, Response, Query
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from datetime import datetime
+import uuid
 
 from app.sampling.models import (
     SamplingRequest,
@@ -31,294 +33,76 @@ def get_sampling_controller(session: AsyncSession = Depends(get_session)):
     controller = SamplingController(service)
     return controller
 
-# Create router
-router = APIRouter(prefix="/api/sampling", tags=["Sampling"])
+# Create router - no /api prefix in v2
+router = APIRouter(tags=["Sampling"])
+
+
+@router.post(
+    "/datasets/{dataset_id}/commits/{commit_hash}/samples",
+    response_model=Dict[str, Any],
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Create sampling job",
+    description="""
+    Create a new sampling job from a specific commit.
+    
+    This is an asynchronous operation that:
+    1. Creates a job in the analysis_runs table
+    2. Executes sampling based on the provided configuration
+    3. Creates a new commit with the sampled data
+    4. Creates a new ref (branch) pointing to the sample commit
+    
+    The job status can be tracked via the /jobs/{job_id} endpoint.
+    """
+)
+async def create_sampling_job(
+    dataset_id: int = Path(..., description="The ID of the dataset"),
+    commit_hash: str = Path(..., regex="^[a-f0-9]{64}$", description="Source commit hash"),
+    request: MultiRoundSamplingRequest = Body(..., description="Sampling configuration"),
+    controller: SamplingController = Depends(get_sampling_controller),
+    current_user: CurrentUser = Depends(get_current_user_info)
+) -> Dict[str, Any]:
+    """Create a sampling job that produces a new commit and ref."""
+    # This will:
+    # 1. Create job in analysis_runs with run_type='sampling'
+    # 2. Return job_id for tracking
+    # 3. Background worker executes sampling
+    # 4. Creates new commit with sampled rows
+    # 5. Creates ref like "samples/job-{job_id}"
+    raise NotImplementedError("Create sampling job endpoint")
 
 
 @router.get(
-    "/{dataset_id}/{version_id}/columns",
+    "/datasets/{dataset_id}/commits/{commit_hash}/schema",
     response_model=Dict[str, Any],
-    summary="Get dataset column information",
+    summary="Get dataset schema for sampling",
     description="""
-    Get column information for a dataset version.
+    Get column information and schema for a dataset commit.
     
     This endpoint returns column names, types, and basic statistics
-    which can be used to build filters and understand the data structure.
+    which can be used to build filters and understand the data structure
+    before sampling.
     """
 )
-async def get_dataset_columns(
+async def get_commit_schema_for_sampling(
     dataset_id: int = Path(..., description="The ID of the dataset"),
-    version_id: int = Path(..., description="The ID of the version"),
+    commit_hash: str = Path(..., regex="^[a-f0-9]{64}$", description="Commit hash"),
     controller: SamplingController = Depends(get_sampling_controller),
     current_user: CurrentUser = Depends(get_current_user_info)
-):
-    """Get column information for a dataset version"""
-    return await controller.get_dataset_columns(dataset_id, version_id)
+) -> Dict[str, Any]:
+    """Get schema information for sampling from a commit."""
+    # Returns schema from commit_schemas table
+    raise NotImplementedError("Get commit schema for sampling endpoint")
 
 
-# Multi-round sampling endpoints
-@router.post(
-    "/{dataset_id}/{version_id}/multi-round/run",
-    response_model=MultiRoundSamplingJobResponse,
-    status_code=status.HTTP_202_ACCEPTED,
-    summary="Create a multi-round sampling job",
-    description="""
-    Create a new multi-round sampling job for progressive residual sampling.
-    
-    This allows you to perform multiple rounds of sampling where each round
-    samples from the remaining data after previous rounds.
-    
-    ## Key Features:
-    
-    - **Progressive Sampling**: Each round samples from the residual dataset
-    - **Multiple Methods**: Each round can use a different sampling method
-    - **Flexible Configuration**: Configure sample size, method, and filters per round
-    - **Residual Export**: Option to export the final un-sampled residual dataset
-    
-    ## Example Request:
-    
-    ```json
-    {
-        "rounds": [
-            {
-                "round_number": 1,
-                "method": "random",
-                "parameters": {"sample_size": 1000, "seed": 42},
-                "output_name": "round_1_random"
-            },
-            {
-                "round_number": 2,
-                "method": "stratified",
-                "parameters": {
-                    "strata_columns": ["category"],
-                    "sample_size": 500
-                },
-                "output_name": "round_2_stratified"
-            }
-        ],
-        "export_residual": true,
-        "residual_output_name": "final_residual"
-    }
-    ```
-    """
-)
-async def create_multi_round_sampling_job(
-    dataset_id: int = Path(..., description="The ID of the dataset"),
-    version_id: int = Path(..., description="The ID of the version"),
-    request: MultiRoundSamplingRequest = Body(..., description="Multi-round sampling configuration"),
-    controller: SamplingController = Depends(get_sampling_controller),
-    current_user: CurrentUser = Depends(get_current_user_info)
-):
-    """Create a multi-round sampling job for progressive residual sampling"""
-    return await controller.create_multi_round_sampling_job(
-        dataset_id=dataset_id,
-        version_id=version_id,
-        request=request,
-        user_id=current_user.role_id
-    )
-
+# Legacy endpoints mapped to new system - these will be deprecated
 @router.get(
-    "/multi-round/jobs/{job_id}",
-    response_model=MultiRoundSamplingJobResponse,
-    summary="Get multi-round sampling job status",
-    description="""
-    Get the status and results of a multi-round sampling job.
-    
-    Returns:
-    - Overall job status and progress
-    - Results from completed rounds
-    - Residual dataset information
-    - Error information if job failed
-    """
-)
-async def get_multi_round_job(
-    job_id: str = Path(..., description="The multi-round job ID"),
-    controller: SamplingController = Depends(get_sampling_controller),
-    current_user: CurrentUser = Depends(get_current_user_info)
-):
-    """Get status and results of a multi-round sampling job"""
-    return await controller.get_multi_round_job(job_id)
-
-@router.get(
-    "/multi-round/jobs/{job_id}/merged-sample",
-    response_model=Dict[str, Any],
-    summary="Get merged sample data with pagination",
-    description="""
-    Retrieve the final merged sample file that combines all sampling rounds.
-    
-    This endpoint returns the consolidated parquet file containing all sampled
-    data from all rounds of a multi-round sampling job.
-    
-    Features:
-    - Efficient pagination using DuckDB for parquet files
-    - Column selection support
-    - Optional filtering capabilities
-    - Export options (CSV, JSON)
-    
-    The merged sample file is stored at:
-    /data/samples/{dataset_id}/{version_id}/multi_round/{run_id}/0.parquet
-    """
-)
-async def get_merged_sample_data(
-    job_id: str = Path(..., description="The multi-round job ID"),
-    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
-    page_size: int = Query(100, ge=1, le=10000, description="Number of items per page"),
-    columns: List[str] = Query(None, description="Specific columns to return"),
-    export_format: str = Query(None, description="Export format (csv, json)"),
-    controller: SamplingController = Depends(get_sampling_controller),
-    current_user: CurrentUser = Depends(get_current_user_info)
-):
-    """Get paginated data from the merged sample file"""
-    return await controller.get_merged_sample_data(
-        job_id=job_id,
-        page=page,
-        page_size=page_size,
-        columns=columns,
-        export_format=export_format
-    )
-
-@router.get(
-    "/multi-round/jobs/{job_id}/round/{round_number}/preview",
-    response_model=Dict[str, Any],
-    summary="Get preview of a specific round's sample",
-    description="""
-    Get a preview of the data sampled in a specific round.
-    
-    Returns paginated preview data from the specified round.
-    """
-)
-async def get_round_preview(
-    job_id: str = Path(..., description="The multi-round job ID"),
-    round_number: int = Path(..., description="The round number"),
-    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
-    page_size: int = Query(100, ge=1, le=1000, description="Number of items per page"),
-    controller: SamplingController = Depends(get_sampling_controller),
-    current_user: CurrentUser = Depends(get_current_user_info)
-):
-    """Get preview data from a specific sampling round"""
-    return await controller.get_round_preview(
-        job_id=job_id,
-        round_number=round_number,
-        page=page,
-        page_size=page_size
-    )
-
-@router.get(
-    "/multi-round/jobs/{job_id}/residual/preview",
-    response_model=Dict[str, Any],
-    summary="Get preview of residual dataset",
-    description="""
-    Get a preview of the final residual dataset after all sampling rounds.
-    
-    Returns paginated preview data from the residual dataset.
-    Only available if export_residual was set to true.
-    """
-)
-async def get_residual_preview(
-    job_id: str = Path(..., description="The multi-round job ID"),
-    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
-    page_size: int = Query(100, ge=1, le=1000, description="Number of items per page"),
-    controller: SamplingController = Depends(get_sampling_controller),
-    current_user: CurrentUser = Depends(get_current_user_info)
-):
-    """Get preview data from the residual dataset"""
-    return await controller.get_residual_preview(
-        job_id=job_id,
-        page=page,
-        page_size=page_size
-    )
-
-@router.post(
-    "/{dataset_id}/{version_id}/multi-round/execute",
-    response_model=Dict[str, Any],
-    status_code=status.HTTP_200_OK,
-    summary="Execute multi-round sampling synchronously",
-    description="""
-    Execute multi-round sampling synchronously and return all results directly.
-    
-    This endpoint performs progressive residual sampling across multiple rounds
-    and returns the data immediately. Each round samples from the remaining data
-    after previous rounds.
-    
-    ## Key Features:
-    
-    - **Synchronous Execution**: All rounds are processed immediately
-    - **Direct Data Return**: Returns sampled data from all rounds
-    - **Progressive Sampling**: Each round samples from the residual dataset
-    - **Flexible Configuration**: Configure sample size, method, and filters per round
-    - **Residual Export**: Option to include the final un-sampled residual dataset
-    
-    ## Example Request:
-    
-    ```json
-    {
-        "rounds": [
-            {
-                "round_number": 1,
-                "method": "random",
-                "parameters": {"sample_size": 1000, "seed": 42},
-                "output_name": "round_1_random"
-            },
-            {
-                "round_number": 2,
-                "method": "stratified",
-                "parameters": {
-                    "strata_columns": ["category"],
-                    "sample_size": 500
-                },
-                "output_name": "round_2_stratified"
-            }
-        ],
-        "export_residual": true,
-        "residual_output_name": "final_residual"
-    }
-    ```
-    
-    ## Response Structure:
-    
-    The response includes:
-    - **rounds**: Array of round results with data, sample size, and summary
-    - **residual**: Final residual dataset (if export_residual is true)
-    
-    Supports pagination with page and page_size parameters.
-    """
-)
-async def execute_multi_round_sampling_sync(
-    dataset_id: int = Path(..., description="The ID of the dataset"),
-    version_id: int = Path(..., description="The ID of the version"),
-    request: MultiRoundSamplingRequest = Body(..., description="Multi-round sampling configuration"),
-    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
-    page_size: int = Query(100, ge=1, le=1000, description="Number of items per page"),
-    controller: SamplingController = Depends(get_sampling_controller),
-    current_user: CurrentUser = Depends(get_current_user_info)
-):
-    """Execute multi-round sampling synchronously and return data directly"""
-    return await controller.execute_multi_round_sampling_sync(
-        dataset_id=dataset_id,
-        version_id=version_id,
-        request=request,
-        user_id=current_user.role_id,
-        page=page,
-        page_size=page_size
-    )
-
-@router.get(
-    "/user/{user_id}/samplings",
+    "/sampling/user/{user_id}/samplings",
     response_model=AnalysisRunListResponse,
-    summary="Get all samplings by user ID",
+    summary="Get all samplings by user ID (DEPRECATED)",
     description="""
+    DEPRECATED: Use /jobs?user_id={user_id}&run_type=sampling instead.
+    
     Retrieve all sampling runs created by a specific user.
-    
-    This endpoint returns a paginated list of all sampling analysis runs
-    associated with the specified user ID, including their status, parameters,
-    and output information.
-    
-    The response includes:
-    - Sampling run metadata (ID, status, timestamps)
-    - Dataset and version information
-    - Run parameters and configuration
-    - Output file details (if completed)
-    - Pagination information
     """
 )
 async def get_samplings_by_user(
@@ -327,79 +111,22 @@ async def get_samplings_by_user(
     page_size: int = Query(10, ge=1, le=100, description="Number of items per page"),
     controller: SamplingController = Depends(get_sampling_controller),
     current_user: CurrentUser = Depends(get_current_user_info)
-):
-    """Get all sampling runs created by a specific user"""
-    result = await controller.get_samplings_by_user(
-        user_id=user_id,
-        page=page,
-        page_size=page_size
-    )
-    
-    return AnalysisRunListResponse(
-        runs=result["runs"],
-        total_count=result["total_count"],
-        page=result["page"],
-        page_size=result["page_size"]
-    )
+) -> AnalysisRunListResponse:
+    """Get all sampling runs created by a specific user."""
+    # This should query analysis_runs table with filters:
+    # - user_id = user_id
+    # - run_type = 'sampling'
+    raise NotImplementedError("Query sampling jobs by user")
+
 
 @router.get(
-    "/dataset-version/{dataset_version_id}/samplings",
+    "/sampling/dataset/{dataset_id}/samplings",
     response_model=AnalysisRunListResponse,
-    summary="Get all samplings by dataset version ID",
+    summary="Get all samplings by dataset ID (DEPRECATED)",
     description="""
-    Retrieve all sampling runs performed on a specific dataset version.
+    DEPRECATED: Use /datasets/{dataset_id}/jobs?run_type=sampling instead.
     
-    This endpoint returns a paginated list of all sampling analysis runs
-    that have been executed on the specified dataset version, showing
-    who ran them, when, and their results.
-    
-    The response includes:
-    - Sampling run metadata (ID, status, timestamps)
-    - User information (who created the sampling)
-    - Run parameters and configuration
-    - Output file details (if completed)
-    - Pagination information
-    """
-)
-async def get_samplings_by_dataset_version(
-    dataset_version_id: int = Path(..., description="The ID of the dataset version"),
-    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
-    page_size: int = Query(10, ge=1, le=100, description="Number of items per page"),
-    controller: SamplingController = Depends(get_sampling_controller),
-    current_user: CurrentUser = Depends(get_current_user_info)
-):
-    """Get all sampling runs for a specific dataset version"""
-    result = await controller.get_samplings_by_dataset_version(
-        dataset_version_id=dataset_version_id,
-        page=page,
-        page_size=page_size
-    )
-    
-    return AnalysisRunListResponse(
-        runs=result["runs"],
-        total_count=result["total_count"],
-        page=result["page"],
-        page_size=result["page_size"]
-    )
-
-@router.get(
-    "/dataset/{dataset_id}/samplings",
-    response_model=AnalysisRunListResponse,
-    summary="Get all samplings by dataset ID (across all versions)",
-    description="""
-    Retrieve all sampling runs performed on a specific dataset across all its versions.
-    
-    This endpoint returns a paginated list of all sampling analysis runs
-    that have been executed on any version of the specified dataset. This is useful
-    for viewing the complete sampling history of a dataset regardless of version.
-    
-    The response includes:
-    - Sampling run metadata (ID, status, timestamps)
-    - Dataset version information (version number for each run)
-    - User information (who created the sampling)
-    - Run parameters and configuration
-    - Output file details (if completed)
-    - Pagination information
+    Retrieve all sampling runs performed on a specific dataset across all commits.
     """
 )
 async def get_samplings_by_dataset(
@@ -408,18 +135,9 @@ async def get_samplings_by_dataset(
     page_size: int = Query(10, ge=1, le=100, description="Number of items per page"),
     controller: SamplingController = Depends(get_sampling_controller),
     current_user: CurrentUser = Depends(get_current_user_info)
-):
-    """Get all sampling runs for a specific dataset (across all versions)"""
-    result = await controller.get_samplings_by_dataset(
-        dataset_id=dataset_id,
-        page=page,
-        page_size=page_size
-    )
-    
-    return AnalysisRunListResponse(
-        runs=result["runs"],
-        total_count=result["total_count"],
-        page=result["page"],
-        page_size=result["page_size"]
-    )
-
+) -> AnalysisRunListResponse:
+    """Get all sampling runs for a specific dataset."""
+    # This should query analysis_runs table with filters:
+    # - dataset_id = dataset_id
+    # - run_type = 'sampling'
+    raise NotImplementedError("Query sampling jobs by dataset")

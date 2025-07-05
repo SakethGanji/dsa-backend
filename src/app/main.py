@@ -10,12 +10,18 @@ import app.core.logging_config # Ensures basicConfig is called
 
 from app.users.auth import get_current_user_info, CurrentUser
 
+# Import v2 routers
 from app.users.routes import router as users_router
 from app.datasets.routes import router as datasets_router
 from app.explore.routes import router as explore_router
 from app.sampling.routes import router as sampling_router
+from app.jobs.routes import router as jobs_router
 
-app = FastAPI()
+app = FastAPI(
+    title="DSA Platform API v2",
+    description="Git-like versioning system for dataset management",
+    version="2.0.0"
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -37,52 +43,74 @@ async def global_exception_handler(request: Request, exc: Exception):
     # Unhandled exceptions become 500 Internal Server Error
     return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
 
-app.include_router(users_router)
-app.include_router(datasets_router)
-app.include_router(explore_router)
-app.include_router(sampling_router)
+# Include v2 routers without /api prefix
+app.include_router(users_router)  # /users endpoints
+app.include_router(datasets_router)  # /datasets endpoints
+app.include_router(explore_router)  # /datasets/{id}/commits/{hash}/explorations
+app.include_router(sampling_router)  # /datasets/{id}/commits/{hash}/samples
+app.include_router(jobs_router)  # /jobs endpoints
 
 # Startup event to recover running jobs
 @app.on_event("startup")
 async def startup_event():
-    """Recover any sampling jobs that were running when the server shut down"""
+    """
+    Recover any jobs that were running when the server shut down.
+    
+    Implementation Notes:
+    In the v2 Git-like system with persistent job storage:
+    1. Query analysis_runs table for jobs with status='running'
+    2. Update their status to 'failed' with error message about server restart
+    3. Optionally, restart recoverable jobs based on run_type
+    
+    Recovery Process:
+    1. Get all running jobs from analysis_runs table
+    2. For each job:
+       - If it's an import job and files still exist, could restart
+       - If it's a sampling/exploration job, mark as failed
+       - Update status and error_message accordingly
+    3. Log recovery results
+    
+    Database Query:
+    UPDATE analysis_runs 
+    SET status = 'failed',
+        error_message = 'Job interrupted by server restart',
+        completed_at = NOW()
+    WHERE status = 'running';
+    """
     try:
-        logger.info("Starting up application...")
+        logger.info("Starting up DSA Platform v2...")
         
-        # Get the sampling service instance with database session
-        from app.db.connection import AsyncSessionLocal
-        from app.sampling.service import SamplingService
-        from app.datasets.repository import DatasetsRepository
-        from app.sampling.repository import SamplingRepository
-        from app.storage.factory import StorageFactory
+        # HOLLOWED OUT - Implementation needed for new system
+        # Dependencies to import:
+        # - app.db.connection.AsyncSessionLocal
+        # - Direct SQL update to mark running jobs as failed
         
-        async with AsyncSessionLocal() as session:
-            datasets_repository = DatasetsRepository(session)
-            sampling_repo = SamplingRepository()
-            storage_backend = StorageFactory.get_instance()
+        # Steps:
+        # 1. Create database session
+        # 2. Execute UPDATE query to mark running jobs as failed
+        # 3. Log how many jobs were affected
+        # 4. Optionally restart certain job types
+        
+        raise NotImplementedError(
+            "Implement job recovery with analysis_runs table"
+        )
             
-            # Create service with database session to enable recovery
-            service = SamplingService(
-                datasets_repository, 
-                sampling_repo, 
-                storage_backend, 
-                db_session=session
-            )
-            
-            # Recover any running jobs
-            await service.recover_running_jobs()
-            
-        logger.info("Application startup complete")
+    except NotImplementedError:
+        logger.warning("Job recovery not implemented - skipping")
     except Exception as e:
         logger.error(f"Error during startup: {str(e)}", exc_info=True)
 
 @app.get("/")
 async def root():
-    return {"message": "Data Science API is running"}
+    return {
+        "message": "DSA Platform API v2",
+        "version": "2.0.0",
+        "docs": "/docs"
+    }
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    return {"status": "healthy", "version": "2.0.0"}
 
 if __name__ == "__main__":
     import uvicorn
