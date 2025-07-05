@@ -1,12 +1,14 @@
 import logging
 import sys
 
-LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-
+# Configure logging
 logging.basicConfig(
-    level=logging.DEBUG,
-    format=LOG_FORMAT,
-    stream=sys.stdout,
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
 )
 
-logger = logging.getLogger("fastapi-app")
+# Create logger
+logger = logging.getLogger(__name__)
