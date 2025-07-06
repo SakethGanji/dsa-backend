@@ -132,8 +132,8 @@ class ICommitRepository(ABC):
         pass
     
     @abstractmethod
-    async def get_commit_history(self, dataset_id: int, offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
-        """Get the commit history for dataset's main timeline with pagination."""
+    async def get_commit_history(self, dataset_id: int, ref_name: str = "main", offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get the commit history for a specific ref with pagination."""
         pass
     
     @abstractmethod
@@ -142,13 +142,33 @@ class ICommitRepository(ABC):
         pass
     
     @abstractmethod
-    async def count_commits_for_dataset(self, dataset_id: int) -> int:
-        """Count total commits for a dataset."""
+    async def count_commits_for_dataset(self, dataset_id: int, ref_name: str = "main") -> int:
+        """Count total commits for a dataset starting from a specific ref."""
         pass
     
     @abstractmethod
     async def count_commit_rows(self, commit_id: str, table_key: Optional[str] = None) -> int:
         """Count rows in a commit, optionally filtered by table."""
+        pass
+    
+    @abstractmethod
+    async def list_refs(self, dataset_id: int) -> List[Dict[str, Any]]:
+        """List all refs/branches for a dataset."""
+        pass
+    
+    @abstractmethod
+    async def create_ref(self, dataset_id: int, ref_name: str, commit_id: str) -> None:
+        """Create a new ref pointing to a specific commit."""
+        pass
+    
+    @abstractmethod
+    async def delete_ref(self, dataset_id: int, ref_name: str) -> bool:
+        """Delete a ref. Returns True if deleted, False if not found."""
+        pass
+    
+    @abstractmethod
+    async def get_default_branch(self, dataset_id: int) -> Optional[str]:
+        """Get the default branch name for a dataset (usually 'main')."""
         pass
 
 

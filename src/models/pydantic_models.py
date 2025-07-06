@@ -10,6 +10,7 @@ class CreateDatasetRequest(BaseModel):
     name: str
     description: Optional[str] = None
     tags: Optional[List[str]] = Field(default=[], description="List of tags for the dataset")
+    default_branch: str = Field(default="main", description="Default branch name for the dataset")
 
 
 class CreateDatasetResponse(BaseModel):
@@ -281,3 +282,38 @@ class JobListResponse(BaseModel):
 
 class JobDetailResponse(BaseModel):
     job: JobDetail
+
+
+# Branch/Ref models
+class RefInfo(BaseModel):
+    """Information about a ref/branch"""
+    name: str
+    commit_id: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+
+class ListRefsResponse(BaseModel):
+    """Response for listing all refs/branches"""
+    refs: List[RefInfo]
+    dataset_id: int
+
+
+class CreateBranchRequest(BaseModel):
+    """Request to create a new branch"""
+    name: constr(pattern=r'^[a-zA-Z0-9][a-zA-Z0-9-_]*$', min_length=1, max_length=255) = Field(
+        ..., 
+        description="Branch name (alphanumeric, hyphens, underscores allowed)"
+    )
+    from_ref: str = Field(
+        default="main",
+        description="Source ref to branch from"
+    )
+
+
+class CreateBranchResponse(BaseModel):
+    """Response after creating a branch"""
+    name: str
+    commit_id: str
+    created_from: str
+    message: str = "Branch created successfully"

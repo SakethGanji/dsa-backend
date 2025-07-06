@@ -5,7 +5,8 @@ from src.models.pydantic_models import (
     CreateCommitRequest, CreateCommitResponse,
     GetDataRequest, GetDataResponse,
     CommitSchemaResponse, QueueImportRequest, QueueImportResponse,
-    GetCommitHistoryResponse, CheckoutResponse, CurrentUser
+    GetCommitHistoryResponse, CheckoutResponse, CurrentUser,
+    ListRefsResponse, CreateBranchRequest, CreateBranchResponse
 )
 from src.features.versioning.create_commit import CreateCommitHandler
 from src.features.versioning.get_data_at_ref import GetDataAtRefHandler
@@ -16,6 +17,7 @@ from src.features.versioning.get_table_data import (
 from src.features.versioning.queue_import_job import QueueImportJobHandler
 from src.features.versioning.get_commit_history import GetCommitHistoryHandler
 from src.features.versioning.checkout_commit import CheckoutCommitHandler
+from src.features.refs import ListRefsHandler, CreateBranchHandler, DeleteBranchHandler
 from src.core.database import DatabasePool, UnitOfWorkFactory
 from src.core.authorization import get_current_user_info, PermissionType, require_dataset_read, require_dataset_write
 from src.core.dependencies import get_uow, get_current_user, get_db_pool
@@ -153,6 +155,7 @@ async def get_table_schema(
 @router.get("/datasets/{dataset_id}/history", response_model=GetCommitHistoryResponse)
 async def get_commit_history(
     dataset_id: int = Path(..., description="Dataset ID"),
+    ref_name: str = Query("main", description="Ref/branch name to get history for"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
     limit: int = Query(50, ge=1, le=100, description="Number of commits to return"),
     current_user: CurrentUser = Depends(get_current_user_info),
@@ -175,7 +178,7 @@ async def get_commit_history(
     # Get commit history
     uow = uow_factory.create()
     handler = GetCommitHistoryHandler(uow)
-    return await handler.handle(dataset_id, offset, limit)
+    return await handler.handle(dataset_id, ref_name, offset, limit)
 
 
 @router.get("/datasets/{dataset_id}/commits/{commit_id}/data", response_model=CheckoutResponse)
@@ -210,5 +213,72 @@ async def checkout_commit(
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+
+
+# Branch/Ref management endpoints
+@router.get("/datasets/{dataset_id}/refs", response_model=ListRefsResponse)
+async def list_refs(
+    dataset_id: int = Path(..., description="Dataset ID"),
+    current_user: CurrentUser = Depends(get_current_user_info),
+    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory)
+) -> ListRefsResponse:
+    """List all branches/refs for a dataset."""
+    uow = uow_factory.create()
+    handler = ListRefsHandler(uow)
+    return await handler.handle(dataset_id, current_user.user_id)
+
+
+@router.post("/datasets/{dataset_id}/refs", response_model=CreateBranchResponse)
+async def create_branch(
+    dataset_id: int = Path(..., description="Dataset ID"),
+    request: CreateBranchRequest = ...,
+    current_user: CurrentUser = Depends(get_current_user_info),
+    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory)
+) -> CreateBranchResponse:
+    """Create a new branch from an existing ref."""
+    uow = uow_factory.create()
+    handler = CreateBranchHandler(uow)
+    try:
+        return await handler.handle(dataset_id, request, current_user.user_id)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except PermissionError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e)
+        )
+
+
+@router.delete("/datasets/{dataset_id}/refs/{ref_name}")
+async def delete_branch(
+    dataset_id: int = Path(..., description="Dataset ID"),
+    ref_name: str = Path(..., description="Branch/ref name to delete"),
+    current_user: CurrentUser = Depends(get_current_user_info),
+    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory)
+) -> Dict[str, str]:
+    """Delete a branch/ref."""
+    uow = uow_factory.create()
+    handler = DeleteBranchHandler(uow)
+    try:
+        return await handler.handle(dataset_id, ref_name, current_user.user_id)
+    except ValueError as e:
+        if "not found" in str(e).lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(e)
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+    except PermissionError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
             detail=str(e)
         )

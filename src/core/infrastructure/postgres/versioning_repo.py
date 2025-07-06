@@ -186,16 +186,16 @@ class PostgresCommitRepository(ICommitRepository):
         result = await self._conn.fetchval(query, commit_id)
         return json.loads(result) if result else None
     
-    async def get_commit_history(self, dataset_id: int, offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
-        """Get commit history for dataset's main timeline with pagination."""
-        # Recursive CTE to traverse commit history from main ref
+    async def get_commit_history(self, dataset_id: int, ref_name: str = "main", offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get commit history for a specific ref with pagination."""
+        # Recursive CTE to traverse commit history from specified ref
         query = """
             WITH RECURSIVE commit_history AS (
-                -- Start from the main ref
+                -- Start from the specified ref
                 SELECT c.* 
                 FROM dsa_core.commits c
                 INNER JOIN dsa_core.refs r ON c.commit_id = r.commit_id
-                WHERE r.dataset_id = $1 AND r.name = 'main'
+                WHERE r.dataset_id = $1 AND r.name = $2
                 
                 UNION ALL
                 
@@ -214,9 +214,9 @@ class PostgresCommitRepository(ICommitRepository):
                 (SELECT COUNT(*) FROM dsa_core.commit_rows WHERE commit_id = commit_history.commit_id) as row_count
             FROM commit_history
             ORDER BY committed_at DESC
-            LIMIT $2 OFFSET $3
+            LIMIT $3 OFFSET $4
         """
-        rows = await self._conn.fetch(query, dataset_id, limit, offset)
+        rows = await self._conn.fetch(query, dataset_id, ref_name, limit, offset)
         return [dict(row) for row in rows]
     
     async def create_commit_statistics(self, commit_id: str, statistics: Dict[str, Any]) -> None:
@@ -226,6 +226,15 @@ class PostgresCommitRepository(ICommitRepository):
             VALUES ($1, $2)
         """
         await self._conn.execute(query, commit_id, json.dumps(statistics))
+    
+    async def create_commit_schema(self, commit_id: str, schema_definition: Dict[str, Any]) -> None:
+        """Store schema for a commit."""
+        query = """
+            INSERT INTO dsa_core.commit_schemas (commit_id, schema_definition)
+            VALUES ($1, $2)
+            ON CONFLICT (commit_id) DO UPDATE SET schema_definition = $2
+        """
+        await self._conn.execute(query, commit_id, json.dumps(schema_definition))
     
     async def get_commit_by_id(self, commit_id: str) -> Optional[Dict[str, Any]]:
         """Get commit details including author info."""
@@ -238,15 +247,15 @@ class PostgresCommitRepository(ICommitRepository):
         row = await self._conn.fetchrow(query, commit_id)
         return dict(row) if row else None
     
-    async def count_commits_for_dataset(self, dataset_id: int) -> int:
-        """Count total commits for a dataset."""
+    async def count_commits_for_dataset(self, dataset_id: int, ref_name: str = "main") -> int:
+        """Count total commits for a dataset starting from a specific ref."""
         query = """
             WITH RECURSIVE commit_history AS (
-                -- Start from the main ref
+                -- Start from the specified ref
                 SELECT c.commit_id, c.parent_commit_id
                 FROM dsa_core.commits c
                 INNER JOIN dsa_core.refs r ON c.commit_id = r.commit_id
-                WHERE r.dataset_id = $1 AND r.name = 'main'
+                WHERE r.dataset_id = $1 AND r.name = $2
                 
                 UNION ALL
                 
@@ -257,7 +266,7 @@ class PostgresCommitRepository(ICommitRepository):
             )
             SELECT COUNT(*) FROM commit_history
         """
-        result = await self._conn.fetchval(query, dataset_id)
+        result = await self._conn.fetchval(query, dataset_id, ref_name)
         return result or 0
     
     async def count_commit_rows(self, commit_id: str, table_key: Optional[str] = None) -> int:
@@ -275,3 +284,46 @@ class PostgresCommitRepository(ICommitRepository):
             result = await self._conn.fetchval(query, commit_id)
         
         return result or 0
+    
+    async def list_refs(self, dataset_id: int) -> List[Dict[str, Any]]:
+        """List all refs/branches for a dataset."""
+        query = """
+            SELECT r.id, r.name, r.commit_id, r.dataset_id,
+                   c.committed_at as created_at,
+                   c.committed_at as updated_at
+            FROM dsa_core.refs r
+            JOIN dsa_core.commits c ON r.commit_id = c.commit_id
+            WHERE r.dataset_id = $1
+            ORDER BY r.name
+        """
+        rows = await self._conn.fetch(query, dataset_id)
+        return [dict(row) for row in rows]
+    
+    async def create_ref(self, dataset_id: int, ref_name: str, commit_id: str) -> None:
+        """Create a new ref pointing to a specific commit."""
+        query = """
+            INSERT INTO dsa_core.refs (dataset_id, name, commit_id)
+            VALUES ($1, $2, $3)
+        """
+        try:
+            await self._conn.execute(query, dataset_id, ref_name, commit_id)
+        except Exception as e:
+            if "unique" in str(e).lower():
+                raise ValueError(f"Ref '{ref_name}' already exists for dataset {dataset_id}")
+            raise
+    
+    async def delete_ref(self, dataset_id: int, ref_name: str) -> bool:
+        """Delete a ref. Returns True if deleted, False if not found."""
+        query = """
+            DELETE FROM dsa_core.refs
+            WHERE dataset_id = $1 AND name = $2
+        """
+        result = await self._conn.execute(query, dataset_id, ref_name)
+        # PostgreSQL returns "DELETE n" where n is rows affected
+        return result.split()[-1] != "0"
+    
+    async def get_default_branch(self, dataset_id: int) -> Optional[str]:
+        """Get the default branch name for a dataset (usually 'main')."""
+        # For now, we'll hardcode 'main' as default
+        # In future, this could be stored in datasets table
+        return "main"

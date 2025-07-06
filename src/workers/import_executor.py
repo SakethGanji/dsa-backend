@@ -93,18 +93,58 @@ class ImportJobExecutor(JobExecutor):
         """Parse uploaded file into row dictionaries."""
         rows = []
         
-        # For MVP, assume CSV format
-        with open(file_path, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            sheet_name = os.path.splitext(filename)[0]
-            for idx, row_data in enumerate(reader):
-                # Create row dict
-                row = {
-                    "sheet_name": sheet_name,
-                    "row_number": idx + 2,  # +2 because row 1 is header
-                    "data": row_data
-                }
-                rows.append(row)
+        # Determine file type
+        file_ext = os.path.splitext(filename)[1].lower()
+        
+        if file_ext == '.csv':
+            # Parse CSV file
+            with open(file_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                sheet_name = os.path.splitext(filename)[0]
+                for idx, row_data in enumerate(reader):
+                    # Create row dict
+                    row = {
+                        "sheet_name": sheet_name,
+                        "row_number": idx + 2,  # +2 because row 1 is header
+                        "data": row_data
+                    }
+                    rows.append(row)
+        
+        elif file_ext in ['.xlsx', '.xls']:
+            # Parse Excel file
+            import pandas as pd
+            
+            # Read all sheets
+            excel_file = pd.ExcelFile(file_path)
+            
+            for sheet_name in excel_file.sheet_names:
+                # Read each sheet
+                df = pd.read_excel(excel_file, sheet_name=sheet_name)
+                
+                # Convert NaN to None and ensure all values are JSON-serializable
+                df = df.where(pd.notnull(df), None)
+                
+                # Convert each row to dictionary
+                for idx, row_data in df.iterrows():
+                    # Convert row to dict and ensure all values are serializable
+                    row_dict = {}
+                    for col, value in row_data.items():
+                        if pd.isna(value):
+                            row_dict[str(col)] = None
+                        elif isinstance(value, (pd.Timestamp, datetime)):
+                            row_dict[str(col)] = value.isoformat()
+                        else:
+                            row_dict[str(col)] = value
+                    
+                    row = {
+                        "sheet_name": sheet_name,
+                        "row_number": idx + 2,  # +2 because row 1 is header
+                        "data": row_dict
+                    }
+                    rows.append(row)
+        
+        else:
+            raise ValueError(f"Unsupported file format: {file_ext}")
         
         return rows
     
@@ -147,7 +187,10 @@ class ImportJobExecutor(JobExecutor):
                 """, row_hash, json.dumps(row))
             
             # Create commit_row association with logical_row_id
-            logical_row_id = f"{row['sheet_name']}_{row['row_number']}"
+            # Use sheet_name:row_index format for proper table separation
+            sheet_name = row['sheet_name']
+            row_index = row['row_number'] - 2  # Convert back to 0-based index
+            logical_row_id = f"{sheet_name}:{row_index}"
             await conn.execute("""
                 INSERT INTO dsa_core.commit_rows (commit_id, logical_row_id, row_hash)
                 VALUES ($1, $2, $3)

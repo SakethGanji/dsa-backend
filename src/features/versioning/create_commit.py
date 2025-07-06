@@ -47,7 +47,7 @@ class CreateCommitHandler(BaseHandler[CreateCommitResponse]):
         )
         
         # TODO: Prepare data
-        rows_to_store, manifest = self._prepare_data(request.data)
+        rows_to_store, manifest, schema = self._prepare_data(request.data)
         
         # Add rows to content-addressable store
         await self._commit_repo.add_rows_if_not_exist(rows_to_store)
@@ -60,6 +60,9 @@ class CreateCommitHandler(BaseHandler[CreateCommitResponse]):
             author_id=user_id,
             manifest=manifest
         )
+        
+        # Store schema for the commit
+        await self._commit_repo.create_commit_schema(new_commit_id, schema)
         
         # Update ref atomically
         success = await self._commit_repo.update_ref_atomically(
@@ -78,17 +81,36 @@ class CreateCommitHandler(BaseHandler[CreateCommitResponse]):
             message=request.message
         )
     
-    def _prepare_data(self, data: List[Dict[str, Any]]) -> Tuple[Set[Tuple[str, str]], List[Tuple[str, str]]]:
+    def _prepare_data(self, data: List[Dict[str, Any]]) -> Tuple[Set[Tuple[str, str]], List[Tuple[str, str]], Dict[str, Any]]:
         """
         Prepare rows for storage
-        Returns: (rows_to_store, manifest)
+        Returns: (rows_to_store, manifest, schema)
         """
         rows_to_store = set()
         manifest = []
+        schema = {}
         
-        for idx, row in enumerate(data):
-            # Generate logical row ID
-            logical_row_id = f"default:{idx}"
+        # Group rows by sheet_name if present
+        sheet_counters = {}
+        sheet_columns = {}
+        
+        for row in data:
+            # Extract sheet_name if present, otherwise use 'default'
+            sheet_name = row.get('sheet_name', 'default')
+            
+            # Initialize counter for this sheet if not exists
+            if sheet_name not in sheet_counters:
+                sheet_counters[sheet_name] = 0
+                sheet_columns[sheet_name] = set()
+            
+            # Track columns for schema
+            for key in row.keys():
+                if key != 'sheet_name':  # Exclude sheet_name from data columns
+                    sheet_columns[sheet_name].add(key)
+            
+            # Generate logical row ID using sheet_name:index format
+            logical_row_id = f"{sheet_name}:{sheet_counters[sheet_name]}"
+            sheet_counters[sheet_name] += 1
             
             # Canonicalize and hash
             canonical_json = self._canonicalize_json(row)
@@ -97,7 +119,14 @@ class CreateCommitHandler(BaseHandler[CreateCommitResponse]):
             rows_to_store.add((row_hash, canonical_json))
             manifest.append((logical_row_id, row_hash))
         
-        return rows_to_store, manifest
+        # Build schema
+        for sheet_name, columns in sheet_columns.items():
+            schema[sheet_name] = {
+                "columns": sorted(list(columns)),  # Sort for consistency
+                "row_count": sheet_counters[sheet_name]
+            }
+        
+        return rows_to_store, manifest, schema
     
     def _canonicalize_json(self, data: Dict[str, Any]) -> str:
         """Create canonical JSON representation for consistent hashing"""

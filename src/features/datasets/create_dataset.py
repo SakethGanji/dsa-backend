@@ -45,6 +45,10 @@ class CreateDatasetHandler:
                 permission_type='admin'
             )
             
+            # Add tags if provided
+            if hasattr(request, 'tags') and request.tags:
+                await self._dataset_repo.add_dataset_tags(dataset_id, request.tags)
+            
             # Create initial empty commit
             initial_commit_id = await self._commit_repo.create_commit_and_manifest(
                 dataset_id=dataset_id,
@@ -54,20 +58,22 @@ class CreateDatasetHandler:
                 manifest=[]  # Empty manifest for initial commit
             )
             
-            # Create main ref
-            # Since this is a new dataset, we don't need optimistic locking
-            await self._commit_repo.update_ref_atomically(
+            # Create default branch ref
+            # Use the branch name from request, defaulting to 'main'
+            default_branch = getattr(request, 'default_branch', 'main')
+            await self._commit_repo.create_ref(
                 dataset_id=dataset_id,
-                ref_name='main',
-                new_commit_id=initial_commit_id,
-                expected_commit_id=None  # No previous commit
+                ref_name=default_branch,
+                commit_id=initial_commit_id
             )
             
             await self._uow.commit()
             
             return CreateDatasetResponse(
                 dataset_id=dataset_id,
-                name=request.name
+                name=request.name,
+                description=request.description,
+                tags=request.tags if hasattr(request, 'tags') else []
             )
         except Exception:
             await self._uow.rollback()

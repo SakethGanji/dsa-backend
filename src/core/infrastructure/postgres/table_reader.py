@@ -14,14 +14,33 @@ class PostgresTableReader(ITableReader):
     
     async def list_table_keys(self, commit_id: str) -> List[str]:
         """List all available table keys for a given commit."""
+        # First try to get table keys from schema
+        schema_query = """
+            SELECT schema_definition
+            FROM dsa_core.commit_schemas
+            WHERE commit_id = $1
+        """
+        schema_result = await self._conn.fetchval(schema_query, commit_id)
+        
+        if schema_result:
+            # Extract table keys from schema
+            if isinstance(schema_result, str):
+                schema_result = json.loads(schema_result)
+            return list(schema_result.keys())
+        
+        # Fallback: try to extract from logical_row_id
         query = """
-            SELECT DISTINCT SPLIT_PART(logical_row_id, ':', 1) AS table_key
+            SELECT DISTINCT 
+                CASE 
+                    WHEN logical_row_id LIKE '%:%' THEN SPLIT_PART(logical_row_id, ':', 1)
+                    ELSE REGEXP_REPLACE(logical_row_id, '_[0-9]+$', '')
+                END AS table_key
             FROM dsa_core.commit_rows
             WHERE commit_id = $1
             ORDER BY table_key
         """
         rows = await self._conn.fetch(query, commit_id)
-        return [row['table_key'] for row in rows]
+        return [row['table_key'] for row in rows if row['table_key']]
     
     async def get_table_schema(self, commit_id: str, table_key: str) -> Optional[Dict[str, Any]]:
         """Get the schema for a specific table within a commit."""
@@ -51,48 +70,60 @@ class PostgresTableReader(ITableReader):
         limit: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """Get paginated data for a specific table."""
-        pattern = f"{table_key}:%"
+        # Handle both formats: "table_key:row_idx" and "table_key_row_idx"
+        if ':' in table_key:
+            pattern = f"{table_key}:%"
+        else:
+            pattern = f"{table_key}_%"
         
+        # Also check if data contains sheet_name matching table_key
         if limit is None:
             # Get all rows (use with caution for large datasets)
             query = """
                 SELECT r.data, cr.logical_row_id
                 FROM dsa_core.commit_rows cr
                 JOIN dsa_core.rows r ON cr.row_hash = r.row_hash
-                WHERE cr.commit_id = $1 AND cr.logical_row_id LIKE $2
+                WHERE cr.commit_id = $1 
+                AND (cr.logical_row_id LIKE $2 OR r.data->>'sheet_name' = $3)
                 ORDER BY cr.logical_row_id
-                OFFSET $3
+                OFFSET $4
             """
-            rows = await self._conn.fetch(query, commit_id, pattern, offset)
+            rows = await self._conn.fetch(query, commit_id, pattern, table_key, offset)
         else:
             # Get paginated rows
             query = """
                 SELECT r.data, cr.logical_row_id
                 FROM dsa_core.commit_rows cr
                 JOIN dsa_core.rows r ON cr.row_hash = r.row_hash
-                WHERE cr.commit_id = $1 AND cr.logical_row_id LIKE $2
+                WHERE cr.commit_id = $1 
+                AND (cr.logical_row_id LIKE $2 OR r.data->>'sheet_name' = $3)
                 ORDER BY cr.logical_row_id
-                OFFSET $3 LIMIT $4
+                OFFSET $4 LIMIT $5
             """
-            rows = await self._conn.fetch(query, commit_id, pattern, offset, limit)
+            rows = await self._conn.fetch(query, commit_id, pattern, table_key, offset, limit)
         
         # Parse data and include row index
         result = []
         for row in rows:
-            # Extract row index from logical_row_id
-            _, row_idx = row['logical_row_id'].split(':', 1)
-            
             # Parse JSON data if needed
             data = row['data']
             if isinstance(data, str):
                 data = json.loads(data)
             
-            # Add row index to data
-            result.append({
-                '_row_index': int(row_idx),
-                '_logical_row_id': row['logical_row_id'],
-                **data
-            })
+            # Handle nested data structure
+            if 'data' in data and isinstance(data['data'], dict):
+                # Extract the actual data from nested structure
+                actual_data = data['data']
+                result.append({
+                    '_logical_row_id': row['logical_row_id'],
+                    **actual_data
+                })
+            else:
+                # Add data as-is
+                result.append({
+                    '_logical_row_id': row['logical_row_id'],
+                    **data
+                })
         
         return result
     
@@ -150,11 +181,18 @@ class PostgresTableReader(ITableReader):
     
     async def count_table_rows(self, commit_id: str, table_key: str) -> int:
         """Get the total row count for a specific table."""
-        pattern = f"{table_key}:%"
+        # Handle both formats: "table_key:row_idx" and "table_key_row_idx"
+        if ':' in table_key:
+            pattern = f"{table_key}:%"
+        else:
+            pattern = f"{table_key}_%"
+        
         query = """
             SELECT COUNT(*)
-            FROM dsa_core.commit_rows
-            WHERE commit_id = $1 AND logical_row_id LIKE $2
+            FROM dsa_core.commit_rows cr
+            JOIN dsa_core.rows r ON cr.row_hash = r.row_hash
+            WHERE cr.commit_id = $1 
+            AND (cr.logical_row_id LIKE $2 OR r.data->>'sheet_name' = $3)
         """
-        count = await self._conn.fetchval(query, commit_id, pattern)
+        count = await self._conn.fetchval(query, commit_id, pattern, table_key)
         return count or 0

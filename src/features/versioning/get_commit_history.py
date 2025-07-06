@@ -13,8 +13,8 @@ class GetCommitHistoryHandler(BaseHandler[GetCommitHistoryResponse], PaginationM
         super().__init__(uow)
     
     @with_error_handling
-    async def handle(self, dataset_id: int, offset: int = 0, limit: int = 50) -> GetCommitHistoryResponse:
-        """Get paginated commit history for the main timeline."""
+    async def handle(self, dataset_id: int, ref_name: str = "main", offset: int = 0, limit: int = 50) -> GetCommitHistoryResponse:
+        """Get paginated commit history for a specific ref."""
         # Validate pagination parameters
         offset, limit = self.validate_pagination(offset, limit)
         
@@ -22,6 +22,7 @@ class GetCommitHistoryHandler(BaseHandler[GetCommitHistoryResponse], PaginationM
             # Get commits from repository
             commits = await self._uow.commits.get_commit_history(
                 dataset_id=dataset_id,
+                ref_name=ref_name,
                 offset=offset,
                 limit=limit
             )
@@ -41,7 +42,7 @@ class GetCommitHistoryHandler(BaseHandler[GetCommitHistoryResponse], PaginationM
                 ))
             
             # Get total count
-            total = await self._uow.commits.count_commits_for_dataset(dataset_id)
+            total = await self._uow.commits.count_commits_for_dataset(dataset_id, ref_name)
             
             return GetCommitHistoryResponse(
                 commits=enriched_commits,
