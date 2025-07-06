@@ -6,7 +6,8 @@ from src.models.pydantic_models import (
     GetDataRequest, GetDataResponse,
     CommitSchemaResponse, QueueImportRequest, QueueImportResponse,
     GetCommitHistoryResponse, CheckoutResponse, CurrentUser,
-    ListRefsResponse, CreateBranchRequest, CreateBranchResponse
+    ListRefsResponse, CreateBranchRequest, CreateBranchResponse,
+    TableAnalysisResponse, DatasetOverviewResponse
 )
 from src.features.versioning.create_commit import CreateCommitHandler
 from src.features.versioning.get_data_at_ref import GetDataAtRefHandler
@@ -14,9 +15,11 @@ from src.features.versioning.get_commit_schema import GetCommitSchemaHandler
 from src.features.versioning.get_table_data import (
     GetTableDataHandler, ListTablesHandler, GetTableSchemaHandler
 )
+from src.features.versioning.get_table_analysis import GetTableAnalysisHandler
 from src.features.versioning.queue_import_job import QueueImportJobHandler
 from src.features.versioning.get_commit_history import GetCommitHistoryHandler
 from src.features.versioning.checkout_commit import CheckoutCommitHandler
+from src.features.versioning.get_dataset_overview import GetDatasetOverviewHandler
 from src.features.refs import ListRefsHandler, CreateBranchHandler, DeleteBranchHandler
 from src.core.database import DatabasePool, UnitOfWorkFactory
 from src.core.authorization import get_current_user_info, PermissionType, require_dataset_read, require_dataset_write
@@ -158,6 +161,25 @@ async def get_table_schema(
     )
 
 
+@router.get("/datasets/{dataset_id}/refs/{ref_name}/tables/{table_key}/analysis", response_model=TableAnalysisResponse)
+async def get_table_analysis(
+    dataset_id: int,
+    ref_name: str,
+    table_key: str,
+    current_user: dict = Depends(get_current_user),
+    uow: IUnitOfWork = Depends(get_uow),
+    _: CurrentUser = Depends(require_dataset_read)
+) -> TableAnalysisResponse:
+    """Get comprehensive table analysis including schema, statistics, and sample values"""
+    handler = GetTableAnalysisHandler(uow, uow.table_reader)
+    return await handler.handle(
+        dataset_id=dataset_id,
+        ref_name=ref_name,
+        table_key=table_key,
+        user_id=current_user["id"]
+    )
+
+
 # New endpoints for commit history and checkout
 @router.get("/datasets/{dataset_id}/history", response_model=GetCommitHistoryResponse)
 async def get_commit_history(
@@ -263,6 +285,34 @@ async def delete_branch(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=str(e)
             )
+    except PermissionError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e)
+        )
+
+
+# Dataset Overview endpoint
+@router.get("/datasets/{dataset_id}/overview", response_model=DatasetOverviewResponse)
+async def get_dataset_overview(
+    dataset_id: int = Path(..., description="Dataset ID"),
+    current_user: CurrentUser = Depends(get_current_user_info),
+    uow: IUnitOfWork = Depends(get_uow),
+    _: CurrentUser = Depends(require_dataset_read)
+) -> DatasetOverviewResponse:
+    """Get overview of dataset including all refs and their tables.
+    
+    This endpoint provides everything the UI needs to populate ref_name and table_key
+    dropdowns for the columns endpoint.
+    """
+    handler = GetDatasetOverviewHandler(uow, uow.table_reader)
+    try:
+        return await handler.handle(dataset_id, current_user.user_id)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
     except PermissionError as e:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

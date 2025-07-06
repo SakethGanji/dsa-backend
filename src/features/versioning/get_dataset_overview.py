@@ -1,0 +1,70 @@
+from typing import List
+from src.core.abstractions import IUnitOfWork, ITableReader
+from src.models.pydantic_models import DatasetOverviewResponse, RefWithTables, TableInfo
+from src.features.base_handler import BaseHandler, with_error_handling
+
+
+class GetDatasetOverviewHandler(BaseHandler):
+    """Handler for getting dataset overview with refs and tables."""
+    
+    def __init__(self, uow: IUnitOfWork, table_reader: ITableReader):
+        self.uow = uow
+        self.table_reader = table_reader
+        
+    @with_error_handling
+    async def handle(self, dataset_id: int, user_id: int) -> DatasetOverviewResponse:
+        """Get overview of dataset including all refs and their tables."""
+        async with self.uow:
+            # Get dataset info
+            dataset = await self.uow.datasets.get_dataset_by_id(dataset_id)
+            if not dataset:
+                raise ValueError(f"Dataset {dataset_id} not found")
+            
+            # Get all refs for the dataset
+            refs = await self.uow.commits.list_refs(dataset_id)
+            
+            # Build ref with tables information
+            refs_with_tables = []
+            for ref in refs:
+                commit_id = ref["commit_id"] if isinstance(ref, dict) else ref.commit_id
+                ref_name = ref["name"] if isinstance(ref, dict) else ref.name
+                created_at = ref["created_at"] if isinstance(ref, dict) else ref.created_at
+                updated_at = ref["updated_at"] if isinstance(ref, dict) else ref.updated_at
+                
+                if commit_id:
+                    # Get tables for this ref's commit
+                    table_keys = await self.table_reader.list_table_keys(commit_id)
+                    
+                    # Get basic info for each table
+                    tables = []
+                    for table_key in table_keys:
+                        # Get row count (reusing existing interface)
+                        row_count = await self.table_reader.count_table_rows(commit_id, table_key)
+                        
+                        # Get column count from schema
+                        schema = await self.table_reader.get_table_schema(commit_id, table_key)
+                        column_count = len(schema.columns) if schema and hasattr(schema, 'columns') else None
+                        
+                        tables.append(TableInfo(
+                            table_key=table_key,
+                            row_count=row_count,
+                            column_count=column_count
+                        ))
+                else:
+                    # Empty ref (no commits yet)
+                    tables = []
+                
+                refs_with_tables.append(RefWithTables(
+                    ref_name=ref_name,
+                    commit_id=commit_id,
+                    tables=tables,
+                    created_at=created_at,
+                    updated_at=updated_at
+                ))
+            
+            return DatasetOverviewResponse(
+                dataset_id=dataset_id,
+                dataset_name=dataset["name"],
+                refs=refs_with_tables,
+                default_ref="main"  # Could be made configurable later
+            )

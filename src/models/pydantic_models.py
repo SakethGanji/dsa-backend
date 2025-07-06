@@ -84,6 +84,17 @@ class CommitSchemaResponse(BaseModel):
     sheets: List[SheetSchema]
 
 
+# Table analysis models
+class TableAnalysisResponse(BaseModel):
+    table_key: str
+    columns: List[str]
+    column_types: Dict[str, str]
+    total_rows: int
+    null_counts: Dict[str, int]
+    sample_values: Dict[str, List[Any]]
+    statistics: Optional[Dict[str, Any]] = None
+
+
 # Job status models
 class JobStatusResponse(BaseModel):
     job_id: UUID
@@ -317,3 +328,28 @@ class CreateBranchResponse(BaseModel):
     commit_id: str
     created_from: str
     message: str = "Branch created successfully"
+
+
+# Dataset Overview Models
+class TableInfo(BaseModel):
+    """Basic information about a table"""
+    table_key: str
+    row_count: Optional[int] = None
+    column_count: Optional[int] = None
+
+
+class RefWithTables(BaseModel):
+    """A ref/branch with its associated tables"""
+    ref_name: str
+    commit_id: Optional[str]
+    tables: List[TableInfo]
+    created_at: datetime
+    updated_at: datetime
+
+
+class DatasetOverviewResponse(BaseModel):
+    """Overview of a dataset including all refs and their tables"""
+    dataset_id: int
+    dataset_name: str
+    refs: List[RefWithTables]
+    default_ref: str = "main"
