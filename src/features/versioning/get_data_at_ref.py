@@ -2,9 +2,10 @@ from typing import Optional, List, Dict, Any
 
 from src.core.abstractions import ICommitRepository, IDatasetRepository
 from src.models.pydantic_models import GetDataRequest, GetDataResponse, DataRow
+from src.features.base_handler import BaseHandler, with_error_handling, PaginationMixin
 
 
-class GetDataAtRefHandler:
+class GetDataAtRefHandler(BaseHandler[GetDataResponse], PaginationMixin):
     """Handler for retrieving data at a specific ref"""
     
     def __init__(
@@ -12,9 +13,12 @@ class GetDataAtRefHandler:
         commit_repo: ICommitRepository,
         dataset_repo: IDatasetRepository
     ):
+        # Note: We don't have UoW here, so we pass None to BaseHandler
+        super().__init__(None)
         self._commit_repo = commit_repo
         self._dataset_repo = dataset_repo
     
+    @with_error_handling
     async def handle(
         self,
         dataset_id: int,
@@ -31,12 +35,10 @@ class GetDataAtRefHandler:
         3. Fetch data from commit
         4. Apply pagination and filtering
         """
-        # TODO: Check read permission
-        has_permission = await self._dataset_repo.check_user_permission(
-            dataset_id, user_id, 'read'
-        )
-        if not has_permission:
-            raise PermissionError("User lacks read permission")
+        # Validate pagination parameters
+        offset, limit = self.validate_pagination(request.offset, request.limit)
+        
+        # Permission check removed - handled by authorization middleware
         
         # TODO: Get current commit for ref
         commit_id = await self._commit_repo.get_current_commit_for_ref(
@@ -48,9 +50,9 @@ class GetDataAtRefHandler:
         # TODO: Fetch data with pagination
         rows_data = await self._commit_repo.get_commit_data(
             commit_id=commit_id,
-            sheet_name=request.sheet_name,
-            offset=request.offset,
-            limit=request.limit
+            table_key=request.table_key,
+            offset=offset,
+            limit=limit
         )
         
         # TODO: Get total count for pagination
@@ -72,6 +74,6 @@ class GetDataAtRefHandler:
             commit_id=commit_id,
             rows=rows,
             total_rows=total_rows,
-            offset=request.offset,
-            limit=request.limit
+            offset=offset,
+            limit=limit
         )

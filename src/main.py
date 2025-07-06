@@ -4,6 +4,7 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
+import asyncio
 
 from .core.config import get_settings
 from .core.database import DatabasePool
@@ -13,7 +14,9 @@ from .core.dependencies import (
     set_stats_calculator
 )
 from .core.infrastructure.services import FileParserFactory, DefaultStatisticsCalculator
-from .api import users, datasets, versioning
+from .api import users, datasets, versioning, jobs
+from .workers.job_worker import JobWorker
+from .workers.import_executor import ImportJobExecutor
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -21,12 +24,14 @@ logger = logging.getLogger(__name__)
 
 # Global database pool
 db_pool: DatabasePool = None
+worker_task = None
+worker = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifecycle."""
-    global db_pool
+    global db_pool, worker_task, worker
     
     settings = get_settings()
     logger.info("Starting DSA Platform...")
@@ -42,9 +47,23 @@ async def lifespan(app: FastAPI):
     set_stats_calculator(DefaultStatisticsCalculator())
     logger.info("Dependencies initialized")
     
+    # Start job worker in background
+    worker = JobWorker(db_pool)
+    worker.register_executor('import', ImportJobExecutor())
+    worker_task = asyncio.create_task(worker.start())
+    logger.info("Job worker started")
+    
     yield
     
     # Cleanup
+    if worker_task and worker:
+        await worker.stop()
+        worker_task.cancel()
+        try:
+            await worker_task
+        except asyncio.CancelledError:
+            pass
+    
     if db_pool:
         await db_pool.close()
     logger.info("Database pool closed")
@@ -79,10 +98,13 @@ async def get_db_pool() -> DatabasePool:
 app.include_router(users.router, prefix="/api")
 app.include_router(datasets.router, prefix="/api")
 app.include_router(versioning.router, prefix="/api")
+app.include_router(jobs.router, prefix="/api")
 
 # Override dependencies using FastAPI's dependency_overrides
+from .core import authorization
 app.dependency_overrides[users.get_db_pool] = get_db_pool
 app.dependency_overrides[datasets.get_db_pool] = get_db_pool
+app.dependency_overrides[authorization.get_db_pool] = get_db_pool
 
 
 @app.get("/")

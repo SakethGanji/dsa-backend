@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, Query, File, UploadFile, Form
-from typing import List, Dict, Any
+from fastapi import APIRouter, Depends, Query, File, UploadFile, Form, HTTPException, status, Path
+from typing import List, Dict, Any, Optional
 
 from src.models.pydantic_models import (
     CreateCommitRequest, CreateCommitResponse,
     GetDataRequest, GetDataResponse,
-    CommitSchemaResponse, QueueImportRequest, QueueImportResponse
+    CommitSchemaResponse, QueueImportRequest, QueueImportResponse,
+    GetCommitHistoryResponse, CheckoutResponse, CurrentUser
 )
 from src.features.versioning.create_commit import CreateCommitHandler
 from src.features.versioning.get_data_at_ref import GetDataAtRefHandler
@@ -13,11 +14,23 @@ from src.features.versioning.get_table_data import (
     GetTableDataHandler, ListTablesHandler, GetTableSchemaHandler
 )
 from src.features.versioning.queue_import_job import QueueImportJobHandler
-from src.core.dependencies import get_uow, get_current_user
+from src.features.versioning.get_commit_history import GetCommitHistoryHandler
+from src.features.versioning.checkout_commit import CheckoutCommitHandler
+from src.core.database import DatabasePool, UnitOfWorkFactory
+from src.core.authorization import get_current_user_info, PermissionType, require_dataset_read, require_dataset_write
+from src.core.dependencies import get_uow, get_current_user, get_db_pool
 from src.core.abstractions import IUnitOfWork
 
 
 router = APIRouter(tags=["versioning"])
+
+
+# Dependency injection helpers
+async def get_uow_factory(
+    pool: DatabasePool = Depends(get_db_pool)
+) -> UnitOfWorkFactory:
+    """Get unit of work factory."""
+    return UnitOfWorkFactory(pool)
 
 
 @router.post("/datasets/{dataset_id}/refs/{ref_name}/commits", response_model=CreateCommitResponse)
@@ -29,7 +42,7 @@ async def create_commit(
     uow: IUnitOfWork = Depends(get_uow)
 ):
     """Create a new commit with direct data"""
-    handler = CreateCommitHandler(uow)
+    handler = CreateCommitHandler(uow, uow.commits, uow.datasets)
     return await handler.handle(dataset_id, ref_name, request, current_user["id"])
 
 
@@ -39,7 +52,7 @@ async def import_file(
     ref_name: str,
     file: UploadFile = File(...),
     commit_message: str = Form(...),
-    current_user: dict = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user_info),
     uow: IUnitOfWork = Depends(get_uow)
 ):
     """Upload a file to import as a new commit"""
@@ -51,7 +64,7 @@ async def import_file(
         file=file.file,
         filename=file.filename,
         request=request,
-        user_id=current_user["id"]
+        user_id=current_user.user_id
     )
 
 
@@ -59,15 +72,15 @@ async def import_file(
 async def get_data_at_ref(
     dataset_id: int,
     ref_name: str,
-    sheet_name: str = Query(None, description="Filter by sheet name"),
+    table_key: str = Query(None, description="Filter by specific table/sheet"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
     limit: int = Query(100, ge=1, le=1000, description="Pagination limit"),
     current_user: dict = Depends(get_current_user),
     uow: IUnitOfWork = Depends(get_uow)
 ):
     """Get paginated data for a ref"""
-    handler = GetDataAtRefHandler(uow)
-    request = GetDataRequest(sheet_name=sheet_name, offset=offset, limit=limit)
+    handler = GetDataAtRefHandler(uow.commits, uow.datasets)
+    request = GetDataRequest(table_key=table_key, offset=offset, limit=limit)
     return await handler.handle(dataset_id, ref_name, request, current_user["id"])
 
 
@@ -79,7 +92,7 @@ async def get_commit_schema(
     uow: IUnitOfWork = Depends(get_uow)
 ):
     """Get schema information for a commit"""
-    handler = GetCommitSchemaHandler(uow)
+    handler = GetCommitSchemaHandler(uow.commits, uow.datasets)
     return await handler.handle(dataset_id, commit_id, current_user["id"])
 
 
@@ -134,3 +147,68 @@ async def get_table_schema(
         table_key=table_key,
         user_id=current_user["id"]
     )
+
+
+# New endpoints for commit history and checkout
+@router.get("/datasets/{dataset_id}/history", response_model=GetCommitHistoryResponse)
+async def get_commit_history(
+    dataset_id: int = Path(..., description="Dataset ID"),
+    offset: int = Query(0, ge=0, description="Pagination offset"),
+    limit: int = Query(50, ge=1, le=100, description="Number of commits to return"),
+    current_user: CurrentUser = Depends(get_current_user_info),
+    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory)
+) -> GetCommitHistoryResponse:
+    """Get the chronological commit history for a dataset."""
+    # Check read permission
+    async with uow_factory.create() as uow:
+        has_permission = await uow.datasets.check_user_permission(
+            dataset_id=dataset_id,
+            user_id=current_user.user_id,
+            required_permission=PermissionType.READ.value
+        )
+        if not has_permission and not current_user.is_admin():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to view this dataset"
+            )
+    
+    # Get commit history
+    uow = uow_factory.create()
+    handler = GetCommitHistoryHandler(uow)
+    return await handler.handle(dataset_id, offset, limit)
+
+
+@router.get("/datasets/{dataset_id}/commits/{commit_id}/data", response_model=CheckoutResponse)
+async def checkout_commit(
+    dataset_id: int = Path(..., description="Dataset ID"),
+    commit_id: str = Path(..., description="Commit ID to checkout"),
+    table_key: Optional[str] = Query(None, description="Specific table/sheet to retrieve"),
+    offset: int = Query(0, ge=0, description="Pagination offset"),
+    limit: int = Query(100, ge=1, le=1000, description="Number of rows to return"),
+    current_user: CurrentUser = Depends(get_current_user_info),
+    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory)
+) -> CheckoutResponse:
+    """Get the data as it existed at a specific commit."""
+    # Check read permission
+    async with uow_factory.create() as uow:
+        has_permission = await uow.datasets.check_user_permission(
+            dataset_id=dataset_id,
+            user_id=current_user.user_id,
+            required_permission=PermissionType.READ.value
+        )
+        if not has_permission and not current_user.is_admin():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to view this dataset"
+            )
+    
+    # Checkout commit
+    uow = uow_factory.create()
+    handler = CheckoutCommitHandler(uow)
+    try:
+        return await handler.handle(dataset_id, commit_id, table_key, offset, limit)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )

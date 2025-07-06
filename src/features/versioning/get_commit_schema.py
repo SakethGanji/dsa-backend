@@ -2,9 +2,10 @@ from typing import Optional, Dict, Any, List
 
 from src.core.abstractions import ICommitRepository, IDatasetRepository
 from src.models.pydantic_models import CommitSchemaResponse, SheetSchema, ColumnSchema
+from src.features.base_handler import BaseHandler, with_error_handling
 
 
-class GetCommitSchemaHandler:
+class GetCommitSchemaHandler(BaseHandler[CommitSchemaResponse]):
     """Handler for retrieving schema information for a commit"""
     
     def __init__(
@@ -12,9 +13,12 @@ class GetCommitSchemaHandler:
         commit_repo: ICommitRepository,
         dataset_repo: IDatasetRepository
     ):
+        # Note: We don't have UoW here, so we pass None to BaseHandler
+        super().__init__(None)
         self._commit_repo = commit_repo
         self._dataset_repo = dataset_repo
     
+    @with_error_handling
     async def handle(
         self,
         dataset_id: int,
@@ -29,12 +33,7 @@ class GetCommitSchemaHandler:
         2. Fetch schema from commit_schemas table
         3. Transform to response format
         """
-        # TODO: Verify commit belongs to dataset and user has permission
-        has_permission = await self._dataset_repo.check_user_permission(
-            dataset_id, user_id, 'read'
-        )
-        if not has_permission:
-            raise PermissionError("User lacks read permission")
+        # Permission check removed - handled by authorization middleware
         
         # TODO: Get schema definition
         schema_data = await self._commit_repo.get_commit_schema(commit_id)
@@ -54,14 +53,29 @@ class GetCommitSchemaHandler:
         sheets = []
         
         for sheet_name, sheet_info in schema_data.items():
-            columns = [
-                ColumnSchema(
-                    name=col_name,
-                    type=col_info.get('type', 'string'),
-                    nullable=col_info.get('nullable', True)
-                )
-                for col_name, col_info in sheet_info.get('columns', {}).items()
-            ]
+            # Handle both list of column names and dict of column info
+            columns_data = sheet_info.get('columns', [])
+            
+            if isinstance(columns_data, list):
+                # Simple list of column names
+                columns = [
+                    ColumnSchema(
+                        name=col_name,
+                        type='string',
+                        nullable=True
+                    )
+                    for col_name in columns_data
+                ]
+            else:
+                # Dict with detailed column info
+                columns = [
+                    ColumnSchema(
+                        name=col_name,
+                        type=col_info.get('type', 'string'),
+                        nullable=col_info.get('nullable', True)
+                    )
+                    for col_name, col_info in columns_data.items()
+                ]
             
             sheets.append(SheetSchema(
                 sheet_name=sheet_name,

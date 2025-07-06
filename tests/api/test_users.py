@@ -1,9 +1,11 @@
 """Tests for user API endpoints."""
 
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient
 
 
+@pytest.mark.asyncio
 class TestHealthEndpoints:
     """Test health check endpoints."""
     
@@ -26,6 +28,7 @@ class TestHealthEndpoints:
         assert "DSA Platform" in data["message"]
 
 
+@pytest.mark.asyncio
 class TestUserAuthentication:
     """Test user authentication endpoints."""
     
@@ -67,7 +70,7 @@ class TestUserAuthentication:
         assert response.status_code == 401
         assert "Invalid credentials" in response.text
     
-    async def test_login_nonexistent_user(self, client: AsyncClient):
+    async def test_login_nonexistent_user(self, client: AsyncClient, db_pool):
         """Test login with non-existent user."""
         response = await client.post(
             "/api/users/login",
@@ -80,7 +83,7 @@ class TestUserAuthentication:
         assert response.status_code == 401
         assert "Invalid credentials" in response.text
     
-    async def test_login_missing_fields(self, client: AsyncClient):
+    async def test_login_missing_fields(self, client: AsyncClient, db_pool):
         """Test login with missing fields."""
         # Missing password
         response = await client.post(
@@ -112,10 +115,11 @@ class TestUserAuthentication:
         assert "token_type" in data
 
 
+@pytest.mark.asyncio
 class TestUserRegistration:
     """Test user registration endpoints."""
     
-    async def test_create_user_unauthorized(self, client: AsyncClient):
+    async def test_create_user_unauthorized(self, client: AsyncClient, db_pool):
         """Test creating user without admin privileges."""
         response = await client.post(
             "/api/users/register",
@@ -184,6 +188,7 @@ class TestUserRegistration:
         assert any("String should have at least 7 characters" in str(error) for error in errors)
 
 
+@pytest.mark.asyncio
 class TestTokenValidation:
     """Test JWT token validation."""
     

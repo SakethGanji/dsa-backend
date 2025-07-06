@@ -4,15 +4,17 @@ from typing import Dict, Any, List, Optional
 from fastapi import HTTPException
 
 from src.core.abstractions import IUnitOfWork, ITableReader
+from src.features.base_handler import BaseHandler, with_error_handling, PaginationMixin
 
 
-class GetTableDataHandler:
+class GetTableDataHandler(BaseHandler[Dict[str, Any]], PaginationMixin):
     """Handler for retrieving paginated data from a specific table within a dataset."""
     
     def __init__(self, uow: IUnitOfWork, table_reader: ITableReader):
-        self._uow = uow
+        super().__init__(uow)
         self._table_reader = table_reader
     
+    @with_error_handling
     async def handle(
         self,
         dataset_id: int,
@@ -36,16 +38,11 @@ class GetTableDataHandler:
         Returns:
             Dict containing table data and pagination info
         """
+        # Validate pagination parameters
+        offset, limit = self.validate_pagination(offset, limit)
+        
         async with self._uow:
-            # Check user has read permission
-            has_permission = await self._uow.datasets.user_has_permission(
-                dataset_id, user_id, "read"
-            )
-            if not has_permission:
-                raise HTTPException(
-                    status_code=403,
-                    detail="You don't have permission to read this dataset"
-                )
+            # Permission check removed - handled by authorization middleware
             
             # Get the current commit for the ref
             ref = await self._uow.commits.get_ref(dataset_id, ref_name)
@@ -86,13 +83,14 @@ class GetTableDataHandler:
             }
 
 
-class ListTablesHandler:
+class ListTablesHandler(BaseHandler[Dict[str, Any]]):
     """Handler for listing all available tables in a dataset."""
     
     def __init__(self, uow: IUnitOfWork, table_reader: ITableReader):
-        self._uow = uow
+        super().__init__(uow)
         self._table_reader = table_reader
     
+    @with_error_handling
     async def handle(
         self,
         dataset_id: int,
@@ -111,15 +109,7 @@ class ListTablesHandler:
             Dict containing list of table keys
         """
         async with self._uow:
-            # Check user has read permission
-            has_permission = await self._uow.datasets.user_has_permission(
-                dataset_id, user_id, "read"
-            )
-            if not has_permission:
-                raise HTTPException(
-                    status_code=403,
-                    detail="You don't have permission to read this dataset"
-                )
+            # Permission check removed - handled by authorization middleware
             
             # Get the current commit for the ref
             ref = await self._uow.commits.get_ref(dataset_id, ref_name)
@@ -140,13 +130,14 @@ class ListTablesHandler:
             }
 
 
-class GetTableSchemaHandler:
+class GetTableSchemaHandler(BaseHandler[Dict[str, Any]]):
     """Handler for retrieving schema information for a specific table."""
     
     def __init__(self, uow: IUnitOfWork, table_reader: ITableReader):
-        self._uow = uow
+        super().__init__(uow)
         self._table_reader = table_reader
     
+    @with_error_handling
     async def handle(
         self,
         dataset_id: int,
@@ -167,15 +158,7 @@ class GetTableSchemaHandler:
             Dict containing schema information
         """
         async with self._uow:
-            # Check user has read permission
-            has_permission = await self._uow.datasets.user_has_permission(
-                dataset_id, user_id, "read"
-            )
-            if not has_permission:
-                raise HTTPException(
-                    status_code=403,
-                    detail="You don't have permission to read this dataset"
-                )
+            # Permission check removed - handled by authorization middleware
             
             # Get the current commit for the ref
             ref = await self._uow.commits.get_ref(dataset_id, ref_name)

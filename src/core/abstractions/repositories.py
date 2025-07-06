@@ -62,6 +62,22 @@ class IDatasetRepository(ABC):
     async def get_dataset_tags(self, dataset_id: int) -> List[str]:
         """Get all tags for a dataset"""
         pass
+    
+    @abstractmethod
+    async def update_dataset(self, dataset_id: int, name: Optional[str] = None, 
+                           description: Optional[str] = None) -> None:
+        """Update dataset metadata"""
+        pass
+    
+    @abstractmethod
+    async def delete_dataset(self, dataset_id: int) -> None:
+        """Delete a dataset and all its related data"""
+        pass
+    
+    @abstractmethod
+    async def remove_dataset_tags(self, dataset_id: int) -> None:
+        """Remove all tags from a dataset"""
+        pass
 
 
 class ICommitRepository(ABC):
@@ -98,8 +114,8 @@ class ICommitRepository(ABC):
         pass
     
     @abstractmethod
-    async def get_commit_data(self, commit_id: str, sheet_name: Optional[str] = None, offset: int = 0, limit: int = 100) -> List[Dict[str, Any]]:
-        """Retrieve data for a commit, optionally filtered by sheet"""
+    async def get_commit_data(self, commit_id: str, table_key: Optional[str] = None, offset: int = 0, limit: int = 100) -> List[Dict[str, Any]]:
+        """Retrieve data for a commit, optionally filtered by table"""
         pass
     
     @abstractmethod
@@ -113,6 +129,26 @@ class ICommitRepository(ABC):
     @abstractmethod
     async def create_commit_statistics(self, commit_id: str, statistics: Dict[str, Any]) -> None:
         """Store statistics for a commit"""
+        pass
+    
+    @abstractmethod
+    async def get_commit_history(self, dataset_id: int, offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get the commit history for dataset's main timeline with pagination."""
+        pass
+    
+    @abstractmethod
+    async def get_commit_by_id(self, commit_id: str) -> Optional[Dict[str, Any]]:
+        """Get commit details including author info."""
+        pass
+    
+    @abstractmethod
+    async def count_commits_for_dataset(self, dataset_id: int) -> int:
+        """Count total commits for a dataset."""
+        pass
+    
+    @abstractmethod
+    async def count_commit_rows(self, commit_id: str, table_key: Optional[str] = None) -> int:
+        """Count rows in a commit, optionally filtered by table."""
         pass
 
 

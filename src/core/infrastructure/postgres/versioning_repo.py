@@ -4,7 +4,7 @@ from typing import Optional, Dict, Any, List, Tuple, Set
 import json
 import hashlib
 from asyncpg import Connection
-from ...services.interfaces import ICommitRepository
+from ...abstractions.repositories import ICommitRepository
 
 
 class PostgresCommitRepository(ICommitRepository):
@@ -15,15 +15,21 @@ class PostgresCommitRepository(ICommitRepository):
     
     async def add_rows_if_not_exist(self, rows: Set[Tuple[str, str]]) -> None:
         """Add (row_hash, row_data_json) pairs to rows table."""
-        # Convert set to list for bulk insert
-        rows_list = list(rows)
+        if not rows:
+            return
+            
+        # Use INSERT with ON CONFLICT to handle existing rows
+        query = """
+            INSERT INTO dsa_core.rows (row_hash, data)
+            VALUES ($1, $2::jsonb)
+            ON CONFLICT (row_hash) DO NOTHING
+        """
         
-        # Use COPY for efficient bulk insert
-        await self._conn.copy_records_to_table(
-            'dsa_core.rows',
-            records=rows_list,
-            columns=['row_hash', 'data']
-        )
+        # Convert to list and prepare for batch insert
+        rows_list = [(row_hash, data) for row_hash, data in rows]
+        
+        # Execute batch insert
+        await self._conn.executemany(query, rows_list)
     
     async def create_commit_and_manifest(
         self, 
@@ -61,16 +67,18 @@ class PostgresCommitRepository(ICommitRepository):
         )
         
         # Bulk insert manifest using COPY
+        # Insert manifest records
+        manifest_query = """
+            INSERT INTO dsa_core.commit_rows (commit_id, logical_row_id, row_hash)
+            VALUES ($1, $2, $3)
+        """
+        
         manifest_records = [
             (commit_id, logical_row_id, row_hash)
             for logical_row_id, row_hash in manifest
         ]
         
-        await self._conn.copy_records_to_table(
-            'dsa_core.commit_rows',
-            records=manifest_records,
-            columns=['commit_id', 'logical_row_id', 'row_hash']
-        )
+        await self._conn.executemany(manifest_query, manifest_records)
         
         return commit_id
     
@@ -110,7 +118,7 @@ class PostgresCommitRepository(ICommitRepository):
     async def get_ref(self, dataset_id: int, ref_name: str) -> Optional[Dict[str, Any]]:
         """Get ref details including commit_id."""
         query = """
-            SELECT name, commit_id, created_at, updated_at
+            SELECT name, commit_id
             FROM dsa_core.refs
             WHERE dataset_id = $1 AND name = $2
         """
@@ -120,13 +128,13 @@ class PostgresCommitRepository(ICommitRepository):
     async def get_commit_data(
         self, 
         commit_id: str, 
-        sheet_name: Optional[str] = None, 
+        table_key: Optional[str] = None, 
         offset: int = 0, 
         limit: int = 100
     ) -> List[Dict[str, Any]]:
-        """Retrieve data for a commit, optionally filtered by sheet."""
-        if sheet_name:
-            # Filter by sheet name prefix
+        """Retrieve data for a commit, optionally filtered by table."""
+        if table_key:
+            # Filter by table key prefix
             query = """
                 SELECT cr.logical_row_id, r.data
                 FROM dsa_core.commit_rows cr
@@ -135,7 +143,7 @@ class PostgresCommitRepository(ICommitRepository):
                 ORDER BY cr.logical_row_id
                 OFFSET $3 LIMIT $4
             """
-            pattern = f"{sheet_name}:%"
+            pattern = f"{table_key}:%"
             rows = await self._conn.fetch(query, commit_id, pattern, offset, limit)
         else:
             # Get all rows
@@ -178,16 +186,16 @@ class PostgresCommitRepository(ICommitRepository):
         result = await self._conn.fetchval(query, commit_id)
         return json.loads(result) if result else None
     
-    async def get_commit_history(self, dataset_id: int, ref_name: str, limit: int = 50) -> List[Dict[str, Any]]:
-        """Get commit history for a ref."""
-        # Recursive CTE to traverse commit history
+    async def get_commit_history(self, dataset_id: int, offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get commit history for dataset's main timeline with pagination."""
+        # Recursive CTE to traverse commit history from main ref
         query = """
             WITH RECURSIVE commit_history AS (
-                -- Start from the current ref
+                -- Start from the main ref
                 SELECT c.* 
                 FROM dsa_core.commits c
                 INNER JOIN dsa_core.refs r ON c.commit_id = r.commit_id
-                WHERE r.dataset_id = $1 AND r.name = $2
+                WHERE r.dataset_id = $1 AND r.name = 'main'
                 
                 UNION ALL
                 
@@ -196,13 +204,19 @@ class PostgresCommitRepository(ICommitRepository):
                 FROM dsa_core.commits c
                 INNER JOIN commit_history ch ON c.commit_id = ch.parent_commit_id
             )
-            SELECT commit_id, dataset_id, parent_commit_id, message, 
-                   author_id, committed_at
+            SELECT 
+                commit_id, 
+                dataset_id, 
+                parent_commit_id, 
+                message, 
+                author_id, 
+                committed_at as created_at,
+                (SELECT COUNT(*) FROM dsa_core.commit_rows WHERE commit_id = commit_history.commit_id) as row_count
             FROM commit_history
             ORDER BY committed_at DESC
-            LIMIT $3
+            LIMIT $2 OFFSET $3
         """
-        rows = await self._conn.fetch(query, dataset_id, ref_name, limit)
+        rows = await self._conn.fetch(query, dataset_id, limit, offset)
         return [dict(row) for row in rows]
     
     async def create_commit_statistics(self, commit_id: str, statistics: Dict[str, Any]) -> None:
@@ -212,3 +226,52 @@ class PostgresCommitRepository(ICommitRepository):
             VALUES ($1, $2)
         """
         await self._conn.execute(query, commit_id, json.dumps(statistics))
+    
+    async def get_commit_by_id(self, commit_id: str) -> Optional[Dict[str, Any]]:
+        """Get commit details including author info."""
+        query = """
+            SELECT commit_id, dataset_id, parent_commit_id, message, 
+                   author_id, committed_at as created_at
+            FROM dsa_core.commits 
+            WHERE commit_id = $1
+        """
+        row = await self._conn.fetchrow(query, commit_id)
+        return dict(row) if row else None
+    
+    async def count_commits_for_dataset(self, dataset_id: int) -> int:
+        """Count total commits for a dataset."""
+        query = """
+            WITH RECURSIVE commit_history AS (
+                -- Start from the main ref
+                SELECT c.commit_id, c.parent_commit_id
+                FROM dsa_core.commits c
+                INNER JOIN dsa_core.refs r ON c.commit_id = r.commit_id
+                WHERE r.dataset_id = $1 AND r.name = 'main'
+                
+                UNION ALL
+                
+                -- Recursively get parent commits
+                SELECT c.commit_id, c.parent_commit_id
+                FROM dsa_core.commits c
+                INNER JOIN commit_history ch ON c.parent_commit_id = ch.commit_id
+            )
+            SELECT COUNT(*) FROM commit_history
+        """
+        result = await self._conn.fetchval(query, dataset_id)
+        return result or 0
+    
+    async def count_commit_rows(self, commit_id: str, table_key: Optional[str] = None) -> int:
+        """Count rows in a commit, optionally filtered by table."""
+        if table_key:
+            query = """
+                SELECT COUNT(*) FROM dsa_core.commit_rows 
+                WHERE commit_id = $1 AND logical_row_id LIKE $2
+            """
+            result = await self._conn.fetchval(query, commit_id, f"{table_key}:%")
+        else:
+            query = """
+                SELECT COUNT(*) FROM dsa_core.commit_rows WHERE commit_id = $1
+            """
+            result = await self._conn.fetchval(query, commit_id)
+        
+        return result or 0

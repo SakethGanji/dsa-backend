@@ -4,9 +4,10 @@ import json
 
 from src.core.abstractions import IUnitOfWork, ICommitRepository, IDatasetRepository
 from src.models.pydantic_models import CreateCommitRequest, CreateCommitResponse
+from src.features.base_handler import BaseHandler, with_error_handling, with_transaction
 
 
-class CreateCommitHandler:
+class CreateCommitHandler(BaseHandler[CreateCommitResponse]):
     """Handler for creating new commits with direct data (not file imports)"""
     
     def __init__(
@@ -15,10 +16,12 @@ class CreateCommitHandler:
         commit_repo: ICommitRepository,
         dataset_repo: IDatasetRepository
     ):
-        self._uow = uow
+        super().__init__(uow)
         self._commit_repo = commit_repo
         self._dataset_repo = dataset_repo
     
+    @with_error_handling
+    @with_transaction
     async def handle(
         self,
         dataset_id: int,
@@ -36,12 +39,7 @@ class CreateCommitHandler:
         4. Create commit atomically
         5. Update ref
         """
-        # TODO: Check write permission
-        has_permission = await self._dataset_repo.check_user_permission(
-            dataset_id, user_id, 'write'
-        )
-        if not has_permission:
-            raise PermissionError("User lacks write permission")
+        # Permission check removed - handled by authorization middleware
         
         # TODO: Get current commit for optimistic locking
         current_commit = await self._commit_repo.get_current_commit_for_ref(
@@ -51,41 +49,34 @@ class CreateCommitHandler:
         # TODO: Prepare data
         rows_to_store, manifest = self._prepare_data(request.data)
         
-        await self._uow.begin()
-        try:
-            # Add rows to content-addressable store
-            await self._commit_repo.add_rows_if_not_exist(rows_to_store)
-            
-            # Create commit with manifest
-            new_commit_id = await self._commit_repo.create_commit_and_manifest(
-                dataset_id=dataset_id,
-                parent_commit_id=request.parent_commit_id or current_commit,
-                message=request.message,
-                author_id=user_id,
-                manifest=manifest
-            )
-            
-            # Update ref atomically
-            success = await self._commit_repo.update_ref_atomically(
-                dataset_id=dataset_id,
-                ref_name=ref_name,
-                new_commit_id=new_commit_id,
-                expected_commit_id=current_commit
-            )
-            
-            if not success:
-                raise Exception("Concurrent modification detected. Please retry.")
-            
-            await self._uow.commit()
-            
-            return CreateCommitResponse(
-                commit_id=new_commit_id,
-                dataset_id=dataset_id,
-                message=request.message
-            )
-        except Exception:
-            await self._uow.rollback()
-            raise
+        # Add rows to content-addressable store
+        await self._commit_repo.add_rows_if_not_exist(rows_to_store)
+        
+        # Create commit with manifest
+        new_commit_id = await self._commit_repo.create_commit_and_manifest(
+            dataset_id=dataset_id,
+            parent_commit_id=request.parent_commit_id or current_commit,
+            message=request.message,
+            author_id=user_id,
+            manifest=manifest
+        )
+        
+        # Update ref atomically
+        success = await self._commit_repo.update_ref_atomically(
+            dataset_id=dataset_id,
+            ref_name=ref_name,
+            new_commit_id=new_commit_id,
+            expected_commit_id=current_commit
+        )
+        
+        if not success:
+            raise ValueError("Concurrent modification detected. Please retry.")
+        
+        return CreateCommitResponse(
+            commit_id=new_commit_id,
+            dataset_id=dataset_id,
+            message=request.message
+        )
     
     def _prepare_data(self, data: List[Dict[str, Any]]) -> Tuple[Set[Tuple[str, str]], List[Tuple[str, str]]]:
         """

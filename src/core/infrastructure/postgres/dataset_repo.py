@@ -48,6 +48,16 @@ class PostgresDatasetRepository(IDatasetRepository):
         row = await self._conn.fetchrow(query, dataset_id)
         return dict(row) if row else None
     
+    async def get_dataset_by_name_and_user(self, name: str, user_id: int) -> Optional[Dict[str, Any]]:
+        """Get dataset by name and user."""
+        query = """
+            SELECT id as dataset_id, name, description, created_by, created_at, updated_at
+            FROM dsa_core.datasets
+            WHERE name = $1 AND created_by = $2
+        """
+        row = await self._conn.fetchrow(query, name, user_id)
+        return dict(row) if row else None
+    
     async def check_user_permission(self, dataset_id: int, user_id: int, required_permission: str) -> bool:
         """Check if user has required permission on dataset."""
         # Permission hierarchy: admin > write > read
@@ -131,3 +141,71 @@ class PostgresDatasetRepository(IDatasetRepository):
         """
         rows = await self._conn.fetch(query, dataset_id)
         return [row['tag_name'] for row in rows]
+    
+    async def update_dataset(self, dataset_id: int, name: Optional[str] = None, 
+                           description: Optional[str] = None) -> None:
+        """Update dataset metadata."""
+        updates = []
+        params = []
+        param_count = 1
+        
+        if name is not None:
+            updates.append(f"name = ${param_count}")
+            params.append(name)
+            param_count += 1
+        
+        if description is not None:
+            updates.append(f"description = ${param_count}")
+            params.append(description)
+            param_count += 1
+        
+        if not updates:
+            return
+        
+        params.append(dataset_id)
+        query = f"""
+            UPDATE dsa_core.datasets
+            SET {', '.join(updates)}, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ${param_count}
+        """
+        await self._conn.execute(query, *params)
+    
+    async def delete_dataset(self, dataset_id: int) -> None:
+        """Delete a dataset and all its related data."""
+        # Delete in order to respect foreign key constraints
+        # 1. Delete permissions
+        await self._conn.execute(
+            "DELETE FROM dsa_auth.dataset_permissions WHERE dataset_id = $1",
+            dataset_id
+        )
+        
+        # 2. Delete dataset tags
+        await self._conn.execute(
+            "DELETE FROM dsa_core.dataset_tags WHERE dataset_id = $1",
+            dataset_id
+        )
+        
+        # 3. Delete refs (which will cascade to commits and other versioning data)
+        await self._conn.execute(
+            "DELETE FROM dsa_core.refs WHERE dataset_id = $1",
+            dataset_id
+        )
+        
+        # 4. Delete jobs related to dataset
+        await self._conn.execute(
+            "DELETE FROM dsa_core.jobs WHERE dataset_id = $1",
+            dataset_id
+        )
+        
+        # 5. Finally delete the dataset itself
+        await self._conn.execute(
+            "DELETE FROM dsa_core.datasets WHERE id = $1",
+            dataset_id
+        )
+    
+    async def remove_dataset_tags(self, dataset_id: int) -> None:
+        """Remove all tags from a dataset."""
+        await self._conn.execute(
+            "DELETE FROM dsa_core.dataset_tags WHERE dataset_id = $1",
+            dataset_id
+        )

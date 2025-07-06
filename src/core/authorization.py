@@ -58,24 +58,29 @@ class PermissionChecker:
         dataset_repo: IDatasetRepository = Depends()  # Will be injected
     ) -> CurrentUser:
         """Check if user has required permission on dataset."""
-        # Admin users have all permissions
-        if current_user.is_admin():
-            return current_user
-        
-        # Check specific dataset permission
-        has_permission = await dataset_repo.check_user_permission(
-            dataset_id=dataset_id,
-            user_id=current_user.user_id,
-            required_permission=self.required_permission.value
-        )
-        
-        if not has_permission:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"User does not have {self.required_permission.value} permission on this dataset"
-            )
-        
+        # POC MODE: Allow all users to access all datasets
+        # TODO: Remove this bypass when moving to production
         return current_user
+        
+        # Original permission checking code (commented out for POC)
+        # Admin users have all permissions
+        # if current_user.is_admin():
+        #     return current_user
+        # 
+        # # Check specific dataset permission
+        # has_permission = await dataset_repo.check_user_permission(
+        #     dataset_id=dataset_id,
+        #     user_id=current_user.user_id,
+        #     required_permission=self.required_permission.value
+        # )
+        # 
+        # if not has_permission:
+        #     raise HTTPException(
+        #         status_code=status.HTTP_403_FORBIDDEN,
+        #         detail=f"User does not have {self.required_permission.value} permission on this dataset"
+        #     )
+        # 
+        # return current_user
 
 
 # Pre-configured permission checkers

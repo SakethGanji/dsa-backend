@@ -1,0 +1,200 @@
+"""Executor for import jobs."""
+
+import os
+import csv
+import json
+import hashlib
+from typing import Dict, Any, List
+from datetime import datetime
+
+from src.workers.job_worker import JobExecutor
+from src.core.database import DatabasePool
+from src.core.infrastructure.services import FileParserFactory
+
+
+class ImportJobExecutor(JobExecutor):
+    """Executes import jobs by processing uploaded files."""
+    
+    def __init__(self):
+        self.parser_factory = FileParserFactory()
+    
+    async def execute(self, job_id: str, parameters: Dict[str, Any], db_pool: DatabasePool) -> Dict[str, Any]:
+        """Execute import job."""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.info(f"Import job {job_id} - parameters type: {type(parameters)}, value: {parameters}")
+        
+        # Handle case where parameters come as string
+        if isinstance(parameters, str):
+            import json
+            parameters = json.loads(parameters)
+        
+        # Extract parameters
+        temp_file_path = parameters['temp_file_path']
+        filename = parameters['filename']
+        commit_message = parameters['commit_message']
+        target_ref = parameters['target_ref']
+        
+        # Get job details from database
+        async with db_pool.acquire() as conn:
+            job = await conn.fetchrow(
+                "SELECT dataset_id, user_id, source_commit_id FROM dsa_jobs.analysis_runs WHERE id = $1",
+                job_id
+            )
+            
+            dataset_id = job['dataset_id']
+            user_id = job['user_id']
+            parent_commit_id = job['source_commit_id']
+        
+        try:
+            # Parse the file
+            rows = await self._parse_file(temp_file_path, filename)
+            
+            # Create new commit
+            async with db_pool.acquire() as conn:
+                # Begin transaction
+                async with conn.transaction():
+                    # Create commit
+                    commit_id = await self._create_commit(
+                        conn, dataset_id, parent_commit_id, user_id, commit_message
+                    )
+                    
+                    # Process and store rows
+                    stats = await self._store_rows(conn, commit_id, rows)
+                    
+                    # Store schema
+                    schema = self._extract_schema(rows)
+                    await self._store_schema(conn, commit_id, schema)
+                    
+                    # Update ref to point to new commit
+                    await self._update_ref(conn, dataset_id, target_ref, commit_id)
+                    
+                    # Store statistics
+                    await self._store_statistics(conn, commit_id, stats)
+            
+            # Clean up temp file
+            if os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
+            
+            return {
+                "commit_id": commit_id,
+                "rows_imported": stats['row_count'],
+                "message": f"Successfully imported {stats['row_count']} rows"
+            }
+            
+        except Exception as e:
+            # Clean up temp file on error
+            if os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
+            raise
+    
+    async def _parse_file(self, file_path: str, filename: str) -> List[Dict[str, Any]]:
+        """Parse uploaded file into row dictionaries."""
+        rows = []
+        
+        # For MVP, assume CSV format
+        with open(file_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            sheet_name = os.path.splitext(filename)[0]
+            for idx, row_data in enumerate(reader):
+                # Create row dict
+                row = {
+                    "sheet_name": sheet_name,
+                    "row_number": idx + 2,  # +2 because row 1 is header
+                    "data": row_data
+                }
+                rows.append(row)
+        
+        return rows
+    
+    async def _create_commit(
+        self, conn, dataset_id: int, parent_commit_id: str, 
+        user_id: int, message: str
+    ) -> str:
+        """Create a new commit."""
+        # Generate commit ID (timestamp + random for simplicity)
+        import uuid
+        commit_id = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}"
+        
+        await conn.execute("""
+            INSERT INTO dsa_core.commits (commit_id, dataset_id, parent_commit_id, author_id, message)
+            VALUES ($1, $2, $3, $4, $5)
+        """, commit_id, dataset_id, parent_commit_id, user_id, message)
+        
+        return commit_id
+    
+    async def _store_rows(self, conn, commit_id: str, rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Store rows and create commit_rows associations."""
+        row_count = 0
+        unique_sheets = set()
+        
+        for row in rows:
+            # Calculate row hash
+            row_json = json.dumps(row, sort_keys=True)
+            row_hash = hashlib.sha256(row_json.encode()).hexdigest()
+            
+            # Insert or get existing row
+            existing = await conn.fetchrow(
+                "SELECT row_hash FROM dsa_core.rows WHERE row_hash = $1",
+                row_hash
+            )
+            
+            if not existing:
+                await conn.execute("""
+                    INSERT INTO dsa_core.rows (row_hash, data)
+                    VALUES ($1, $2)
+                """, row_hash, json.dumps(row))
+            
+            # Create commit_row association with logical_row_id
+            logical_row_id = f"{row['sheet_name']}_{row['row_number']}"
+            await conn.execute("""
+                INSERT INTO dsa_core.commit_rows (commit_id, logical_row_id, row_hash)
+                VALUES ($1, $2, $3)
+                ON CONFLICT DO NOTHING
+            """, commit_id, logical_row_id, row_hash)
+            
+            row_count += 1
+            unique_sheets.add(row["sheet_name"])
+        
+        return {
+            "row_count": row_count,
+            "sheet_count": len(unique_sheets)
+        }
+    
+    def _extract_schema(self, rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Extract schema from rows."""
+        schema = {}
+        
+        for row in rows:
+            sheet = row["sheet_name"]
+            if sheet not in schema:
+                schema[sheet] = {
+                    "columns": list(row["data"].keys()),
+                    "row_count": 0
+                }
+            schema[sheet]["row_count"] += 1
+        
+        return schema
+    
+    async def _store_schema(self, conn, commit_id: str, schema: Dict[str, Any]):
+        """Store commit schema."""
+        await conn.execute("""
+            INSERT INTO dsa_core.commit_schemas (commit_id, schema_definition)
+            VALUES ($1, $2)
+        """, commit_id, json.dumps(schema))
+    
+    async def _update_ref(self, conn, dataset_id: int, ref_name: str, commit_id: str):
+        """Update ref to point to new commit."""
+        await conn.execute("""
+            UPDATE dsa_core.refs
+            SET commit_id = $1
+            WHERE dataset_id = $2 AND name = $3
+        """, commit_id, dataset_id, ref_name)
+    
+    async def _store_statistics(self, conn, commit_id: str, stats: Dict[str, Any]):
+        """Store commit statistics."""
+        await conn.execute("""
+            INSERT INTO dsa_core.commit_statistics (commit_id, row_count, statistics)
+            VALUES ($1, $2, $3)
+        """, commit_id, stats['row_count'], json.dumps(stats))
