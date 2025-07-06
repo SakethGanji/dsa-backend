@@ -132,7 +132,12 @@ class PostgresCommitRepository(ICommitRepository):
         offset: int = 0, 
         limit: int = 100
     ) -> List[Dict[str, Any]]:
-        """Retrieve data for a commit, optionally filtered by table."""
+        """
+        Retrieve data for a commit, optionally filtered by table.
+        
+        DEPRECATED: Use ITableReader.get_table_data() instead for consistent table-aware data access.
+        This method will be removed in a future version.
+        """
         if table_key:
             # Filter by table key prefix
             query = """

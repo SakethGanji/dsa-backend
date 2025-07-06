@@ -3,7 +3,7 @@
 from typing import TypeVar, Generic, Optional, Callable, Any
 from functools import wraps
 import logging
-from src.core.abstractions import IUnitOfWork
+from ..core.abstractions.uow import IUnitOfWork
 
 # Type variable for handler return types
 TResult = TypeVar('TResult')

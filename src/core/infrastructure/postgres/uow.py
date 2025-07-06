@@ -9,6 +9,7 @@ from .dataset_repo import PostgresDatasetRepository
 from .versioning_repo import PostgresCommitRepository
 from .job_repo import PostgresJobRepository
 from .table_reader import PostgresTableReader
+from .search_repository import PostgresSearchRepository
 
 
 class PostgresUnitOfWork(IUnitOfWork):
@@ -23,6 +24,7 @@ class PostgresUnitOfWork(IUnitOfWork):
         self._commits = None
         self._jobs = None
         self._table_reader = None
+        self._search_repository = None
     
     async def __aenter__(self):
         """Enter the context manager."""
@@ -46,6 +48,7 @@ class PostgresUnitOfWork(IUnitOfWork):
         self._commits = None
         self._jobs = None
         self._table_reader = None
+        self._search_repository = None
     
     async def begin(self):
         """Begin a new transaction."""
@@ -107,3 +110,10 @@ class PostgresUnitOfWork(IUnitOfWork):
         if not self._table_reader:
             self._table_reader = PostgresTableReader(self.connection)
         return self._table_reader
+    
+    @property
+    def search_repository(self):
+        """Get the search repository."""
+        if not self._search_repository:
+            self._search_repository = PostgresSearchRepository(self.connection)
+        return self._search_repository

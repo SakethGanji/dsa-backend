@@ -81,7 +81,7 @@ async def get_data_at_ref(
     uow: IUnitOfWork = Depends(get_uow)
 ):
     """Get paginated data for a ref"""
-    handler = GetDataAtRefHandler(uow.commits, uow.datasets)
+    handler = GetDataAtRefHandler(uow, uow.table_reader)
     request = GetDataRequest(table_key=table_key, offset=offset, limit=limit)
     return await handler.handle(dataset_id, ref_name, request, current_user["id"])
 
@@ -207,7 +207,7 @@ async def checkout_commit(
     
     # Checkout commit
     uow = uow_factory.create()
-    handler = CheckoutCommitHandler(uow)
+    handler = CheckoutCommitHandler(uow, uow.table_reader)
     try:
         return await handler.handle(dataset_id, commit_id, table_key, offset, limit)
     except ValueError as e:

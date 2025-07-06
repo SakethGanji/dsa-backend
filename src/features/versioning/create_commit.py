@@ -75,6 +75,9 @@ class CreateCommitHandler(BaseHandler[CreateCommitResponse]):
         if not success:
             raise ValueError("Concurrent modification detected. Please retry.")
         
+        # Refresh search index to update dataset's updated_at timestamp
+        await self._uow.search_repository.refresh_search_index()
+        
         return CreateCommitResponse(
             commit_id=new_commit_id,
             dataset_id=dataset_id,

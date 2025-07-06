@@ -1,6 +1,6 @@
 from typing import Optional, List, Dict, Any
 
-from src.core.abstractions import ICommitRepository, IDatasetRepository
+from src.core.abstractions import IUnitOfWork, ITableReader
 from src.models.pydantic_models import GetDataRequest, GetDataResponse, DataRow
 from src.features.base_handler import BaseHandler, with_error_handling, PaginationMixin
 
@@ -10,13 +10,11 @@ class GetDataAtRefHandler(BaseHandler[GetDataResponse], PaginationMixin):
     
     def __init__(
         self,
-        commit_repo: ICommitRepository,
-        dataset_repo: IDatasetRepository
+        uow: IUnitOfWork,
+        table_reader: ITableReader
     ):
-        # Note: We don't have UoW here, so we pass None to BaseHandler
-        super().__init__(None)
-        self._commit_repo = commit_repo
-        self._dataset_repo = dataset_repo
+        super().__init__(uow)
+        self._table_reader = table_reader
     
     @with_error_handling
     async def handle(
@@ -32,7 +30,7 @@ class GetDataAtRefHandler(BaseHandler[GetDataResponse], PaginationMixin):
         Steps:
         1. Check read permission
         2. Get commit ID for ref
-        3. Fetch data from commit
+        3. Fetch data from commit using ITableReader
         4. Apply pagination and filtering
         """
         # Validate pagination parameters
@@ -40,40 +38,62 @@ class GetDataAtRefHandler(BaseHandler[GetDataResponse], PaginationMixin):
         
         # Permission check removed - handled by authorization middleware
         
-        # TODO: Get current commit for ref
-        commit_id = await self._commit_repo.get_current_commit_for_ref(
-            dataset_id, ref_name
-        )
-        if not commit_id:
-            raise ValueError(f"Ref '{ref_name}' not found for dataset {dataset_id}")
-        
-        # TODO: Fetch data with pagination
-        rows_data = await self._commit_repo.get_commit_data(
-            commit_id=commit_id,
-            table_key=request.table_key,
-            offset=offset,
-            limit=limit
-        )
-        
-        # TODO: Get total count for pagination
-        # This would require a separate count query in real implementation
-        total_rows = len(rows_data)  # Placeholder
-        
-        # Transform to response format
-        rows = [
-            DataRow(
-                logical_row_id=row['logical_row_id'],
-                data=row['data']
+        async with self._uow:
+            # Get current commit for ref
+            ref = await self._uow.commits.get_ref(dataset_id, ref_name)
+            if not ref or not ref['commit_id']:
+                raise ValueError(f"Ref '{ref_name}' not found for dataset {dataset_id}")
+            
+            commit_id = ref['commit_id']
+            
+            # If no table_key specified, get data from all tables
+            if request.table_key:
+                # Get data for specific table
+                rows_data = await self._table_reader.get_table_data(
+                    commit_id=commit_id,
+                    table_key=request.table_key,
+                    offset=offset,
+                    limit=limit
+                )
+                total_rows = await self._table_reader.count_table_rows(
+                    commit_id, request.table_key
+                )
+            else:
+                # Get data from all tables - first list all tables
+                table_keys = await self._table_reader.list_table_keys(commit_id)
+                
+                # For simplicity, get data from the first table or 'primary' if it exists
+                table_key = 'primary' if 'primary' in table_keys else (table_keys[0] if table_keys else None)
+                
+                if table_key:
+                    rows_data = await self._table_reader.get_table_data(
+                        commit_id=commit_id,
+                        table_key=table_key,
+                        offset=offset,
+                        limit=limit
+                    )
+                    total_rows = await self._table_reader.count_table_rows(
+                        commit_id, table_key
+                    )
+                else:
+                    rows_data = []
+                    total_rows = 0
+            
+            # Transform to response format
+            rows = [
+                DataRow(
+                    logical_row_id=row.get('_logical_row_id', ''),
+                    data={k: v for k, v in row.items() if not k.startswith('_')}
+                )
+                for row in rows_data
+            ]
+            
+            return GetDataResponse(
+                dataset_id=dataset_id,
+                ref_name=ref_name,
+                commit_id=commit_id,
+                rows=rows,
+                total_rows=total_rows,
+                offset=offset,
+                limit=limit
             )
-            for row in rows_data
-        ]
-        
-        return GetDataResponse(
-            dataset_id=dataset_id,
-            ref_name=ref_name,
-            commit_id=commit_id,
-            rows=rows,
-            total_rows=total_rows,
-            offset=offset,
-            limit=limit
-        )

@@ -25,8 +25,14 @@ def mock_uow():
     return uow
 
 
+@pytest.fixture
+def mock_table_reader():
+    """Create a mock table reader."""
+    return Mock()
+
+
 @pytest.mark.asyncio
-async def test_checkout_commit_success(mock_uow):
+async def test_checkout_commit_success(mock_uow, mock_table_reader):
     """Test successful checkout of a commit."""
     # Arrange
     dataset_id = 1
@@ -40,20 +46,25 @@ async def test_checkout_commit_success(mock_uow):
     
     mock_data_rows = [
         {
-            'logical_row_id': 'Sheet1:0',
-            'data': {'id': 1, 'name': 'Alice', 'value': 100}
+            '_logical_row_id': 'Sheet1:0',
+            'id': 1,
+            'name': 'Alice',
+            'value': 100
         },
         {
-            'logical_row_id': 'Sheet1:1',
-            'data': {'id': 2, 'name': 'Bob', 'value': 200}
+            '_logical_row_id': 'Sheet1:1',
+            'id': 2,
+            'name': 'Bob',
+            'value': 200
         }
     ]
     
     mock_uow.commits.get_commit_by_id = AsyncMock(return_value=mock_commit)
-    mock_uow.commits.get_commit_data = AsyncMock(return_value=mock_data_rows)
-    mock_uow.commits.count_commit_rows = AsyncMock(return_value=2)
+    mock_table_reader.list_table_keys = AsyncMock(return_value=['primary'])
+    mock_table_reader.get_table_data = AsyncMock(return_value=mock_data_rows)
+    mock_table_reader.count_table_rows = AsyncMock(return_value=2)
     
-    handler = CheckoutCommitHandler(mock_uow)
+    handler = CheckoutCommitHandler(mock_uow, mock_table_reader)
     
     # Act
     result = await handler.handle(dataset_id, commit_id)
@@ -73,10 +84,19 @@ async def test_checkout_commit_success(mock_uow):
     assert result.data[1]['id'] == 2
     assert result.data[1]['name'] == 'Bob'
     assert result.data[1]['_logical_row_id'] == 'Sheet1:1'
+    
+    # Verify table reader was called correctly
+    mock_table_reader.list_table_keys.assert_called_once_with(commit_id)
+    mock_table_reader.get_table_data.assert_called_once_with(
+        commit_id=commit_id,
+        table_key='primary',
+        offset=0,
+        limit=100
+    )
 
 
 @pytest.mark.asyncio
-async def test_checkout_commit_with_table_filter(mock_uow):
+async def test_checkout_commit_with_table_filter(mock_uow, mock_table_reader):
     """Test checkout with table key filter."""
     # Arrange
     dataset_id = 1
@@ -90,44 +110,43 @@ async def test_checkout_commit_with_table_filter(mock_uow):
     
     mock_data_rows = [
         {
-            'logical_row_id': 'Revenue:0',
-            'data': {'month': 'Jan', 'amount': 1000}
+            '_logical_row_id': 'Revenue:0',
+            'month': 'Jan',
+            'amount': 1000
         }
     ]
     
     mock_uow.commits.get_commit_by_id = AsyncMock(return_value=mock_commit)
-    mock_uow.commits.get_commit_data = AsyncMock(return_value=mock_data_rows)
-    mock_uow.commits.count_commit_rows = AsyncMock(return_value=1)
+    mock_table_reader.get_table_data = AsyncMock(return_value=mock_data_rows)
+    mock_table_reader.count_table_rows = AsyncMock(return_value=1)
     
-    handler = CheckoutCommitHandler(mock_uow)
+    handler = CheckoutCommitHandler(mock_uow, mock_table_reader)
     
     # Act
     result = await handler.handle(dataset_id, commit_id, table_key=table_key)
     
     # Assert
-    mock_uow.commits.get_commit_data.assert_called_once_with(
+    mock_table_reader.get_table_data.assert_called_once_with(
         commit_id=commit_id,
         table_key=table_key,
         offset=0,
         limit=100
     )
-    mock_uow.commits.count_commit_rows.assert_called_once_with(commit_id, table_key)
+    mock_table_reader.count_table_rows.assert_called_once_with(commit_id, table_key)
     assert len(result.data) == 1
     assert result.data[0]['month'] == 'Jan'
 
 
 @pytest.mark.asyncio
-async def test_checkout_commit_not_found(mock_uow):
+async def test_checkout_commit_not_found(mock_uow, mock_table_reader):
     """Test checkout of non-existent commit."""
     # Arrange
     dataset_id = 1
     commit_id = "nonexistent"
     
     mock_uow.commits.get_commit_by_id = AsyncMock(return_value=None)
-    mock_uow.commits.get_commit_data = AsyncMock(return_value=[])
-    mock_uow.commits.count_commit_rows = AsyncMock(return_value=0)
     
-    handler = CheckoutCommitHandler(mock_uow)
+    handler = CheckoutCommitHandler(mock_uow, mock_table_reader)
     
     # Act & Assert
     with pytest.raises(ValueError, match="Commit not found for this dataset"):
@@ -135,7 +154,7 @@ async def test_checkout_commit_not_found(mock_uow):
 
 
 @pytest.mark.asyncio
-async def test_checkout_commit_wrong_dataset(mock_uow):
+async def test_checkout_commit_wrong_dataset(mock_uow, mock_table_reader):
     """Test checkout of commit from different dataset."""
     # Arrange
     dataset_id = 1
@@ -147,10 +166,8 @@ async def test_checkout_commit_wrong_dataset(mock_uow):
     }
     
     mock_uow.commits.get_commit_by_id = AsyncMock(return_value=mock_commit)
-    mock_uow.commits.get_commit_data = AsyncMock(return_value=[])
-    mock_uow.commits.count_commit_rows = AsyncMock(return_value=0)
     
-    handler = CheckoutCommitHandler(mock_uow)
+    handler = CheckoutCommitHandler(mock_uow, mock_table_reader)
     
     # Act & Assert
     with pytest.raises(ValueError, match="Commit not found for this dataset"):
@@ -158,7 +175,7 @@ async def test_checkout_commit_wrong_dataset(mock_uow):
 
 
 @pytest.mark.asyncio
-async def test_checkout_commit_with_pagination(mock_uow):
+async def test_checkout_commit_with_pagination(mock_uow, mock_table_reader):
     """Test checkout with pagination parameters."""
     # Arrange
     dataset_id = 1
@@ -172,18 +189,19 @@ async def test_checkout_commit_with_pagination(mock_uow):
     }
     
     mock_uow.commits.get_commit_by_id = AsyncMock(return_value=mock_commit)
-    mock_uow.commits.get_commit_data = AsyncMock(return_value=[])
-    mock_uow.commits.count_commit_rows = AsyncMock(return_value=100)
+    mock_table_reader.list_table_keys = AsyncMock(return_value=['primary'])
+    mock_table_reader.get_table_data = AsyncMock(return_value=[])
+    mock_table_reader.count_table_rows = AsyncMock(return_value=100)
     
-    handler = CheckoutCommitHandler(mock_uow)
+    handler = CheckoutCommitHandler(mock_uow, mock_table_reader)
     
     # Act
     result = await handler.handle(dataset_id, commit_id, offset=offset, limit=limit)
     
     # Assert
-    mock_uow.commits.get_commit_data.assert_called_once_with(
+    mock_table_reader.get_table_data.assert_called_once_with(
         commit_id=commit_id,
-        table_key=None,
+        table_key='primary',
         offset=offset,
         limit=limit
     )

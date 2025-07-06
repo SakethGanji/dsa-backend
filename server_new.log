@@ -318,3 +318,345 @@ INFO:src.workers.job_worker:Job 10fe41a5-5f08-4b6d-bfd2-52e2e5c5c71b completed s
 INFO:     127.0.0.1:34410 - "GET /api/jobs/10fe41a5-5f08-4b6d-bfd2-52e2e5c5c71b HTTP/1.1" 200 OK
 INFO:     127.0.0.1:50920 - "GET /api/datasets/36/refs/main/tables HTTP/1.1" 200 OK
 INFO:     127.0.0.1:34672 - "GET /api/datasets/36/commits/20250706044057_4aebfffa/schema HTTP/1.1" 200 OK
+WARNING:  WatchFiles detected changes in 'src/features/search/services/__init__.py', 'src/features/search/handlers/__init__.py', 'src/features/search/__init__.py', 'src/features/search/models/__init__.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Database pool closed
+INFO:     Application shutdown complete.
+INFO:     Finished server process [68095]
+INFO:     Started server process [70303]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.main:Dependencies initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/core/abstractions/search_repository.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Database pool closed
+INFO:     Application shutdown complete.
+INFO:     Finished server process [70303]
+INFO:     Started server process [70374]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.main:Dependencies initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/core/infrastructure/postgres/search_repository.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Database pool closed
+INFO:     Application shutdown complete.
+INFO:     Finished server process [70374]
+INFO:     Started server process [70449]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.main:Dependencies initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/features/search/models/search_request.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Database pool closed
+INFO:     Application shutdown complete.
+INFO:     Finished server process [70449]
+INFO:     Started server process [70519]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.main:Dependencies initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/features/search/models/search_response.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Database pool closed
+INFO:     Application shutdown complete.
+INFO:     Finished server process [70519]
+INFO:     Started server process [70583]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.main:Dependencies initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/features/search/models/__init__.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Database pool closed
+INFO:     Application shutdown complete.
+INFO:     Finished server process [70583]
+INFO:     Started server process [70626]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.main:Dependencies initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/features/search/handlers/search_datasets_handler.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Database pool closed
+INFO:     Application shutdown complete.
+INFO:     Finished server process [70626]
+INFO:     Started server process [70736]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.main:Dependencies initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/features/search/handlers/suggest_handler.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Database pool closed
+INFO:     Application shutdown complete.
+INFO:     Finished server process [70736]
+INFO:     Started server process [70777]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.main:Dependencies initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/features/search/handlers/refresh_search_index_handler.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Database pool closed
+INFO:     Application shutdown complete.
+INFO:     Finished server process [70777]
+INFO:     Started server process [71009]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.main:Dependencies initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/features/search/handlers/__init__.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Database pool closed
+INFO:     Application shutdown complete.
+INFO:     Finished server process [71009]
+INFO:     Started server process [71053]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.main:Dependencies initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/api/search.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Database pool closed
+INFO:     Application shutdown complete.
+INFO:     Finished server process [71053]
+INFO:     Started server process [71137]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.main:Dependencies initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/core/abstractions/uow.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Database pool closed
+INFO:     Application shutdown complete.
+INFO:     Finished server process [71137]
+INFO:     Started server process [71257]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.main:Dependencies initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/core/abstractions/uow.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Database pool closed
+INFO:     Application shutdown complete.
+INFO:     Finished server process [71257]
+INFO:     Started server process [71338]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.main:Dependencies initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/core/infrastructure/postgres/uow.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Database pool closed
+INFO:     Application shutdown complete.
+INFO:     Finished server process [71338]
+INFO:     Started server process [71419]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.main:Dependencies initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/main.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Database pool closed
+INFO:     Application shutdown complete.
+INFO:     Finished server process [71419]
+Process SpawnProcess-25:
+Traceback (most recent call last):
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 314, in _bootstrap
+    self.run()
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/_subprocess.py", line 80, in subprocess_started
+    target(sockets=sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 66, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "/usr/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 70, in serve
+    await self._serve(sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 77, in _serve
+    config.load()
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/config.py", line 435, in load
+    self.loaded_app = import_from_string(self.app)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/importer.py", line 22, in import_from_string
+    raise exc from None
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "/usr/lib/python3.10/importlib/__init__.py", line 126, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "<frozen importlib._bootstrap>", line 1050, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1027, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1006, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 688, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 883, in exec_module
+  File "<frozen importlib._bootstrap>", line 241, in _call_with_frames_removed
+  File "/home/saketh/Projects/dsa/src/main.py", line 17, in <module>
+    from .api import users, datasets, versioning, jobs, search
+  File "/home/saketh/Projects/dsa/src/api/search.py", line 7, in <module>
+    from src.api.dependencies import get_current_user, get_unit_of_work
+ModuleNotFoundError: No module named 'src.api.dependencies'
+WARNING:  WatchFiles detected changes in 'src/main.py'. Reloading...
+Process SpawnProcess-26:
+Traceback (most recent call last):
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 314, in _bootstrap
+    self.run()
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/_subprocess.py", line 80, in subprocess_started
+    target(sockets=sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 66, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "/usr/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 70, in serve
+    await self._serve(sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 77, in _serve
+    config.load()
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/config.py", line 435, in load
+    self.loaded_app = import_from_string(self.app)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/importer.py", line 22, in import_from_string
+    raise exc from None
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "/usr/lib/python3.10/importlib/__init__.py", line 126, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "<frozen importlib._bootstrap>", line 1050, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1027, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1006, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 688, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 883, in exec_module
+  File "<frozen importlib._bootstrap>", line 241, in _call_with_frames_removed
+  File "/home/saketh/Projects/dsa/src/main.py", line 17, in <module>
+    from .api import users, datasets, versioning, jobs, search
+  File "/home/saketh/Projects/dsa/src/api/search.py", line 7, in <module>
+    from src.api.dependencies import get_current_user, get_unit_of_work
+ModuleNotFoundError: No module named 'src.api.dependencies'
+WARNING:  WatchFiles detected changes in 'src/features/search/__init__.py'. Reloading...
+Process SpawnProcess-27:
+Traceback (most recent call last):
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 314, in _bootstrap
+    self.run()
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/_subprocess.py", line 80, in subprocess_started
+    target(sockets=sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 66, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "/usr/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 70, in serve
+    await self._serve(sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 77, in _serve
+    config.load()
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/config.py", line 435, in load
+    self.loaded_app = import_from_string(self.app)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/importer.py", line 22, in import_from_string
+    raise exc from None
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "/usr/lib/python3.10/importlib/__init__.py", line 126, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "<frozen importlib._bootstrap>", line 1050, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1027, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1006, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 688, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 883, in exec_module
+  File "<frozen importlib._bootstrap>", line 241, in _call_with_frames_removed
+  File "/home/saketh/Projects/dsa/src/main.py", line 17, in <module>
+    from .api import users, datasets, versioning, jobs, search
+  File "/home/saketh/Projects/dsa/src/api/search.py", line 7, in <module>
+    from src.api.dependencies import get_current_user, get_unit_of_work
+ModuleNotFoundError: No module named 'src.api.dependencies'
+INFO:     Stopping reloader process [66593]

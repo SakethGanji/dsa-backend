@@ -78,6 +78,11 @@ async def create_dataset(
         # Get the tags back to include in response
         tags = await dataset_repo.get_dataset_tags(dataset_id)
         
+        # Refresh search index to include new dataset
+        from ..core.infrastructure.postgres.search_repository import PostgresSearchRepository
+        search_repo = PostgresSearchRepository(conn)
+        await search_repo.refresh_search_index()
+        
         return CreateDatasetResponse(
             dataset_id=dataset_id,
             name=request.name,
@@ -263,6 +268,11 @@ async def update_dataset(
     updated_dataset = await dataset_repo.get_dataset_by_id(dataset_id)
     tags = await dataset_repo.get_dataset_tags(dataset_id)
     
+    # Refresh search index to reflect updates
+    from ..core.infrastructure.postgres.search_repository import PostgresSearchRepository
+    search_repo = PostgresSearchRepository(dataset_repo._conn)
+    await search_repo.refresh_search_index()
+    
     return UpdateDatasetResponse(
         dataset_id=dataset_id,
         name=updated_dataset['name'],
@@ -301,6 +311,11 @@ async def delete_dataset(
     
     # Delete the dataset
     await dataset_repo.delete_dataset(dataset_id)
+    
+    # Refresh search index to remove deleted dataset
+    from ..core.infrastructure.postgres.search_repository import PostgresSearchRepository
+    search_repo = PostgresSearchRepository(dataset_repo._conn)
+    await search_repo.refresh_search_index()
     
     return DeleteDatasetResponse(
         dataset_id=dataset_id,

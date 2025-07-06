@@ -49,6 +49,9 @@ class GrantPermissionHandler:
             
             await self._uow.commit()
             
+            # Refresh search index to reflect permission changes
+            await self._uow.search_repository.refresh_search_index()
+            
             return GrantPermissionResponse(
                 dataset_id=dataset_id,
                 user_id=request.user_id,

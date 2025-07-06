@@ -2,6 +2,7 @@
 
 from typing import Optional
 from ...core.abstractions.uow import IUnitOfWork
+from ...core.abstractions.repositories import ITableReader
 from ...models.pydantic_models import CheckoutResponse
 from ..base_handler import BaseHandler, with_error_handling, PaginationMixin
 
@@ -9,8 +10,9 @@ from ..base_handler import BaseHandler, with_error_handling, PaginationMixin
 class CheckoutCommitHandler(BaseHandler[CheckoutResponse], PaginationMixin):
     """Handler for retrieving data at a specific commit."""
     
-    def __init__(self, uow: IUnitOfWork):
+    def __init__(self, uow: IUnitOfWork, table_reader: ITableReader):
         super().__init__(uow)
+        self._table_reader = table_reader
         
     @with_error_handling
     async def handle(self, dataset_id: int, commit_id: str, 
@@ -26,24 +28,43 @@ class CheckoutCommitHandler(BaseHandler[CheckoutResponse], PaginationMixin):
             if not commit or commit['dataset_id'] != dataset_id:
                 raise ValueError("Commit not found for this dataset")
             
-            # Get data using existing method
-            data_rows = await self._uow.commits.get_commit_data(
-                commit_id=commit_id,
-                table_key=table_key,
-                offset=offset,
-                limit=limit
-            )
+            # Get data using ITableReader
+            if table_key:
+                # Get data for specific table
+                data_rows = await self._table_reader.get_table_data(
+                    commit_id=commit_id,
+                    table_key=table_key,
+                    offset=offset,
+                    limit=limit
+                )
+                total_rows = await self._table_reader.count_table_rows(commit_id, table_key)
+            else:
+                # Get data from all tables - first list all tables
+                table_keys = await self._table_reader.list_table_keys(commit_id)
+                
+                # For simplicity, get data from the first table or 'primary' if it exists
+                default_table_key = 'primary' if 'primary' in table_keys else (table_keys[0] if table_keys else None)
+                
+                if default_table_key:
+                    data_rows = await self._table_reader.get_table_data(
+                        commit_id=commit_id,
+                        table_key=default_table_key,
+                        offset=offset,
+                        limit=limit
+                    )
+                    total_rows = await self._table_reader.count_table_rows(commit_id, default_table_key)
+                else:
+                    data_rows = []
+                    total_rows = 0
             
             # Extract just the data portion for response
             data = []
             for row in data_rows:
-                row_data = row['data']
+                # Remove internal fields starting with underscore
+                row_data = {k: v for k, v in row.items() if not k.startswith('_')}
                 # Add the logical_row_id to help identify rows
-                row_data['_logical_row_id'] = row['logical_row_id']
+                row_data['_logical_row_id'] = row.get('_logical_row_id', '')
                 data.append(row_data)
-            
-            # Get total count
-            total_rows = await self._uow.commits.count_commit_rows(commit_id, table_key)
             
             return CheckoutResponse(
                 commit_id=commit_id,

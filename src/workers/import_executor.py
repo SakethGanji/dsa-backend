@@ -73,6 +73,12 @@ class ImportJobExecutor(JobExecutor):
                     # Store statistics
                     await self._store_statistics(conn, commit_id, stats)
             
+            # Refresh search index after successful import
+            from src.core.infrastructure.postgres.search_repository import PostgresSearchRepository
+            async with db_pool.acquire() as conn:
+                search_repo = PostgresSearchRepository(conn)
+                await search_repo.refresh_search_index()
+            
             # Clean up temp file
             if os.path.exists(temp_file_path):
                 os.remove(temp_file_path)

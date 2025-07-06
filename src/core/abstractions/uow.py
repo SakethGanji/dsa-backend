@@ -11,6 +11,7 @@ if TYPE_CHECKING:
         IJobRepository,
         ITableReader
     )
+    from .search_repository import ISearchRepository
 
 
 class IUnitOfWork(ABC):
@@ -61,4 +62,10 @@ class IUnitOfWork(ABC):
     @abstractmethod
     def table_reader(self) -> 'ITableReader':
         """Get the table reader"""
+        pass
+    
+    @property
+    @abstractmethod
+    def search_repository(self) -> 'ISearchRepository':
+        """Get the search repository"""
         pass

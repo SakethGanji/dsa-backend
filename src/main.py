@@ -14,7 +14,7 @@ from .core.dependencies import (
     set_stats_calculator
 )
 from .core.infrastructure.services import FileParserFactory, DefaultStatisticsCalculator
-from .api import users, datasets, versioning, jobs
+from .api import users, datasets, versioning, jobs, search
 from .workers.job_worker import JobWorker
 from .workers.import_executor import ImportJobExecutor
 
@@ -96,6 +96,7 @@ async def get_db_pool() -> DatabasePool:
 
 # Include routers
 app.include_router(users.router, prefix="/api")
+app.include_router(search.router, prefix="/api")  # Search must come before datasets to avoid route conflicts
 app.include_router(datasets.router, prefix="/api")
 app.include_router(versioning.router, prefix="/api")
 app.include_router(jobs.router, prefix="/api")
@@ -105,6 +106,7 @@ from .core import authorization
 app.dependency_overrides[users.get_db_pool] = get_db_pool
 app.dependency_overrides[datasets.get_db_pool] = get_db_pool
 app.dependency_overrides[authorization.get_db_pool] = get_db_pool
+app.dependency_overrides[search.get_db_pool] = get_db_pool
 
 
 @app.get("/")
