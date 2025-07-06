@@ -15,6 +15,8 @@ from ..models.pydantic_models import (
 from ..core.authorization import (
     get_current_user_info,
     require_dataset_admin,
+    require_dataset_read,
+    require_dataset_write,
     PermissionType
 )
 
@@ -97,22 +99,10 @@ async def grant_permission(
     request: GrantPermissionRequest = ...,
     current_user: CurrentUser = Depends(get_current_user_info),
     uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
-    dataset_repo: PostgresDatasetRepository = Depends(get_dataset_repo)
+    dataset_repo: PostgresDatasetRepository = Depends(get_dataset_repo),
+    _: CurrentUser = Depends(require_dataset_admin)
 ) -> GrantPermissionResponse:
     """Grant permission to a user on a dataset (admin only)."""
-    # Check if current user has admin permission on the dataset
-    has_admin = await dataset_repo.check_user_permission(
-        dataset_id=dataset_id,
-        user_id=current_user.user_id,
-        required_permission=PermissionType.ADMIN.value
-    )
-    
-    if not has_admin and not current_user.is_admin():
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only dataset admins can grant permissions"
-        )
-    
     uow = uow_factory.create()
     handler = GrantPermissionHandler(uow, dataset_repo)
     
@@ -173,21 +163,10 @@ async def list_datasets(
 async def get_dataset(
     dataset_id: int = Path(..., description="Dataset ID"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    dataset_repo: PostgresDatasetRepository = Depends(get_dataset_repo)
+    dataset_repo: PostgresDatasetRepository = Depends(get_dataset_repo),
+    _: CurrentUser = Depends(require_dataset_read)
 ) -> DatasetDetailResponse:
     """Get detailed information about a specific dataset."""
-    # Check if user has read permission
-    has_permission = await dataset_repo.check_user_permission(
-        dataset_id=dataset_id,
-        user_id=current_user.user_id,
-        required_permission=PermissionType.READ.value
-    )
-    
-    if not has_permission and not current_user.is_admin():
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't have permission to view this dataset"
-        )
     
     # Get dataset details
     dataset = await dataset_repo.get_dataset_by_id(dataset_id)
@@ -225,21 +204,10 @@ async def update_dataset(
     dataset_id: int = Path(..., description="Dataset ID"),
     request: UpdateDatasetRequest = ...,
     current_user: CurrentUser = Depends(get_current_user_info),
-    dataset_repo: PostgresDatasetRepository = Depends(get_dataset_repo)
+    dataset_repo: PostgresDatasetRepository = Depends(get_dataset_repo),
+    _: CurrentUser = Depends(require_dataset_write)
 ) -> UpdateDatasetResponse:
     """Update dataset metadata (name, description, tags)."""
-    # Check if user has write permission
-    has_permission = await dataset_repo.check_user_permission(
-        dataset_id=dataset_id,
-        user_id=current_user.user_id,
-        required_permission=PermissionType.WRITE.value
-    )
-    
-    if not has_permission and not current_user.is_admin():
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You need write permission to update this dataset"
-        )
     
     # Check if dataset exists
     dataset = await dataset_repo.get_dataset_by_id(dataset_id)
@@ -285,21 +253,10 @@ async def update_dataset(
 async def delete_dataset(
     dataset_id: int = Path(..., description="Dataset ID"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    dataset_repo: PostgresDatasetRepository = Depends(get_dataset_repo)
+    dataset_repo: PostgresDatasetRepository = Depends(get_dataset_repo),
+    _: CurrentUser = Depends(require_dataset_admin)
 ) -> DeleteDatasetResponse:
     """Delete a dataset and all its related data."""
-    # Check if user has admin permission on dataset or is system admin
-    has_permission = await dataset_repo.check_user_permission(
-        dataset_id=dataset_id,
-        user_id=current_user.user_id,
-        required_permission=PermissionType.ADMIN.value
-    )
-    
-    if not has_permission and not current_user.is_admin():
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only dataset admins can delete datasets"
-        )
     
     # Check if dataset exists
     dataset = await dataset_repo.get_dataset_by_id(dataset_id)

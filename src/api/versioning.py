@@ -41,7 +41,8 @@ async def create_commit(
     ref_name: str,
     request: CreateCommitRequest,
     current_user: dict = Depends(get_current_user),
-    uow: IUnitOfWork = Depends(get_uow)
+    uow: IUnitOfWork = Depends(get_uow),
+    _: CurrentUser = Depends(require_dataset_write)
 ):
     """Create a new commit with direct data"""
     handler = CreateCommitHandler(uow, uow.commits, uow.datasets)
@@ -55,7 +56,8 @@ async def import_file(
     file: UploadFile = File(...),
     commit_message: str = Form(...),
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow: IUnitOfWork = Depends(get_uow)
+    uow: IUnitOfWork = Depends(get_uow),
+    _: CurrentUser = Depends(require_dataset_write)
 ):
     """Upload a file to import as a new commit"""
     handler = QueueImportJobHandler(uow)
@@ -78,7 +80,8 @@ async def get_data_at_ref(
     offset: int = Query(0, ge=0, description="Pagination offset"),
     limit: int = Query(100, ge=1, le=1000, description="Pagination limit"),
     current_user: dict = Depends(get_current_user),
-    uow: IUnitOfWork = Depends(get_uow)
+    uow: IUnitOfWork = Depends(get_uow),
+    _: CurrentUser = Depends(require_dataset_read)
 ):
     """Get paginated data for a ref"""
     handler = GetDataAtRefHandler(uow, uow.table_reader)
@@ -91,7 +94,8 @@ async def get_commit_schema(
     dataset_id: int,
     commit_id: str,
     current_user: dict = Depends(get_current_user),
-    uow: IUnitOfWork = Depends(get_uow)
+    uow: IUnitOfWork = Depends(get_uow),
+    _: CurrentUser = Depends(require_dataset_read)
 ):
     """Get schema information for a commit"""
     handler = GetCommitSchemaHandler(uow.commits, uow.datasets)
@@ -104,7 +108,8 @@ async def list_tables(
     dataset_id: int,
     ref_name: str,
     current_user: dict = Depends(get_current_user),
-    uow: IUnitOfWork = Depends(get_uow)
+    uow: IUnitOfWork = Depends(get_uow),
+    _: CurrentUser = Depends(require_dataset_read)
 ) -> Dict[str, List[str]]:
     """List all available tables in the dataset at the given ref"""
     handler = ListTablesHandler(uow, uow.table_reader)
@@ -119,7 +124,8 @@ async def get_table_data(
     offset: int = Query(0, ge=0, description="Pagination offset"),
     limit: int = Query(100, ge=1, le=10000, description="Pagination limit"),
     current_user: dict = Depends(get_current_user),
-    uow: IUnitOfWork = Depends(get_uow)
+    uow: IUnitOfWork = Depends(get_uow),
+    _: CurrentUser = Depends(require_dataset_read)
 ) -> Dict[str, Any]:
     """Get paginated data for a specific table"""
     handler = GetTableDataHandler(uow, uow.table_reader)
@@ -139,7 +145,8 @@ async def get_table_schema(
     ref_name: str,
     table_key: str,
     current_user: dict = Depends(get_current_user),
-    uow: IUnitOfWork = Depends(get_uow)
+    uow: IUnitOfWork = Depends(get_uow),
+    _: CurrentUser = Depends(require_dataset_read)
 ) -> Dict[str, Any]:
     """Get schema for a specific table"""
     handler = GetTableSchemaHandler(uow, uow.table_reader)
@@ -159,22 +166,10 @@ async def get_commit_history(
     offset: int = Query(0, ge=0, description="Pagination offset"),
     limit: int = Query(50, ge=1, le=100, description="Number of commits to return"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory)
+    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+    _: CurrentUser = Depends(require_dataset_read)
 ) -> GetCommitHistoryResponse:
     """Get the chronological commit history for a dataset."""
-    # Check read permission
-    async with uow_factory.create() as uow:
-        has_permission = await uow.datasets.check_user_permission(
-            dataset_id=dataset_id,
-            user_id=current_user.user_id,
-            required_permission=PermissionType.READ.value
-        )
-        if not has_permission and not current_user.is_admin():
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to view this dataset"
-            )
-    
     # Get commit history
     uow = uow_factory.create()
     handler = GetCommitHistoryHandler(uow)
@@ -189,25 +184,13 @@ async def checkout_commit(
     offset: int = Query(0, ge=0, description="Pagination offset"),
     limit: int = Query(100, ge=1, le=1000, description="Number of rows to return"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory)
+    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+    _: CurrentUser = Depends(require_dataset_read)
 ) -> CheckoutResponse:
     """Get the data as it existed at a specific commit."""
-    # Check read permission
-    async with uow_factory.create() as uow:
-        has_permission = await uow.datasets.check_user_permission(
-            dataset_id=dataset_id,
-            user_id=current_user.user_id,
-            required_permission=PermissionType.READ.value
-        )
-        if not has_permission and not current_user.is_admin():
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have permission to view this dataset"
-            )
-    
     # Checkout commit
     uow = uow_factory.create()
-    handler = CheckoutCommitHandler(uow, uow.table_reader)
+    handler = CheckoutCommitHandler(uow)
     try:
         return await handler.handle(dataset_id, commit_id, table_key, offset, limit)
     except ValueError as e:
@@ -222,7 +205,8 @@ async def checkout_commit(
 async def list_refs(
     dataset_id: int = Path(..., description="Dataset ID"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory)
+    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+    _: CurrentUser = Depends(require_dataset_read)
 ) -> ListRefsResponse:
     """List all branches/refs for a dataset."""
     uow = uow_factory.create()
@@ -235,7 +219,8 @@ async def create_branch(
     dataset_id: int = Path(..., description="Dataset ID"),
     request: CreateBranchRequest = ...,
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory)
+    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+    _: CurrentUser = Depends(require_dataset_write)
 ) -> CreateBranchResponse:
     """Create a new branch from an existing ref."""
     uow = uow_factory.create()
@@ -259,7 +244,8 @@ async def delete_branch(
     dataset_id: int = Path(..., description="Dataset ID"),
     ref_name: str = Path(..., description="Branch/ref name to delete"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory)
+    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+    _: CurrentUser = Depends(require_dataset_write)
 ) -> Dict[str, str]:
     """Delete a branch/ref."""
     uow = uow_factory.create()

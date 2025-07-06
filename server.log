@@ -1,4 +1,7 @@
-INFO:     Started server process [43976]
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+INFO:     Started server process [9192]
 INFO:     Waiting for application startup.
 INFO:src.main:Starting DSA Platform...
 INFO:src.main:Database pool initialized
@@ -7,23 +10,18 @@ INFO:src.workers.job_worker:Registered executor for job type: import
 INFO:src.main:Job worker started
 INFO:src.workers.job_worker:Starting job worker...
 INFO:     Application startup complete.
-INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
-INFO:     127.0.0.1:37824 - "POST /api/datasets/35/refs/main/import HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:35172 - "POST /api/users/login HTTP/1.1" 401 Unauthorized
-INFO:     127.0.0.1:43124 - "POST /api/users/login HTTP/1.1" 200 OK
-INFO:     127.0.0.1:49062 - "POST /api/datasets/35/refs/main/import HTTP/1.1" 200 OK
-INFO:src.workers.job_worker:Processing job ea8c3513-2b47-4f78-b098-dcd4e48c0ae5 of type import
-INFO:src.workers.job_worker:Job parameters type: <class 'str'>, value: {"filename": "test_data.csv", "target_ref": "main", "commit_message": "Debug test import", "temp_file_path": "/tmp/import_35_test_data.csv"}
-INFO:src.workers.import_executor:Import job ea8c3513-2b47-4f78-b098-dcd4e48c0ae5 - parameters type: <class 'str'>, value: {"filename": "test_data.csv", "target_ref": "main", "commit_message": "Debug test import", "temp_file_path": "/tmp/import_35_test_data.csv"}
-ERROR:src.workers.job_worker:Job ea8c3513-2b47-4f78-b098-dcd4e48c0ae5 failed: string indices must be integers
-INFO:     127.0.0.1:58312 - "POST /api/datasets/35/refs/main/import HTTP/1.1" 200 OK
-INFO:src.workers.job_worker:Processing job e35f3cd9-8878-4a77-a3ed-0fd59be3fb42 of type import
-INFO:src.workers.job_worker:Job parameters type: <class 'str'>, value: {"filename": "test_data.csv", "target_ref": "main", "commit_message": "Import with fixed parser", "temp_file_path": "/tmp/import_35_test_data.csv"}
-INFO:src.workers.import_executor:Import job e35f3cd9-8878-4a77-a3ed-0fd59be3fb42 - parameters type: <class 'str'>, value: {"filename": "test_data.csv", "target_ref": "main", "commit_message": "Import with fixed parser", "temp_file_path": "/tmp/import_35_test_data.csv"}
-ERROR:src.workers.job_worker:Job e35f3cd9-8878-4a77-a3ed-0fd59be3fb42 failed: string indices must be integers
-INFO:     Shutting down
-INFO:     Waiting for application shutdown.
-INFO:src.workers.job_worker:Stopping job worker...
-INFO:src.main:Database pool closed
-INFO:     Application shutdown complete.
-INFO:     Finished server process [43976]
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:55140 - "POST /api/users/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55148 - "GET /api/datasets/1/commits/20250706160126_a70ce382/data?limit=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55156 - "GET /api/datasets/1/commits/20250706160126_a70ce382/data?limit=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39142 - "POST /api/users/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39144 - "GET /api/datasets/1/refs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39146 - "GET /api/datasets/1/refs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56310 - "POST /api/users/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56324 - "POST /api/datasets/1/refs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56330 - "POST /api/datasets/1/refs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:37488 - "POST /api/users/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:37496 - "DELETE /api/datasets/1/refs/test-branch-1751818023 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:35078 - "POST /api/datasets/1/refs/main/commits HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:35084 - "GET /api/datasets/1/refs/main/data HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:35094 - "GET /api/datasets/1/refs HTTP/1.1" 401 Unauthorized

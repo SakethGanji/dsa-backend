@@ -14,13 +14,15 @@ def mock_uow():
     
     # Mock repositories need to be available both on uow and on the context manager return
     commits_mock = Mock()
+    table_reader_mock = Mock()
     
     # Set up the context manager
     uow.__aenter__ = AsyncMock(return_value=uow)
     uow.__aexit__ = AsyncMock(return_value=None)
     
-    # Make commits available on the uow instance
+    # Make commits and table_reader available on the uow instance
     uow.commits = commits_mock
+    uow.table_reader = table_reader_mock
     
     return uow
 
@@ -64,7 +66,7 @@ async def test_checkout_commit_success(mock_uow, mock_table_reader):
     mock_table_reader.get_table_data = AsyncMock(return_value=mock_data_rows)
     mock_table_reader.count_table_rows = AsyncMock(return_value=2)
     
-    handler = CheckoutCommitHandler(mock_uow, mock_table_reader)
+    handler = CheckoutCommitHandler(mock_uow)
     
     # Act
     result = await handler.handle(dataset_id, commit_id)
@@ -120,7 +122,7 @@ async def test_checkout_commit_with_table_filter(mock_uow, mock_table_reader):
     mock_table_reader.get_table_data = AsyncMock(return_value=mock_data_rows)
     mock_table_reader.count_table_rows = AsyncMock(return_value=1)
     
-    handler = CheckoutCommitHandler(mock_uow, mock_table_reader)
+    handler = CheckoutCommitHandler(mock_uow)
     
     # Act
     result = await handler.handle(dataset_id, commit_id, table_key=table_key)
@@ -146,7 +148,7 @@ async def test_checkout_commit_not_found(mock_uow, mock_table_reader):
     
     mock_uow.commits.get_commit_by_id = AsyncMock(return_value=None)
     
-    handler = CheckoutCommitHandler(mock_uow, mock_table_reader)
+    handler = CheckoutCommitHandler(mock_uow)
     
     # Act & Assert
     with pytest.raises(ValueError, match="Commit not found for this dataset"):
@@ -167,7 +169,7 @@ async def test_checkout_commit_wrong_dataset(mock_uow, mock_table_reader):
     
     mock_uow.commits.get_commit_by_id = AsyncMock(return_value=mock_commit)
     
-    handler = CheckoutCommitHandler(mock_uow, mock_table_reader)
+    handler = CheckoutCommitHandler(mock_uow)
     
     # Act & Assert
     with pytest.raises(ValueError, match="Commit not found for this dataset"):
@@ -193,7 +195,7 @@ async def test_checkout_commit_with_pagination(mock_uow, mock_table_reader):
     mock_table_reader.get_table_data = AsyncMock(return_value=[])
     mock_table_reader.count_table_rows = AsyncMock(return_value=100)
     
-    handler = CheckoutCommitHandler(mock_uow, mock_table_reader)
+    handler = CheckoutCommitHandler(mock_uow)
     
     # Act
     result = await handler.handle(dataset_id, commit_id, offset=offset, limit=limit)

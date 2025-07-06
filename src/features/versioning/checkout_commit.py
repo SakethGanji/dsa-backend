@@ -10,9 +10,8 @@ from ..base_handler import BaseHandler, with_error_handling, PaginationMixin
 class CheckoutCommitHandler(BaseHandler[CheckoutResponse], PaginationMixin):
     """Handler for retrieving data at a specific commit."""
     
-    def __init__(self, uow: IUnitOfWork, table_reader: ITableReader):
+    def __init__(self, uow: IUnitOfWork):
         super().__init__(uow)
-        self._table_reader = table_reader
         
     @with_error_handling
     async def handle(self, dataset_id: int, commit_id: str, 
@@ -31,28 +30,28 @@ class CheckoutCommitHandler(BaseHandler[CheckoutResponse], PaginationMixin):
             # Get data using ITableReader
             if table_key:
                 # Get data for specific table
-                data_rows = await self._table_reader.get_table_data(
+                data_rows = await self._uow.table_reader.get_table_data(
                     commit_id=commit_id,
                     table_key=table_key,
                     offset=offset,
                     limit=limit
                 )
-                total_rows = await self._table_reader.count_table_rows(commit_id, table_key)
+                total_rows = await self._uow.table_reader.count_table_rows(commit_id, table_key)
             else:
                 # Get data from all tables - first list all tables
-                table_keys = await self._table_reader.list_table_keys(commit_id)
+                table_keys = await self._uow.table_reader.list_table_keys(commit_id)
                 
                 # For simplicity, get data from the first table or 'primary' if it exists
                 default_table_key = 'primary' if 'primary' in table_keys else (table_keys[0] if table_keys else None)
                 
                 if default_table_key:
-                    data_rows = await self._table_reader.get_table_data(
+                    data_rows = await self._uow.table_reader.get_table_data(
                         commit_id=commit_id,
                         table_key=default_table_key,
                         offset=offset,
                         limit=limit
                     )
-                    total_rows = await self._table_reader.count_table_rows(commit_id, default_table_key)
+                    total_rows = await self._uow.table_reader.count_table_rows(commit_id, default_table_key)
                 else:
                     data_rows = []
                     total_rows = 0

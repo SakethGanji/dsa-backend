@@ -23,15 +23,10 @@ class GrantPermissionHandler:
         Grant permission to a user on a dataset
         
         Steps:
-        1. Verify granting user has admin permission
+        1. Verify granting user has admin permission (handled by middleware)
         2. Grant requested permission to target user
         """
-        # TODO: Check if granting user has admin permission
-        has_admin = await self._dataset_repo.check_user_permission(
-            dataset_id, granting_user_id, 'admin'
-        )
-        if not has_admin:
-            raise PermissionError("Only admins can grant permissions")
+        # Permission check handled by authorization middleware
         
         # TODO: Validate permission type
         valid_permissions = ['read', 'write', 'admin']

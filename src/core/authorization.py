@@ -55,7 +55,7 @@ class PermissionChecker:
         self,
         dataset_id: int,
         current_user: CurrentUser = Depends(get_current_user_info),
-        dataset_repo: IDatasetRepository = Depends()  # Will be injected
+        db_pool: DatabasePool = Depends(get_db_pool)
     ) -> CurrentUser:
         """Check if user has required permission on dataset."""
         # POC MODE: Allow all users to access all datasets
@@ -68,11 +68,14 @@ class PermissionChecker:
         #     return current_user
         # 
         # # Check specific dataset permission
-        # has_permission = await dataset_repo.check_user_permission(
-        #     dataset_id=dataset_id,
-        #     user_id=current_user.user_id,
-        #     required_permission=self.required_permission.value
-        # )
+        # from .infrastructure.postgres import PostgresDatasetRepository
+        # async with db_pool.acquire() as conn:
+        #     dataset_repo = PostgresDatasetRepository(conn)
+        #     has_permission = await dataset_repo.check_user_permission(
+        #         dataset_id=dataset_id,
+        #         user_id=current_user.user_id,
+        #         required_permission=self.required_permission.value
+        #     )
         # 
         # if not has_permission:
         #     raise HTTPException(
