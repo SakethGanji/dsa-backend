@@ -12,6 +12,7 @@ from src.core.config import get_settings
 from src.core.database import DatabasePool
 from src.workers.job_worker import JobWorker
 from src.workers.import_executor import ImportJobExecutor
+from src.workers.sampling_executor import SamplingJobExecutor
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,6 +36,7 @@ async def main():
     
     # Register executors
     worker.register_executor('import', ImportJobExecutor())
+    worker.register_executor('sampling', SamplingJobExecutor())
     
     # Start worker
     try:

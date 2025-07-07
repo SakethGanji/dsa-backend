@@ -208,6 +208,34 @@ class IJobRepository(ABC):
     @abstractmethod
     async def get_job_by_id(self, job_id: UUID) -> Optional[Dict[str, Any]]:
         pass
+    
+    @abstractmethod
+    async def get_sampling_jobs_by_dataset(
+        self,
+        dataset_id: int,
+        ref_name: Optional[str] = None,
+        status: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        offset: int = 0,
+        limit: int = 20
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """Get sampling jobs for a dataset with optional filters."""
+        pass
+    
+    @abstractmethod
+    async def get_sampling_jobs_by_user(
+        self,
+        user_id: int,
+        dataset_id: Optional[int] = None,
+        status: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        offset: int = 0,
+        limit: int = 20
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """Get sampling jobs created by a user with optional filters."""
+        pass
 
 
 class ITableReader(ABC):
@@ -312,5 +340,49 @@ class ITableReader(ABC):
             
         Returns:
             Total number of rows in the table
+        """
+        pass
+    
+    @abstractmethod
+    async def get_column_samples(
+        self, 
+        commit_id: str, 
+        table_key: str, 
+        columns: List[str], 
+        samples_per_column: int = 20
+    ) -> Dict[str, List[Any]]:
+        """
+        Get unique sample values per column using SQL.
+        
+        Args:
+            commit_id: The commit ID
+            table_key: The table key
+            columns: List of column names to sample
+            samples_per_column: Number of unique values to sample per column
+            
+        Returns:
+            Dict mapping column names to lists of sample values
+        """
+        pass
+    
+    @abstractmethod
+    def get_table_sample_stream(
+        self, 
+        commit_id: str, 
+        table_key: str,
+        sample_method: str, 
+        sample_params: Dict[str, Any]
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        Stream sampled data based on method.
+        
+        Args:
+            commit_id: The commit ID
+            table_key: The table key
+            sample_method: Sampling method ('random', 'stratified', 'systematic', 'cluster')
+            sample_params: Parameters specific to the sampling method
+            
+        Yields:
+            Sampled row data dictionaries
         """
         pass

@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     upload_dir: str = "/tmp/dsa_uploads"
     max_upload_size: int = 5 * 1024 * 1024 * 1024  # 5GB
     
+    # Import settings
+    import_batch_size: int = 10000
+    import_chunk_size: int = 1048576  # 1MB
+    import_parallel_workers: int = 4
+    import_progress_update_interval: int = 10
+    
     class Config:
         env_file = ".env"
         case_sensitive = False

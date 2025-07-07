@@ -14,9 +14,10 @@ from .core.dependencies import (
     set_stats_calculator
 )
 from .core.infrastructure.services import FileParserFactory, DefaultStatisticsCalculator
-from .api import users, datasets, versioning, jobs, search
+from .api import users, datasets, versioning, jobs, search, sampling
 from .workers.job_worker import JobWorker
 from .workers.import_executor import ImportJobExecutor
+from .workers.sampling_executor import SamplingJobExecutor
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -50,6 +51,7 @@ async def lifespan(app: FastAPI):
     # Start job worker in background
     worker = JobWorker(db_pool)
     worker.register_executor('import', ImportJobExecutor())
+    worker.register_executor('sampling', SamplingJobExecutor())
     worker_task = asyncio.create_task(worker.start())
     logger.info("Job worker started")
     
@@ -100,6 +102,7 @@ app.include_router(search.router, prefix="/api")  # Search must come before data
 app.include_router(datasets.router, prefix="/api")
 app.include_router(versioning.router, prefix="/api")
 app.include_router(jobs.router, prefix="/api")
+app.include_router(sampling.router, prefix="/api")
 
 # Override dependencies using FastAPI's dependency_overrides
 from .core import authorization
@@ -107,6 +110,7 @@ app.dependency_overrides[users.get_db_pool] = get_db_pool
 app.dependency_overrides[datasets.get_db_pool] = get_db_pool
 app.dependency_overrides[authorization.get_db_pool] = get_db_pool
 app.dependency_overrides[search.get_db_pool] = get_db_pool
+app.dependency_overrides[sampling.get_db_pool] = get_db_pool
 
 
 @app.get("/")
