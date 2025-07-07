@@ -54,6 +54,15 @@ class JobWorker:
             
             # Execute job
             parameters = job.get('run_parameters', {})
+            
+            # Parse JSON if it's a string
+            if isinstance(parameters, str):
+                try:
+                    parameters = json.loads(parameters)
+                except json.JSONDecodeError:
+                    logger.error(f"Failed to parse run_parameters JSON: {parameters}")
+                    parameters = {}
+            
             logger.info(f"Job parameters type: {type(parameters)}, value: {parameters}")
             result = await executor.execute(job_id, parameters, self.db_pool)
             

@@ -58,24 +58,65 @@ class GetJobByIdHandler:
         row = await conn.fetchrow(query, job_id)
         
         if not row:
+            # Log for debugging
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Job not found with ID: {job_id}")
+            
+            # Try to see if the job exists with a simpler query
+            exists = await conn.fetchval(
+                "SELECT EXISTS(SELECT 1 FROM dsa_jobs.analysis_runs WHERE id = $1)",
+                job_id
+            )
+            if exists:
+                logger.error(f"Job {job_id} exists but failed to fetch with joins")
+            
             return None
         
         # Format result
-        job = {
-            "id": str(row['id']),
-            "run_type": row['run_type'],
-            "status": row['status'],
-            "dataset_id": row['dataset_id'],
-            "dataset_name": row['dataset_name'],
-            "source_commit_id": row['source_commit_id'],
-            "user_id": row['user_id'],
-            "user_soeid": row['user_soeid'],
-            "run_parameters": json.loads(row['run_parameters']) if isinstance(row['run_parameters'], str) else row['run_parameters'],
-            "output_summary": json.loads(row['output_summary']) if isinstance(row['output_summary'], str) else row['output_summary'],
-            "error_message": row['error_message'],
-            "created_at": row['created_at'].isoformat() if row['created_at'] else None,
-            "completed_at": row['completed_at'].isoformat() if row['completed_at'] else None,
-            "duration_seconds": float(row['duration_seconds']) if row['duration_seconds'] else None
-        }
-        
-        return job
+        try:
+            # Parse JSON fields safely
+            run_parameters = row['run_parameters']
+            if isinstance(run_parameters, str):
+                try:
+                    run_parameters = json.loads(run_parameters)
+                except json.JSONDecodeError:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"Failed to parse run_parameters for job {job_id}: {run_parameters[:100]}")
+                    run_parameters = None
+            
+            output_summary = row['output_summary']
+            if isinstance(output_summary, str):
+                try:
+                    output_summary = json.loads(output_summary)
+                except json.JSONDecodeError:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"Failed to parse output_summary for job {job_id}: {output_summary[:100]}")
+                    output_summary = None
+            
+            job = {
+                "id": str(row['id']),
+                "run_type": row['run_type'],
+                "status": row['status'],
+                "dataset_id": row['dataset_id'],
+                "dataset_name": row['dataset_name'],
+                "source_commit_id": row['source_commit_id'].strip() if row['source_commit_id'] else None,
+                "user_id": row['user_id'],
+                "user_soeid": row['user_soeid'],
+                "run_parameters": run_parameters,
+                "output_summary": output_summary,
+                "error_message": row['error_message'],
+                "created_at": row['created_at'].isoformat() if row['created_at'] else None,
+                "completed_at": row['completed_at'].isoformat() if row['completed_at'] else None,
+                "duration_seconds": float(row['duration_seconds']) if row['duration_seconds'] else None
+            }
+            
+            return job
+            
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error formatting job {job_id}: {str(e)}")
+            raise

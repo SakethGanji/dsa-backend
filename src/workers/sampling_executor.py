@@ -42,13 +42,17 @@ class SamplingJobExecutor(JobExecutor):
     SAMPLING_QUERIES = {
         'random_unseeded': """
             WITH source_data AS (
-                SELECT m.logical_row_id, m.row_hash, r.data as row_data_json
+                SELECT m.logical_row_id, m.row_hash, 
+                       CASE 
+                           WHEN r.data ? 'data' THEN r.data->'data'
+                           ELSE r.data
+                       END as row_data_json
                 FROM dsa_core.commit_rows m
                 JOIN dsa_core.rows r ON m.row_hash = r.row_hash
                 WHERE m.commit_id = $1 AND m.logical_row_id LIKE ($2 || ':%')
-                TABLESAMPLE SYSTEM($3)
+                ORDER BY RANDOM()
             )
-            SELECT * FROM source_data LIMIT $4
+            SELECT * FROM source_data LIMIT $3
         """,
         
         'random_seeded_scalable': """
@@ -123,63 +127,69 @@ class SamplingJobExecutor(JobExecutor):
             -- Option A: Sample percentage from each cluster
             WITH source_data AS (
                 SELECT 
-                    m.logical_row_id, m.row_hash, r.data as row_data_json,
-                    r.data->>$5 as cluster_id
+                    m.logical_row_id, m.row_hash, 
+                    CASE 
+                        WHEN r.data ? 'data' THEN r.data->'data'
+                        ELSE r.data
+                    END as row_data_json,
+                    CASE 
+                        WHEN r.data ? 'data' THEN r.data->'data'->>$5
+                        ELSE r.data->>$5
+                    END as cluster_id,
+                    ('x' || substr(md5(m.logical_row_id || $6::text), 1, 16))::bit(64)::bigint as hash_value
                 FROM dsa_core.commit_rows m
                 JOIN dsa_core.rows r ON m.row_hash = r.row_hash
                 WHERE m.commit_id = $1 AND m.logical_row_id LIKE ($2 || ':%')
             ),
-            cluster_estimate AS (
-                SELECT COUNT(DISTINCT cluster_id) as estimated_clusters
-                FROM source_data
-                TABLESAMPLE SYSTEM($7)
-            ),
             selected_clusters AS (
-                SELECT DISTINCT s.cluster_id
-                FROM source_data s
-                CROSS JOIN cluster_estimate ce
-                WHERE ('x' || substr(md5(s.cluster_id || $6::text), 1, 16))::bit(64)::bigint 
-                    < (($3::float / NULLIF(ce.estimated_clusters, 0)) * 1.5 * x'7fffffffffffffff'::bigint)::bigint
+                SELECT DISTINCT cluster_id
+                FROM source_data
+                WHERE ('x' || substr(md5(cluster_id || $6::text), 1, 16))::bit(64)::bigint 
+                    < (CAST($3 AS FLOAT) / GREATEST(1.0, (SELECT COUNT(DISTINCT cluster_id)::float FROM source_data)) * 9223372036854775807)::bigint
                 LIMIT $3
+            ),
+            cluster_sample AS (
+                SELECT sd.*, 
+                       ROW_NUMBER() OVER (PARTITION BY sd.cluster_id ORDER BY sd.hash_value) as rn,
+                       COUNT(*) OVER (PARTITION BY sd.cluster_id) as cluster_total
+                FROM source_data sd
+                JOIN selected_clusters sc ON sd.cluster_id = sc.cluster_id
             )
-            SELECT sd.logical_row_id, sd.row_hash, sd.row_data_json
-            FROM source_data sd
-            JOIN selected_clusters sc ON sd.cluster_id = sc.cluster_id
-            TABLESAMPLE BERNOULLI($4)
+            SELECT logical_row_id, row_hash, row_data_json
+            FROM cluster_sample
+            WHERE rn <= GREATEST(1, FLOOR(cluster_total * $4 / 100.0))
         """,
         
         'cluster_fixed': """
             -- Option B: Sample fixed N from each cluster
             WITH source_data AS (
                 SELECT 
-                    m.logical_row_id, m.row_hash, r.data as row_data_json,
-                    r.data->>$5 as cluster_id,
+                    m.logical_row_id, m.row_hash, 
+                    CASE 
+                        WHEN r.data ? 'data' THEN r.data->'data'
+                        ELSE r.data
+                    END as row_data_json,
+                    CASE 
+                        WHEN r.data ? 'data' THEN r.data->'data'->>$5
+                        ELSE r.data->>$5
+                    END as cluster_id,
                     ('x' || substr(md5(m.logical_row_id || $6::text), 1, 16))::bit(64)::bigint as hash_value
                 FROM dsa_core.commit_rows m
                 JOIN dsa_core.rows r ON m.row_hash = r.row_hash
                 WHERE m.commit_id = $1 AND m.logical_row_id LIKE ($2 || ':%')
             ),
-            cluster_stats AS (
-                SELECT cluster_id, COUNT(*) as cluster_size
-                FROM source_data
-                TABLESAMPLE SYSTEM($7)
-                GROUP BY cluster_id
-            ),
             selected_clusters AS (
-                SELECT 
-                    cluster_id,
-                    cluster_size * 100 as estimated_size,
-                    (($4::float / NULLIF(cluster_size * 100, 0)) * 1.5 * x'7fffffffffffffff'::bigint)::bigint as threshold
-                FROM cluster_stats
+                SELECT DISTINCT cluster_id
+                FROM source_data
                 WHERE ('x' || substr(md5(cluster_id || $6::text), 1, 16))::bit(64)::bigint 
-                    < (($3::float / NULLIF(COUNT(*) OVER(), 0)) * 1.5 * x'7fffffffffffffff'::bigint)::bigint
+                    < (CAST($3 AS FLOAT) / GREATEST(1.0, (SELECT COUNT(DISTINCT cluster_id)::float FROM source_data)) * 9223372036854775807)::bigint
                 LIMIT $3
             ),
             cluster_sample AS (
-                SELECT sd.*, ROW_NUMBER() OVER (PARTITION BY sd.cluster_id) as rn
+                SELECT sd.*, 
+                       ROW_NUMBER() OVER (PARTITION BY sd.cluster_id ORDER BY sd.hash_value) as rn
                 FROM source_data sd
                 JOIN selected_clusters sc ON sd.cluster_id = sc.cluster_id
-                WHERE sd.hash_value < sc.threshold
             )
             SELECT logical_row_id, row_hash, row_data_json
             FROM cluster_sample
@@ -197,42 +207,46 @@ class SamplingJobExecutor(JobExecutor):
             raise ValueError(f"Invalid column name: {column}")
         return column
     
+    @staticmethod
+    def _get_data_extract_sql() -> str:
+        """Get SQL expression to extract data handling nested structure."""
+        return """CASE 
+                   WHEN r.data ? 'data' THEN r.data->'data'
+                   ELSE r.data
+               END"""
+    
     def _build_stratified_query(self, validated_columns: List[str], min_stratum_count: int = 10) -> str:
         """Build stratified sampling query with validated columns."""
-        col_extracts = [f"r.data->>'{col}' as {col}" for col in validated_columns]
+        data_expr = self._get_data_extract_sql()
+        col_extracts = [f"({data_expr}->>'{col}') as {col}" for col in validated_columns]
         col_names = ', '.join(validated_columns)
         
         return f"""
-            -- Hybrid Stratified Sampling: Fast estimation + scalable selection
-            CREATE TEMP TABLE estimated_strata AS
-            WITH strata_estimate AS (
+            -- Stratified Sampling with proportional allocation
+            WITH strata_counts AS (
                 SELECT 
                     {', '.join(col_extracts)},
-                    COUNT(*) as sample_count
+                    COUNT(*) as stratum_size
                 FROM dsa_core.commit_rows m
-                TABLESAMPLE SYSTEM($6)  -- estimation_sample_percent
                 JOIN dsa_core.rows r ON m.row_hash = r.row_hash
                 WHERE m.commit_id = $1 AND m.logical_row_id LIKE ($2 || ':%')
                 GROUP BY {col_names}
-                HAVING COUNT(*) >= $7  -- min_stratum_sample_count
-            )
-            SELECT 
-                {col_names},
-                sample_count * (100.0 / $6) as estimated_size,
-                GREATEST(
-                    $3,  -- min_per_stratum
-                    CEIL((sample_count::float / SUM(sample_count) OVER ()) * $4)
-                )::int as samples_needed,
-                ((GREATEST($3, CEIL((sample_count::float / SUM(sample_count) OVER ()) * $4))::float 
-                  / NULLIF(sample_count * (100.0 / $6), 0)) * $8 * x'7fffffffffffffff'::bigint)::bigint as threshold
-            FROM strata_estimate;
-            
-            -- Single query using hash filtering
-            WITH all_data AS (
+            ),
+            strata_allocation AS (
+                SELECT 
+                    {col_names},
+                    stratum_size,
+                    GREATEST(
+                        $3,  -- min_per_stratum
+                        CEIL((stratum_size::float / SUM(stratum_size) OVER ()) * $4)
+                    )::int as samples_needed
+                FROM strata_counts
+            ),
+            all_data AS (
                 SELECT 
                     m.logical_row_id, 
                     m.row_hash, 
-                    r.data as row_data_json,
+                    {data_expr} as row_data_json,
                     {', '.join(col_extracts)},
                     ('x' || substr(md5(m.logical_row_id || $5::text), 1, 16))::bit(64)::bigint as hash_value
                 FROM dsa_core.commit_rows m
@@ -245,12 +259,14 @@ class SamplingJobExecutor(JobExecutor):
                     ad.row_hash,
                     ad.row_data_json,
                     {', '.join([f'ad.{col}' for col in validated_columns])},
-                    es.samples_needed,
-                    ROW_NUMBER() OVER (PARTITION BY {', '.join([f'ad.{col}' for col in validated_columns])}) as rn
+                    sa.samples_needed,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY {', '.join([f'ad.{col}' for col in validated_columns])}
+                        ORDER BY ad.hash_value
+                    ) as rn
                 FROM all_data ad
-                JOIN estimated_strata es ON 
-                    {' AND '.join([f'es.{col} = ad.{col}' for col in validated_columns])}
-                WHERE ad.hash_value < es.threshold
+                JOIN strata_allocation sa ON 
+                    {' AND '.join([f'sa.{col} = ad.{col}' for col in validated_columns])}
             )
             SELECT 
                 logical_row_id, 
@@ -374,6 +390,10 @@ class SamplingJobExecutor(JobExecutor):
         """Execute sampling job using SQL-based methods with streaming results."""
         logger.info(f"Starting sampling job {job_id} with parameters: {parameters}")
         
+        # Validate parameters
+        if not isinstance(parameters, dict):
+            raise TypeError(f"Expected parameters to be dict, got {type(parameters).__name__}")
+        
         # Track execution metrics
         start_time = datetime.utcnow()
         total_sampled = 0
@@ -389,12 +409,20 @@ class SamplingJobExecutor(JobExecutor):
                 """)
                 
                 # Process each sampling round
-                for round_idx, round_config in enumerate(parameters.get('rounds', [])):
+                rounds = parameters.get('rounds', [])
+                if not isinstance(rounds, list):
+                    raise TypeError(f"Expected 'rounds' to be a list, got {type(rounds).__name__}")
+                
+                for round_idx, round_config in enumerate(rounds):
                     logger.info(f"Executing sampling round {round_idx + 1}")
+                    
+                    # Validate round_config
+                    if not isinstance(round_config, dict):
+                        raise TypeError(f"Expected round_config to be dict, got {type(round_config).__name__}")
                     
                     count, round_summary = await self._execute_sampling_round(
                         conn, 
-                        parameters['source_commit_id'],
+                        parameters['source_commit_id'].strip(),  # Remove any trailing spaces
                         parameters.get('table_key', 'primary'),
                         round_config,
                         round_idx + 1
@@ -410,7 +438,7 @@ class SamplingJobExecutor(JobExecutor):
                 if parameters.get('export_residual', False):
                     residual_count = await self._export_residual_data(
                         conn,
-                        parameters['source_commit_id'],
+                        parameters['source_commit_id'].strip(),  # Remove any trailing spaces
                         parameters.get('table_key', 'primary'),
                         parameters.get('residual_output_name', 'Residual Data')
                     )
@@ -422,13 +450,21 @@ class SamplingJobExecutor(JobExecutor):
                     output_commit_id = await self._create_output_commit(
                         conn,
                         parameters['dataset_id'],
-                        parameters['source_commit_id'],
+                        parameters['source_commit_id'].strip(),  # Remove any trailing spaces
                         parameters.get('user_id'),
                         parameters.get('commit_message', f'Sampled {total_sampled} rows'),
                         round_results
                     )
                     
                     logger.info(f"Created output commit: {output_commit_id}")
+                
+                # Clean up temporary tables
+                for round_idx in range(len(round_results)):
+                    round_table = f"temp_round_{round_idx + 1}_samples"
+                    await conn.execute(f"DROP TABLE IF EXISTS {round_table}")
+                
+                # Also drop residual table if it was created
+                await conn.execute("DROP TABLE IF EXISTS temp_residual_data")
         
         # Return job summary
         end_time = datetime.utcnow()
@@ -453,6 +489,17 @@ class SamplingJobExecutor(JobExecutor):
         """Execute a single sampling round entirely in PostgreSQL."""
         method = round_config['method']
         params = round_config.get('parameters', {})
+        
+        # Ensure params is a dict
+        if isinstance(params, str):
+            try:
+                params = json.loads(params)
+            except json.JSONDecodeError:
+                logger.error(f"Failed to parse parameters JSON in round {round_number}: {params}")
+                params = {}
+        elif not isinstance(params, dict):
+            logger.error(f"Invalid parameters type in round {round_number}: {type(params).__name__}")
+            params = {}
         
         logger.info(f"Round {round_number}: {method} sampling with params {params}")
         
@@ -484,6 +531,9 @@ class SamplingJobExecutor(JobExecutor):
         
         # Create temporary table for this round's results
         round_table = f"temp_round_{round_number}_samples"
+        
+        # Always drop table if it exists to ensure clean state
+        await conn.execute(f"DROP TABLE IF EXISTS {round_table}")
         
         # Add dynamic WHERE clause if filters are provided
         if params.get('filters'):
@@ -571,6 +621,14 @@ class SamplingJobExecutor(JobExecutor):
         params: Dict[str, Any]
     ) -> Tuple[str, List[Any]]:
         """Build appropriate random sampling query based on parameters."""
+        # Validate required parameters
+        if 'sample_size' not in params:
+            raise ValueError("Random sampling requires 'sample_size' parameter")
+        
+        sample_size = params['sample_size']
+        if not isinstance(sample_size, int) or sample_size <= 0:
+            raise ValueError(f"Invalid sample_size: {sample_size}. Must be a positive integer")
+        
         if params.get('seed'):
             # Use scalable hash filtering for large tables
             total_rows = params.get('total_rows')
@@ -599,12 +657,8 @@ class SamplingJobExecutor(JobExecutor):
                 ]
         else:
             query = self.SAMPLING_QUERIES['random_unseeded']
-            # Calculate TABLESAMPLE percentage
-            total_rows = params.get('total_rows', self.config['default_row_estimate'])
-            sample_pct = min(100, (params['sample_size'] / total_rows) * 100 * self.config['oversampling_factor'])
             query_params = [
                 source_commit_id, table_key,
-                sample_pct,
                 params['sample_size']
             ]
         
@@ -630,10 +684,7 @@ class SamplingJobExecutor(JobExecutor):
             source_commit_id, table_key,
             params.get('min_per_stratum', 1),
             params.get('sample_size', 10000),
-            str(params.get('seed', 1)),
-            self.config['estimation_sample_percent'],
-            self.config['min_stratum_sample_count'],
-            self.config['oversampling_factor']
+            str(params.get('seed', 1))
         ]
         
         return query, query_params
@@ -661,8 +712,7 @@ class SamplingJobExecutor(JobExecutor):
             params['num_clusters'],
             within_cluster_param,
             cluster_col,
-            str(params.get('seed', 1)),
-            self.config['estimation_sample_percent']
+            str(params.get('seed', 1))
         ]
         
         return query, query_params
@@ -747,14 +797,19 @@ class SamplingJobExecutor(JobExecutor):
         """, commit_id, dataset_id, parent_commit_id, message, user_id)
         
         # Copy sampled rows to new commit
+        # Use UNION to combine all rounds and remove duplicates
+        union_parts = []
         for round_idx, _ in enumerate(round_results):
             round_table = f"temp_round_{round_idx + 1}_samples"
-            
-            await conn.execute(f"""
-                INSERT INTO dsa_core.commit_rows (commit_id, logical_row_id, row_hash)
-                SELECT $1, logical_row_id, row_hash
-                FROM {round_table}
-            """, commit_id)
+            union_parts.append(f"SELECT logical_row_id, row_hash FROM {round_table}")
+        
+        union_query = " UNION ".join(union_parts)
+        
+        await conn.execute(f"""
+            INSERT INTO dsa_core.commit_rows (commit_id, logical_row_id, row_hash)
+            SELECT $1, logical_row_id, row_hash
+            FROM ({union_query}) AS all_samples
+        """, commit_id)
         
         # Copy schema from parent
         await conn.execute("""

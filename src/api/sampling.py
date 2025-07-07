@@ -84,6 +84,45 @@ class SamplingRoundConfig(BaseModel):
     output_name: Optional[str] = Field(None, description="Name for this round's output")
     filters: Optional[FilterSpec] = Field(None, description="Row filters for this round")
     selection: Optional[SelectionSpec] = Field(None, description="Column selection for this round")
+    
+    @validator('parameters')
+    def validate_parameters(cls, v, values):
+        """Validate method-specific parameters."""
+        method = values.get('method')
+        if not method:
+            return v
+            
+        # Validate random sampling parameters
+        if method == 'random':
+            if 'sample_size' not in v:
+                raise ValueError("Random sampling requires 'sample_size' parameter")
+            if not isinstance(v['sample_size'], int) or v['sample_size'] <= 0:
+                raise ValueError("sample_size must be a positive integer")
+                
+        # Validate stratified sampling parameters
+        elif method == 'stratified':
+            if 'strata_columns' not in v:
+                raise ValueError("Stratified sampling requires 'strata_columns' parameter")
+            if not isinstance(v['strata_columns'], list) or not v['strata_columns']:
+                raise ValueError("strata_columns must be a non-empty list")
+            if 'sample_size' not in v:
+                raise ValueError("Stratified sampling requires 'sample_size' parameter")
+                
+        # Validate systematic sampling parameters
+        elif method == 'systematic':
+            if 'interval' not in v:
+                raise ValueError("Systematic sampling requires 'interval' parameter")
+            if not isinstance(v['interval'], int) or v['interval'] <= 0:
+                raise ValueError("interval must be a positive integer")
+                
+        # Validate cluster sampling parameters
+        elif method == 'cluster':
+            if 'cluster_column' not in v:
+                raise ValueError("Cluster sampling requires 'cluster_column' parameter")
+            if 'num_clusters' not in v:
+                raise ValueError("Cluster sampling requires 'num_clusters' parameter")
+                
+        return v
 
 
 class CreateSamplingJobRequest(BaseModel):
