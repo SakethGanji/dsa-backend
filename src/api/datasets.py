@@ -10,7 +10,8 @@ from ..models.pydantic_models import (
     GrantPermissionRequest, GrantPermissionResponse,
     CurrentUser, ListDatasetsResponse, DatasetSummary,
     DatasetDetailResponse, UpdateDatasetRequest,
-    UpdateDatasetResponse, DeleteDatasetResponse
+    UpdateDatasetResponse, DeleteDatasetResponse,
+    CreateDatasetWithFileRequest, CreateDatasetWithFileResponse
 )
 from ..core.authorization import (
     get_current_user_info,
@@ -90,6 +91,156 @@ async def create_dataset(
             name=request.name,
             description=request.description,
             tags=tags
+        )
+
+
+@router.post("/create-with-file", response_model=CreateDatasetWithFileResponse)
+async def create_dataset_with_file(
+    name: str = Form(...),
+    file: UploadFile = File(...),
+    description: str = Form(None),
+    tags: str = Form(None),  # comma-separated tags
+    default_branch: str = Form("main"),
+    commit_message: str = Form("Initial import"),
+    current_user: CurrentUser = Depends(get_current_user_info),
+    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+    pool: DatabasePool = Depends(get_db_pool)
+) -> CreateDatasetWithFileResponse:
+    """Create a new dataset and import a file in one operation."""
+    # Parse tags from comma-separated string
+    tag_list = [tag.strip() for tag in tags.split(",")] if tags else []
+    
+    # Create request object
+    request = CreateDatasetWithFileRequest(
+        name=name,
+        description=description,
+        tags=tag_list,
+        default_branch=default_branch,
+        commit_message=commit_message
+    )
+    
+    # Implement the logic directly without handlers to avoid connection issues
+    try:
+        async with pool.acquire() as conn:
+            from ..core.infrastructure.postgres import (
+                PostgresDatasetRepository, 
+                PostgresCommitRepository,
+                PostgresJobRepository
+            )
+            
+            # Start transaction
+            async with conn.transaction():
+                dataset_repo = PostgresDatasetRepository(conn)
+                commit_repo = PostgresCommitRepository(conn)
+                job_repo = PostgresJobRepository(conn)
+                
+                # Check if dataset with same name already exists
+                existing = await dataset_repo.get_dataset_by_name_and_user(
+                    name=request.name,
+                    user_id=current_user.user_id
+                )
+                if existing:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Dataset with name '{request.name}' already exists"
+                    )
+                
+                # Create the dataset
+                dataset_id = await dataset_repo.create_dataset(
+                    name=request.name,
+                    description=request.description or "",
+                    created_by=current_user.user_id
+                )
+                
+                # Grant admin permission to creator
+                await dataset_repo.grant_permission(
+                    dataset_id=dataset_id,
+                    user_id=current_user.user_id,
+                    permission_type='admin'
+                )
+                
+                # Add tags if provided
+                if request.tags:
+                    await dataset_repo.add_dataset_tags(dataset_id, request.tags)
+                
+                # Create initial empty commit
+                initial_commit_id = await commit_repo.create_commit_and_manifest(
+                    dataset_id=dataset_id,
+                    parent_commit_id=None,
+                    message="Initial commit",
+                    author_id=current_user.user_id,
+                    manifest=[]  # Empty manifest for initial commit
+                )
+                
+                # Update the default branch ref (it was created with NULL commit_id)
+                # The create_dataset method creates a 'main' ref with NULL commit_id
+                if request.default_branch == "main":
+                    # Update existing ref from NULL to the initial commit
+                    await commit_repo.update_ref_atomically(
+                        dataset_id=dataset_id,
+                        ref_name=request.default_branch,
+                        expected_commit_id=None,  # Current value is NULL
+                        new_commit_id=initial_commit_id
+                    )
+                else:
+                    # Create new ref for non-main branches
+                    await commit_repo.create_ref(
+                        dataset_id=dataset_id,
+                        ref_name=request.default_branch,
+                        commit_id=initial_commit_id
+                    )
+                
+                # Save uploaded file to temporary location
+                import tempfile
+                import os
+                temp_dir = tempfile.gettempdir()
+                temp_path = os.path.join(temp_dir, f"import_{dataset_id}_{file.filename}")
+                
+                # Read and save file content
+                file_content = await file.read()
+                with open(temp_path, 'wb') as f:
+                    f.write(file_content)
+                
+                # Create import job
+                job_parameters = {
+                    "temp_file_path": temp_path,
+                    "filename": file.filename,
+                    "commit_message": request.commit_message,
+                    "target_ref": request.default_branch
+                }
+                
+                job_id = await job_repo.create_job(
+                    run_type='import',
+                    dataset_id=dataset_id,
+                    user_id=current_user.user_id,
+                    source_commit_id=initial_commit_id,
+                    run_parameters=job_parameters
+                )
+                
+                # Get the tags for response
+                tags = await dataset_repo.get_dataset_tags(dataset_id)
+                
+                # Refresh search index
+                from ..core.infrastructure.postgres.search_repository import PostgresSearchRepository
+                search_repo = PostgresSearchRepository(conn)
+                await search_repo.refresh_search_index()
+                
+                return CreateDatasetWithFileResponse(
+                    dataset_id=dataset_id,
+                    name=request.name,
+                    description=request.description,
+                    tags=tags,
+                    import_job_id=job_id,
+                    status="pending",
+                    message="Dataset created and import job queued successfully"
+                )
+    except Exception as e:
+        import traceback
+        print(f"Error in create_dataset_with_file: {e}")
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
         )
 
 

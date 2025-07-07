@@ -66,8 +66,8 @@ class ExplorationHistoryItem(BaseModel):
     user_id: int
     username: str
     status: str
-    created_at: datetime
-    updated_at: Optional[datetime]
+    created_at: str  # ISO format datetime string
+    updated_at: Optional[str]  # ISO format datetime string
     run_parameters: Dict[str, Any]
     has_result: bool
 
@@ -185,7 +185,7 @@ async def get_dataset_exploration_history(
                 d.name as dataset_name,
                 u.soeid as username
             FROM dsa_jobs.analysis_runs ar
-            JOIN dsa_main.datasets d ON ar.dataset_id = d.id
+            JOIN dsa_core.datasets d ON ar.dataset_id = d.id
             JOIN dsa_auth.users u ON ar.user_id = u.id
             WHERE ar.run_type = 'exploration' AND ar.dataset_id = $1
             ORDER BY ar.created_at DESC
@@ -195,18 +195,18 @@ async def get_dataset_exploration_history(
         rows = await conn.fetch(query, dataset_id, offset, limit)
         
         items = [
-            {
-                "job_id": str(row["job_id"]),
-                "dataset_id": row["dataset_id"],
-                "dataset_name": row["dataset_name"],
-                "user_id": row["user_id"],
-                "username": row["username"],
-                "status": row["status"],
-                "created_at": row["created_at"].isoformat(),
-                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
-                "run_parameters": json.loads(row["run_parameters"]) if isinstance(row["run_parameters"], str) else row["run_parameters"] or {},
-                "has_result": bool(row["output_summary"])
-            }
+            ExplorationHistoryItem(
+                job_id=str(row["job_id"]),
+                dataset_id=row["dataset_id"],
+                dataset_name=row["dataset_name"],
+                user_id=row["user_id"],
+                username=row["username"],
+                status=row["status"],
+                created_at=row["created_at"].isoformat(),
+                updated_at=row["updated_at"].isoformat() if row["updated_at"] else None,
+                run_parameters=json.loads(row["run_parameters"]) if isinstance(row["run_parameters"], str) else row["run_parameters"] or {},
+                has_result=bool(row["output_summary"])
+            )
             for row in rows
         ]
     
@@ -257,7 +257,7 @@ async def get_user_exploration_history(
                 d.name as dataset_name,
                 u.soeid as username
             FROM dsa_jobs.analysis_runs ar
-            JOIN dsa_main.datasets d ON ar.dataset_id = d.id
+            JOIN dsa_core.datasets d ON ar.dataset_id = d.id
             JOIN dsa_auth.users u ON ar.user_id = u.id
             WHERE ar.run_type = 'exploration' AND ar.user_id = $1
         """
@@ -274,18 +274,18 @@ async def get_user_exploration_history(
         rows = await conn.fetch(query, *params)
         
         items = [
-            {
-                "job_id": str(row["job_id"]),
-                "dataset_id": row["dataset_id"],
-                "dataset_name": row["dataset_name"],
-                "user_id": row["user_id"],
-                "username": row["username"],
-                "status": row["status"],
-                "created_at": row["created_at"].isoformat(),
-                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
-                "run_parameters": json.loads(row["run_parameters"]) if isinstance(row["run_parameters"], str) else row["run_parameters"] or {},
-                "has_result": bool(row["output_summary"])
-            }
+            ExplorationHistoryItem(
+                job_id=str(row["job_id"]),
+                dataset_id=row["dataset_id"],
+                dataset_name=row["dataset_name"],
+                user_id=row["user_id"],
+                username=row["username"],
+                status=row["status"],
+                created_at=row["created_at"].isoformat(),
+                updated_at=row["updated_at"].isoformat() if row["updated_at"] else None,
+                run_parameters=json.loads(row["run_parameters"]) if isinstance(row["run_parameters"], str) else row["run_parameters"] or {},
+                has_result=bool(row["output_summary"])
+            )
             for row in rows
         ]
     

@@ -59,6 +59,44 @@ class ExplorationExecutor(JobExecutor):
                     else:
                         df = pd.DataFrame(table_data)
             
+            # Check if DataFrame is empty
+            if df.empty:
+                # Return minimal results for empty DataFrame
+                dataset_info = {
+                    "rows": 0,
+                    "columns": 0,
+                    "memory_usage": 0.0,
+                    "table_key": table_key,
+                    "is_empty": True
+                }
+                
+                # Create a simple HTML report for empty dataset
+                profile_html = f"""
+                <html>
+                <head><title>Dataset Profile - Empty</title></head>
+                <body>
+                    <h1>Dataset Profile</h1>
+                    <p>The dataset is empty (no data available).</p>
+                    <ul>
+                        <li>Table: {table_key}</li>
+                        <li>Rows: 0</li>
+                        <li>Columns: 0</li>
+                    </ul>
+                </body>
+                </html>
+                """
+                
+                profile_json = json.dumps({
+                    "dataset_info": dataset_info,
+                    "message": "Dataset is empty"
+                })
+                
+                return {
+                    "profile_html": profile_html,
+                    "profile_json": profile_json,
+                    "dataset_info": dataset_info
+                }
+            
             # Run profiling in thread pool to avoid blocking
             loop = asyncio.get_event_loop()
             profile_html, profile_json = await loop.run_in_executor(

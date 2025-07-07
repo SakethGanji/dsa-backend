@@ -20,6 +20,25 @@ class CreateDatasetResponse(BaseModel):
     tags: List[str] = []
 
 
+# Combined create dataset and import models
+class CreateDatasetWithFileRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+    tags: Optional[List[str]] = Field(default=[], description="List of tags for the dataset")
+    default_branch: str = Field(default="main", description="Default branch name for the dataset")
+    commit_message: str = Field(default="Initial import", description="Message describing the import")
+
+
+class CreateDatasetWithFileResponse(BaseModel):
+    dataset_id: int
+    name: str
+    description: Optional[str] = None
+    tags: List[str] = []
+    import_job_id: UUID
+    status: str = "pending"
+    message: str = "Dataset created and import job queued successfully"
+
+
 # File upload models
 class QueueImportRequest(BaseModel):
     commit_message: str = Field(..., description="Message describing the import")
