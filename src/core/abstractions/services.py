@@ -267,6 +267,7 @@ class OperationType(Enum):
     PIVOT = "pivot"
     SPLIT = "split"
     ENRICH = "enrich"
+    SQL_TRANSFORM = "sql_transform"
 
 
 @dataclass

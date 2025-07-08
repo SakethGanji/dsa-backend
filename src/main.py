@@ -14,11 +14,12 @@ from .core.dependencies import (
     set_stats_calculator
 )
 from .core.infrastructure.services import FileParserFactory, DefaultStatisticsCalculator
-from .api import users, datasets, versioning, jobs, search, sampling, exploration
+from .api import users, datasets, versioning, jobs, search, sampling, exploration, workbench, downloads
 from .workers.job_worker import JobWorker
 from .workers.import_executor import ImportJobExecutor
 from .workers.sampling_executor import SamplingJobExecutor
 from .workers.exploration_executor import ExplorationExecutor
+from .workers.sql_transform_executor import SqlTransformExecutor
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -54,6 +55,7 @@ async def lifespan(app: FastAPI):
     worker.register_executor('import', ImportJobExecutor())
     worker.register_executor('sampling', SamplingJobExecutor())
     worker.register_executor('exploration', ExplorationExecutor(db_pool))
+    worker.register_executor('sql_transform', SqlTransformExecutor())
     worker_task = asyncio.create_task(worker.start())
     logger.info("Job worker started")
     
@@ -106,6 +108,8 @@ app.include_router(versioning.router, prefix="/api")
 app.include_router(jobs.router, prefix="/api")
 app.include_router(sampling.router, prefix="/api")
 app.include_router(exploration.router, prefix="/api")
+app.include_router(workbench.router, prefix="/api")
+app.include_router(downloads.router, prefix="/api")
 
 # Override dependencies using FastAPI's dependency_overrides
 from .core import authorization
@@ -115,6 +119,8 @@ app.dependency_overrides[authorization.get_db_pool] = get_db_pool
 app.dependency_overrides[search.get_db_pool] = get_db_pool
 app.dependency_overrides[sampling.get_db_pool] = get_db_pool
 app.dependency_overrides[exploration.get_db_pool] = get_db_pool
+app.dependency_overrides[workbench.get_db_pool] = get_db_pool
+app.dependency_overrides[downloads.get_db_pool] = get_db_pool
 
 
 @app.get("/")

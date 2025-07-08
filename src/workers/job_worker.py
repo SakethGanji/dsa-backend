@@ -47,12 +47,7 @@ class JobWorker:
         await self._update_job_status(job_id, 'running')
         
         try:
-            # Get executor
-            executor = self.executors.get(job_type)
-            if not executor:
-                raise ValueError(f"No executor registered for job type: {job_type}")
-            
-            # Execute job
+            # Get parameters first
             parameters = job.get('run_parameters', {})
             
             # Parse JSON if it's a string
@@ -62,6 +57,16 @@ class JobWorker:
                 except json.JSONDecodeError:
                     logger.error(f"Failed to parse run_parameters JSON: {parameters}")
                     parameters = {}
+            
+            # Get executor - check if parameters specify a different job_type
+            actual_job_type = job_type
+            if isinstance(parameters, dict) and 'job_type' in parameters:
+                actual_job_type = parameters['job_type']
+                logger.info(f"Using job_type from parameters: {actual_job_type}")
+            
+            executor = self.executors.get(actual_job_type)
+            if not executor:
+                raise ValueError(f"No executor registered for job type: {actual_job_type}")
             
             logger.info(f"Job parameters type: {type(parameters)}, value: {parameters}")
             result = await executor.execute(job_id, parameters, self.db_pool)

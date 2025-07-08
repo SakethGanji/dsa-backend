@@ -30,6 +30,13 @@ class ImportJobExecutor(JobExecutor):
             import json
             parameters = json.loads(parameters)
         
+        # Check if this is actually a SQL transform job
+        if 'workbench_context' in parameters and parameters.get('workbench_context', {}).get('operation_type') == 'sql_transform':
+            # Delegate to SQL transform executor
+            from .sql_transform_executor import SqlTransformExecutor
+            sql_executor = SqlTransformExecutor()
+            return await sql_executor.execute(job_id, parameters, db_pool)
+        
         # Extract parameters
         temp_file_path = parameters['temp_file_path']
         filename = parameters['filename']
