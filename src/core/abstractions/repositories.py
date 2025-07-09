@@ -132,11 +132,6 @@ class ICommitRepository(ABC):
         pass
     
     @abstractmethod
-    async def create_commit_statistics(self, commit_id: str, statistics: Dict[str, Any]) -> None:
-        """Store statistics for a commit"""
-        pass
-    
-    @abstractmethod
     async def get_commit_history(self, dataset_id: int, ref_name: str = "main", offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
         """Get the commit history for a specific ref with pagination."""
         pass
@@ -235,6 +230,11 @@ class IJobRepository(ABC):
         limit: int = 20
     ) -> Tuple[List[Dict[str, Any]], int]:
         """Get sampling jobs created by a user with optional filters."""
+        pass
+    
+    @abstractmethod
+    async def get_latest_import_job(self, dataset_id: int) -> Optional[Dict[str, Any]]:
+        """Get the most recent import job for a dataset."""
         pass
 
 

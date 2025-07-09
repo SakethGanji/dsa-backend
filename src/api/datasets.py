@@ -1,7 +1,7 @@
 """Dataset management API endpoints."""
 
 from fastapi import APIRouter, Depends, HTTPException, status, Path, UploadFile, File, Form
-from typing import Annotated, AsyncGenerator
+from typing import Annotated, AsyncGenerator, Dict, Any
 from ..core.database import DatabasePool, UnitOfWorkFactory
 from ..core.infrastructure.postgres import PostgresDatasetRepository
 from ..features.datasets.grant_permission import GrantPermissionHandler
@@ -277,7 +277,8 @@ async def list_datasets(
     offset: int = 0,
     limit: int = 100,
     current_user: CurrentUser = Depends(get_current_user_info),
-    dataset_repo: PostgresDatasetRepository = Depends(get_dataset_repo)
+    dataset_repo: PostgresDatasetRepository = Depends(get_dataset_repo),
+    pool: DatabasePool = Depends(get_db_pool)
 ) -> ListDatasetsResponse:
     """List all datasets accessible to the current user with pagination."""
     # Get all datasets for the user
@@ -287,20 +288,60 @@ async def list_datasets(
     total = len(all_datasets)
     paginated_datasets = all_datasets[offset:offset + limit]
     
-    # Convert to response format with tags
+    # Get job repository to check import status
+    from ..core.infrastructure.postgres import PostgresJobRepository
+    
+    # Convert to response format with tags and import status
     dataset_summaries = []
-    for dataset in paginated_datasets:
-        tags = await dataset_repo.get_dataset_tags(dataset['dataset_id'])
-        dataset_summaries.append(DatasetSummary(
-            dataset_id=dataset['dataset_id'],
-            name=dataset['name'],
-            description=dataset['description'],
-            created_by=dataset['created_by'],
-            created_at=dataset['created_at'],
-            updated_at=dataset['updated_at'],
-            permission_type=dataset['permission_type'],
-            tags=tags
-        ))
+    try:
+        async with pool.acquire() as conn:
+            job_repo = PostgresJobRepository(conn)
+            dataset_repo_new = PostgresDatasetRepository(conn)
+            
+            for dataset in paginated_datasets:
+                tags = await dataset_repo_new.get_dataset_tags(dataset['dataset_id'])
+                
+                # Check for latest import job
+                import_status = None
+                import_job_id = None
+                try:
+                    latest_import_job = await job_repo.get_latest_import_job(dataset['dataset_id'])
+                    if latest_import_job:
+                        import_job_id = str(latest_import_job['job_id'])
+                        import_status = latest_import_job['status']
+                except Exception as e:
+                    # Log error but continue - don't fail the whole request
+                    print(f"Error getting import job for dataset {dataset['dataset_id']}: {e}")
+                
+                dataset_summaries.append(DatasetSummary(
+                    dataset_id=dataset['dataset_id'],
+                    name=dataset['name'],
+                    description=dataset['description'],
+                    created_by=dataset['created_by'],
+                    created_at=dataset['created_at'],
+                    updated_at=dataset['updated_at'],
+                    permission_type=dataset['permission_type'],
+                    tags=tags,
+                    import_status=import_status,
+                    import_job_id=import_job_id
+                ))
+    except Exception as e:
+        # Fallback without import status if there's an error
+        print(f"Error in dataset listing: {e}")
+        for dataset in paginated_datasets:
+            tags = await dataset_repo.get_dataset_tags(dataset['dataset_id'])
+            dataset_summaries.append(DatasetSummary(
+                dataset_id=dataset['dataset_id'],
+                name=dataset['name'],
+                description=dataset['description'],
+                created_by=dataset['created_by'],
+                created_at=dataset['created_at'],
+                updated_at=dataset['updated_at'],
+                permission_type=dataset['permission_type'],
+                tags=tags,
+                import_status=None,
+                import_job_id=None
+            ))
     
     return ListDatasetsResponse(
         datasets=dataset_summaries,
@@ -315,6 +356,7 @@ async def get_dataset(
     dataset_id: int = Path(..., description="Dataset ID"),
     current_user: CurrentUser = Depends(get_current_user_info),
     dataset_repo: PostgresDatasetRepository = Depends(get_dataset_repo),
+    pool: DatabasePool = Depends(get_db_pool),
     _: CurrentUser = Depends(require_dataset_read)
 ) -> DatasetDetailResponse:
     """Get detailed information about a specific dataset."""
@@ -338,6 +380,21 @@ async def get_dataset(
             permission_type = ds['permission_type']
             break
     
+    # Check for import job status
+    import_status = None
+    import_job_id = None
+    try:
+        from ..core.infrastructure.postgres import PostgresJobRepository
+        async with pool.acquire() as conn:
+            job_repo = PostgresJobRepository(conn)
+            latest_import_job = await job_repo.get_latest_import_job(dataset_id)
+            if latest_import_job:
+                import_job_id = str(latest_import_job['job_id'])
+                import_status = latest_import_job['status']
+    except Exception as e:
+        # Log error but continue
+        print(f"Error getting import job for dataset {dataset_id}: {e}")
+    
     return DatasetDetailResponse(
         dataset_id=dataset['dataset_id'],
         name=dataset['name'],
@@ -346,7 +403,9 @@ async def get_dataset(
         created_at=dataset['created_at'],
         updated_at=dataset['updated_at'],
         tags=tags,
-        permission_type=permission_type
+        permission_type=permission_type,
+        import_status=import_status,
+        import_job_id=import_job_id
     )
 
 
@@ -429,3 +488,69 @@ async def delete_dataset(
         dataset_id=dataset_id,
         message=f"Dataset '{dataset['name']}' and all related data have been deleted successfully"
     )
+
+
+@router.get("/{dataset_id}/ready", response_model=Dict[str, Any])
+async def check_dataset_ready(
+    dataset_id: int = Path(..., description="Dataset ID"),
+    current_user: CurrentUser = Depends(get_current_user_info),
+    pool: DatabasePool = Depends(get_db_pool),
+    _: CurrentUser = Depends(require_dataset_read)
+) -> Dict[str, Any]:
+    """Check if a dataset is ready for operations (import completed)."""
+    
+    try:
+        from ..core.infrastructure.postgres import PostgresJobRepository
+        async with pool.acquire() as conn:
+            job_repo = PostgresJobRepository(conn)
+            
+            # Check for latest import job
+            latest_import_job = await job_repo.get_latest_import_job(dataset_id)
+            
+            if not latest_import_job:
+                # No import job found - dataset might be empty
+                return {
+                    "ready": True,
+                    "status": "no_import",
+                    "message": "No import job found for this dataset"
+                }
+            
+            status = latest_import_job['status']
+            job_id = str(latest_import_job['job_id'])
+            
+            if status == 'completed':
+                return {
+                    "ready": True,
+                    "status": status,
+                    "import_job_id": job_id,
+                    "message": "Dataset is ready for use"
+                }
+            elif status in ['pending', 'processing']:
+                return {
+                    "ready": False,
+                    "status": status,
+                    "import_job_id": job_id,
+                    "message": "Dataset import is still in progress"
+                }
+            elif status == 'failed':
+                return {
+                    "ready": False,
+                    "status": status,
+                    "import_job_id": job_id,
+                    "message": "Dataset import failed",
+                    "error": latest_import_job.get('error_message')
+                }
+            else:
+                return {
+                    "ready": False,
+                    "status": status,
+                    "import_job_id": job_id,
+                    "message": f"Unknown import status: {status}"
+                }
+    except Exception as e:
+        # On error, assume dataset is ready (to not block operations)
+        return {
+            "ready": True,
+            "status": "error",
+            "message": f"Could not check import status: {str(e)}"
+        }

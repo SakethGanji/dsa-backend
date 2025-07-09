@@ -224,14 +224,6 @@ class PostgresCommitRepository(ICommitRepository):
         rows = await self._conn.fetch(query, dataset_id, ref_name, limit, offset)
         return [dict(row) for row in rows]
     
-    async def create_commit_statistics(self, commit_id: str, statistics: Dict[str, Any]) -> None:
-        """Store statistics for a commit."""
-        query = """
-            INSERT INTO dsa_core.commit_statistics (commit_id, statistics)
-            VALUES ($1, $2)
-        """
-        await self._conn.execute(query, commit_id, json.dumps(statistics))
-    
     async def create_commit_schema(self, commit_id: str, schema_definition: Dict[str, Any]) -> None:
         """Store schema for a commit."""
         query = """

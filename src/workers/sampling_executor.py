@@ -819,18 +819,32 @@ class SamplingJobExecutor(JobExecutor):
             WHERE commit_id = $2
         """, commit_id, parent_commit_id)
         
-        # Store sampling metadata in statistics
+        # Store sampling metadata in table_analysis
         total_rows = sum(r['rows_sampled'] for r in round_results)
-        await conn.execute("""
-            INSERT INTO dsa_core.commit_statistics (commit_id, row_count, statistics)
-            VALUES ($1, $2, $3)
-        """, commit_id, total_rows, json.dumps({
-            'sampling_metadata': {
-                'parent_commit': parent_commit_id,
-                'rounds': round_results,
-                'total_sampled': total_rows
+        table_key = 'primary'  # Default table key for sampling commits
+        
+        # Create analysis data with sampling metadata
+        analysis_data = {
+            'total_rows': total_rows,
+            'columns': [],  # Sampling doesn't analyze columns
+            'column_types': {},
+            'null_counts': {},
+            'sample_values': {},
+            'statistics': {
+                'sampling_metadata': {
+                    'parent_commit': parent_commit_id,
+                    'rounds': round_results,
+                    'total_sampled': total_rows
+                }
             }
-        }))
+        }
+        
+        await conn.execute("""
+            INSERT INTO dsa_core.table_analysis (commit_id, table_key, analysis)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (commit_id, table_key) 
+            DO UPDATE SET analysis = EXCLUDED.analysis
+        """, commit_id, table_key, json.dumps(analysis_data))
         
         return commit_id
     

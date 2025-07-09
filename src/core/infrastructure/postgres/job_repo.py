@@ -355,3 +355,40 @@ class PostgresJobRepository(IJobRepository):
             jobs.append(job)
         
         return jobs, total_count
+    
+    async def get_latest_import_job(self, dataset_id: int) -> Optional[Dict[str, Any]]:
+        """Get the most recent import job for a dataset."""
+        query = """
+            SELECT 
+                ar.id as job_id,
+                ar.run_type,
+                ar.status,
+                ar.dataset_id,
+                ar.user_id,
+                ar.source_commit_id,
+                ar.run_parameters,
+                ar.output_summary,
+                ar.created_at,
+                ar.error_message
+            FROM dsa_jobs.analysis_runs ar
+            WHERE ar.dataset_id = $1 
+                AND ar.run_type = 'import'
+            ORDER BY ar.created_at DESC
+            LIMIT 1
+        """
+        
+        row = await self._conn.fetchrow(query, dataset_id)
+        
+        if not row:
+            return None
+        
+        job = dict(row)
+        
+        # Parse JSON fields
+        if job.get('run_parameters'):
+            job['run_parameters'] = json.loads(job['run_parameters'])
+        
+        if job.get('output_summary'):
+            job['output_summary'] = json.loads(job['output_summary'])
+        
+        return job

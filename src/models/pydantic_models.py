@@ -201,6 +201,8 @@ class DatasetSummary(BaseModel):
     updated_at: datetime
     permission_type: str
     tags: List[str] = []
+    import_status: Optional[str] = None  # 'pending', 'processing', 'completed', 'failed'
+    import_job_id: Optional[str] = None  # UUID as string
 
 
 class ListDatasetsResponse(BaseModel):
@@ -220,6 +222,8 @@ class DatasetDetailResponse(BaseModel):
     updated_at: datetime
     tags: List[str] = []
     permission_type: Optional[str] = None
+    import_status: Optional[str] = None  # 'pending', 'processing', 'completed', 'failed'
+    import_job_id: Optional[str] = None  # UUID as string
 
 
 # Dataset update models

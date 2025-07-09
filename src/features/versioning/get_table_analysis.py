@@ -105,6 +105,30 @@ class GetTableAnalysisHandler(BaseHandler[TableAnalysisResponse]):
                     columns.append(col_name)
                     column_types[col_name] = col.get('type', 'unknown')
             
+            # First, try to get pre-computed analysis from table_analysis table
+            analysis_result = await self._uow.connection.fetch(
+                """
+                SELECT analysis 
+                FROM dsa_core.table_analysis 
+                WHERE commit_id = $1 AND table_key = $2
+                """,
+                commit_id, table_key
+            )
+            
+            if analysis_result:
+                # Use pre-computed analysis
+                analysis = json.loads(analysis_result[0]['analysis'])
+                return TableAnalysisResponse(
+                    table_key=table_key,
+                    columns=analysis.get('columns', []),
+                    column_types=analysis.get('column_types', {}),
+                    total_rows=analysis.get('total_rows', 0),
+                    null_counts=analysis.get('null_counts', {}),
+                    sample_values=analysis.get('sample_values', {}),
+                    statistics=analysis.get('statistics')
+                )
+            
+            # Fallback to computing analysis on-the-fly if not pre-computed
             # Get total row count
             total_rows = await self._table_reader.count_table_rows(commit_id, table_key)
             

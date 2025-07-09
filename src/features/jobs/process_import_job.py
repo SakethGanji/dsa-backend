@@ -98,8 +98,7 @@ class ProcessImportJobHandler:
                 # Store schema
                 await self._commit_repo.create_commit_schema(new_commit_id, schema_def)
                 
-                # Store pre-calculated statistics
-                await self._commit_repo.create_commit_statistics(new_commit_id, table_statistics)
+                # Note: Statistics are now stored in table_analysis during import
                 
                 await self._uow.commit()
                 

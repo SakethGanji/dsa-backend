@@ -56,9 +56,9 @@ class PostgresTableReader(ITableReader):
     async def get_table_statistics(self, commit_id: str, table_key: str) -> Optional[Dict[str, Any]]:
         """Get statistics for a specific table within a commit."""
         query = """
-            SELECT statistics -> $2 AS table_stats
-            FROM dsa_core.commit_statistics
-            WHERE commit_id = $1
+            SELECT analysis -> 'statistics' AS table_stats
+            FROM dsa_core.table_analysis
+            WHERE commit_id = $1 AND table_key = $2
         """
         result = await self._conn.fetchval(query, commit_id, table_key)
         return result if result else None

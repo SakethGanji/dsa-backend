@@ -15,6 +15,7 @@ from src.workers.job_worker import JobExecutor
 from src.core.database import DatabasePool
 from src.core.config import get_settings
 from src.core.infrastructure.services import FileParserFactory
+from src.core.services.table_analyzer import TableAnalyzer
 
 
 class ImportJobExecutor(JobExecutor):
@@ -25,6 +26,7 @@ class ImportJobExecutor(JobExecutor):
         self.settings = get_settings()
         self.batch_size = self.settings.import_batch_size
         self.chunk_size = self.settings.import_chunk_size
+        self.table_analyzer = TableAnalyzer()
     
     async def execute(self, job_id: str, parameters: Dict[str, Any], db_pool: DatabasePool) -> Dict[str, Any]:
         """Execute import job with batch processing."""
@@ -162,6 +164,9 @@ class ImportJobExecutor(JobExecutor):
         # Update ref to point to new commit
         await self._update_ref(db_pool, dataset_id, target_ref, commit_id)
         
+        # Analyze tables and store comprehensive analysis
+        await self.table_analyzer.analyze_committed_tables(db_pool, commit_id)
+        
         return commit_id
     
     async def _process_excel_file(
@@ -241,6 +246,9 @@ class ImportJobExecutor(JobExecutor):
         
         # Update ref to point to new commit
         await self._update_ref(db_pool, dataset_id, target_ref, commit_id)
+        
+        # Analyze tables and store comprehensive analysis
+        await self.table_analyzer.analyze_committed_tables(db_pool, commit_id)
         
         return commit_id
     

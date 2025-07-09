@@ -10,6 +10,7 @@ from datetime import datetime
 from src.workers.job_worker import JobExecutor
 from src.core.database import DatabasePool
 from src.core.infrastructure.services import FileParserFactory
+from src.core.services.table_analyzer import TableAnalyzer
 
 
 class ImportJobExecutor(JobExecutor):
@@ -17,6 +18,7 @@ class ImportJobExecutor(JobExecutor):
     
     def __init__(self):
         self.parser_factory = FileParserFactory()
+        self.table_analyzer = TableAnalyzer()
     
     async def execute(self, job_id: str, parameters: Dict[str, Any], db_pool: DatabasePool) -> Dict[str, Any]:
         """Execute import job."""
@@ -77,8 +79,8 @@ class ImportJobExecutor(JobExecutor):
                     # Update ref to point to new commit
                     await self._update_ref(conn, dataset_id, target_ref, commit_id)
                     
-                    # Store statistics
-                    await self._store_statistics(conn, commit_id, stats)
+                    # Analyze tables and store comprehensive analysis
+                    await self.table_analyzer.analyze_imported_tables(conn, commit_id, rows)
             
             # Refresh search index after successful import
             from src.core.infrastructure.postgres.search_repository import PostgresSearchRepository
@@ -247,10 +249,3 @@ class ImportJobExecutor(JobExecutor):
             SET commit_id = $1
             WHERE dataset_id = $2 AND name = $3
         """, commit_id, dataset_id, ref_name)
-    
-    async def _store_statistics(self, conn, commit_id: str, stats: Dict[str, Any]):
-        """Store commit statistics."""
-        await conn.execute("""
-            INSERT INTO dsa_core.commit_statistics (commit_id, row_count, statistics)
-            VALUES ($1, $2, $3)
-        """, commit_id, stats['row_count'], json.dumps(stats))
