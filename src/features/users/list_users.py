@@ -6,7 +6,7 @@ from datetime import datetime
 from src.core.abstractions import IUnitOfWork, IUserRepository
 from src.features.base_handler import BaseHandler
 from src.core.decorators import requires_role
-from src.api.common import PaginationMixin
+from src.core.common.pagination import PaginationMixin
 
 
 @dataclass

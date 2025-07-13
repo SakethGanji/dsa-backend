@@ -3,6 +3,7 @@
 from src.core.abstractions import IUnitOfWork
 from src.models.pydantic_models import CreateBranchRequest, CreateBranchResponse, PermissionType
 from src.features.base_handler import BaseHandler, with_error_handling, with_transaction
+from src.core.domain_exceptions import EntityNotFoundException, ForbiddenException
 
 
 class CreateBranchHandler(BaseHandler[CreateBranchResponse]):
@@ -42,7 +43,7 @@ class CreateBranchHandler(BaseHandler[CreateBranchResponse]):
                 # Check if user is admin
                 user = await self._uow.users.get_by_id(user_id)
                 if not user or user.get('role_name') != 'admin':
-                    raise PermissionError(f"User {user_id} does not have permission to create branches in dataset {dataset_id}")
+                    raise ForbiddenException()
             
             # Get the commit ID from the source ref
             source_commit_id = await self._uow.commits.get_current_commit_for_ref(
@@ -50,7 +51,7 @@ class CreateBranchHandler(BaseHandler[CreateBranchResponse]):
             )
             
             if not source_commit_id:
-                raise ValueError(f"Source ref '{request.from_ref}' not found or has no commits")
+                raise EntityNotFoundException("Ref", request.from_ref)
             
             # Create the new ref pointing to the same commit
             await self._uow.commits.create_ref(

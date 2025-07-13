@@ -12,6 +12,7 @@ from ..core.database import DatabasePool
 from ..core.abstractions.uow import IUnitOfWork
 from ..core.authorization import get_current_user_info, require_dataset_read
 from ..core.exceptions import resource_not_found
+from ..core.domain_exceptions import ValidationException, BusinessRuleViolation
 from ..models.pydantic_models import CurrentUser
 from ..core.dependencies import get_db_pool, get_uow
 
@@ -303,10 +304,10 @@ async def get_exploration_result(
         raise resource_not_found("Job", job_id)
     
     if job["run_type"] != "exploration":
-        raise ValueError("Not an exploration job")
+        raise ValidationException("Not an exploration job", field="run_type")
     
     if job["status"] != "completed":
-        raise ValueError(f"Job is {job['status']}, not completed")
+        raise BusinessRuleViolation(f"Job is {job['status']}, not completed", rule="job_must_be_completed")
     
     # Permission check will be handled by the handler
     

@@ -2,7 +2,9 @@ from typing import Optional, List, Dict, Any
 
 from src.core.abstractions import IUnitOfWork, ITableReader
 from src.models.pydantic_models import GetDataRequest, GetDataResponse, DataRow
-from src.features.base_handler import BaseHandler, with_error_handling, PaginationMixin
+from src.features.base_handler import BaseHandler, with_error_handling
+from src.core.common.pagination import PaginationMixin
+from src.core.domain_exceptions import EntityNotFoundException
 
 
 class GetDataAtRefHandler(BaseHandler[GetDataResponse], PaginationMixin):
@@ -42,7 +44,7 @@ class GetDataAtRefHandler(BaseHandler[GetDataResponse], PaginationMixin):
             # Get current commit for ref
             ref = await self._uow.commits.get_ref(dataset_id, ref_name)
             if not ref or not ref['commit_id']:
-                raise ValueError(f"Ref '{ref_name}' not found for dataset {dataset_id}")
+                raise EntityNotFoundException("Ref", ref_name)
             
             commit_id = ref['commit_id']
             

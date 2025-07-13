@@ -11,6 +11,7 @@ from ....core.abstractions.services import IWorkbenchService, WorkbenchContext, 
 from ....core.abstractions.repositories import IDatasetRepository, ITableReader
 # Use standard Python exceptions instead of custom error classes
 from ..models.sql_preview import SqlPreviewRequest, SqlPreviewResponse, SqlSource
+from src.core.domain_exceptions import ForbiddenException
 
 
 class PreviewSqlHandler(BaseHandler[SqlPreviewResponse]):
@@ -99,7 +100,7 @@ class PreviewSqlHandler(BaseHandler[SqlPreviewResponse]):
                     permission_type='read'
                 )
                 if not has_permission:
-                    raise PermissionError(f"No read permission for dataset {source.dataset_id}")
+                    raise ForbiddenException()
     
     async def _execute_preview_query(self, request: SqlPreviewRequest) -> Dict[str, Any]:
         """Execute the SQL query with temporary views for source tables."""

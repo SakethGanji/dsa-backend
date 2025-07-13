@@ -249,13 +249,18 @@ async def delete_branch(
     dataset_id: int = Path(..., description="Dataset ID"),
     ref_name: str = Path(..., description="Branch/ref name to delete"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+    uow: IUnitOfWork = Depends(get_uow),
     _: CurrentUser = Depends(require_dataset_write)
-) -> Dict[str, str]:
+):
     """Delete a branch/ref."""
-    uow = uow_factory.create()
+    from src.features.refs.delete_branch import DeleteBranchCommand, DeleteBranchResponse
     handler = DeleteBranchHandler(uow)
-    return await handler.handle(dataset_id, ref_name, current_user.user_id)
+    command = DeleteBranchCommand(
+        user_id=current_user.user_id,
+        dataset_id=dataset_id,
+        ref_name=ref_name
+    )
+    return await handler.handle(command)
 
 
 # Dataset Overview endpoint

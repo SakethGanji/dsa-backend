@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from ..core.database import DatabasePool
 from ..core.infrastructure.postgres.table_reader import PostgresTableReader
 from .job_worker import JobExecutor
+from src.core.domain_exceptions import EntityNotFoundException
 
 
 logger = logging.getLogger(__name__)
@@ -33,7 +34,7 @@ class ExplorationExecutor(JobExecutor):
             )
             
             if not job:
-                raise ValueError(f"Job {job_id} not found")
+                raise EntityNotFoundException("Job", job_id)
             
             dataset_id = job["dataset_id"]
             source_commit_id = job["source_commit_id"]

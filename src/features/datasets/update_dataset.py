@@ -6,6 +6,7 @@ from src.core.abstractions import IUnitOfWork, IDatasetRepository
 from src.models.pydantic_models import UpdateDatasetResponse
 from src.features.base_handler import BaseHandler, with_transaction
 from src.core.decorators import requires_permission
+from src.core.domain_exceptions import EntityNotFoundException
 
 
 @dataclass
@@ -39,7 +40,7 @@ class UpdateDatasetHandler(BaseHandler):
         # Get existing dataset
         dataset = await self._dataset_repo.get_dataset_by_id(command.dataset_id)
         if not dataset:
-            raise ValueError(f"Dataset {command.dataset_id} not found")
+            raise EntityNotFoundException("Dataset", command.dataset_id)
         
         # Prepare update data
         update_data = {}

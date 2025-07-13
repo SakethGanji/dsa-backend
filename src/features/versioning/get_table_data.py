@@ -4,7 +4,8 @@ from typing import Dict, Any, List, Optional
 from fastapi import HTTPException
 
 from src.core.abstractions import IUnitOfWork, ITableReader
-from src.features.base_handler import BaseHandler, with_error_handling, PaginationMixin
+from src.features.base_handler import BaseHandler, with_error_handling
+from src.core.common.pagination import PaginationMixin
 
 
 class GetTableDataHandler(BaseHandler[Dict[str, Any]], PaginationMixin):

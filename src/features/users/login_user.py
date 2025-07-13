@@ -22,11 +22,11 @@ class LoginUserHandler:
         # Get user with password
         user = await self._user_repo.get_user_with_password(request.soeid)
         if not user:
-            raise ValueError("Invalid credentials")
+            raise ValidationException("Invalid \1")
         
         # Verify password
         if not pwd_context.verify(request.password, user['password_hash']):
-            raise ValueError("Invalid credentials")
+            raise ValidationException("Invalid \1")
         
         # Generate tokens
         access_token = create_access_token(

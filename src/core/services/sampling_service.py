@@ -235,7 +235,7 @@ class SamplingJobService:
             """, job_id)
             
             if not row:
-                raise ValueError(f"Job {job_id} not found")
+                raise EntityNotFoundException("Job", job_id)
             
             return {
                 'job_id': job_id,
@@ -249,3 +249,4 @@ class SamplingJobService:
 
 # Required import
 import json
+from src.core.domain_exceptions import EntityNotFoundException

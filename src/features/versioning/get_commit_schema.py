@@ -3,6 +3,7 @@ from typing import Optional, Dict, Any, List
 from src.core.abstractions import ICommitRepository, IDatasetRepository
 from src.models.pydantic_models import CommitSchemaResponse, SheetSchema, ColumnSchema
 from src.features.base_handler import BaseHandler, with_error_handling
+from src.core.domain_exceptions import EntityNotFoundException
 
 
 class GetCommitSchemaHandler(BaseHandler[CommitSchemaResponse]):
@@ -38,7 +39,7 @@ class GetCommitSchemaHandler(BaseHandler[CommitSchemaResponse]):
         # TODO: Get schema definition
         schema_data = await self._commit_repo.get_commit_schema(commit_id)
         if not schema_data:
-            raise ValueError(f"Schema not found for commit {commit_id}")
+            raise EntityNotFoundException("Schema", commit_id)
         
         # Transform schema to response format
         sheets = self._transform_schema(schema_data)

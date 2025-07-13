@@ -21,6 +21,7 @@ from ..core.authorization import (
     PermissionType
 )
 from ..core.exceptions import resource_not_found
+from ..core.domain_exceptions import ConflictException
 from ..core.dependencies import get_db_pool
 
 
@@ -59,7 +60,11 @@ async def create_dataset(
             user_id=current_user.user_id
         )
         if existing:
-            raise ValueError(f"Dataset with name '{request.name}' already exists")
+            raise ConflictException(
+                f"Dataset with name '{request.name}' already exists",
+                conflicting_field="name",
+                existing_value=request.name
+            )
         
         # Create the dataset
         dataset_id = await dataset_repo.create_dataset(
@@ -133,7 +138,11 @@ async def create_dataset_with_file(
                 user_id=current_user.user_id
             )
             if existing:
-                raise ValueError(f"Dataset with name '{request.name}' already exists")
+                raise ConflictException(
+                f"Dataset with name '{request.name}' already exists",
+                conflicting_field="name",
+                existing_value=request.name
+            )
             
             # Create the dataset
             dataset_id = await dataset_repo.create_dataset(
@@ -437,7 +446,8 @@ async def delete_dataset(
     await search_repo.refresh_search_index()
     
     return DeleteDatasetResponse(
-        dataset_id=dataset_id,
+        entity_type="Dataset",
+        entity_id=dataset_id,
         message=f"Dataset '{dataset['name']}' and all related data have been deleted successfully"
     )
 

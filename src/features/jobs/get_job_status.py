@@ -2,6 +2,7 @@ from uuid import UUID
 
 from src.core.abstractions import IJobRepository
 from src.models.pydantic_models import JobStatusResponse
+from src.core.domain_exceptions import EntityNotFoundException
 
 
 class GetJobStatusHandler:
@@ -22,12 +23,12 @@ class GetJobStatusHandler:
         # TODO: Get job details
         job = await self._job_repo.get_job_by_id(job_id)
         if not job:
-            raise ValueError(f"Job {job_id} not found")
+            raise EntityNotFoundException("Job", job_id)
         
         # TODO: Verify user owns the job or has permission
         if job['user_id'] != user_id:
             # In production, might want to check if user has admin permission
-            raise PermissionError("Access denied to job status")
+            raise ForbiddenException()
         
         return JobStatusResponse(
             job_id=job['id'],

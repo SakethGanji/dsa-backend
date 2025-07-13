@@ -6,6 +6,7 @@ from datetime import datetime
 from uuid import UUID
 from enum import Enum
 import re
+from src.core.domain_exceptions import ValidationException
 
 
 # Custom validators
@@ -20,14 +21,14 @@ def validate_no_sql_injection(value: str) -> str:
     
     for pattern in sql_patterns:
         if re.search(pattern, value.lower()):
-            raise ValueError("Potential SQL injection detected")
+            raise ValidationException("Potential SQL injection detected", field="sql_query")
     return value
 
 
 def validate_no_script_tags(value: str) -> str:
     """Validate string doesn't contain script tags."""
     if re.search(r"<\s*script", value, re.IGNORECASE):
-        raise ValueError("Script tags not allowed")
+        raise ValidationException("Script tags not allowed", field="content")
     return value
 
 
@@ -35,12 +36,12 @@ def validate_safe_filename(filename: str) -> str:
     """Validate filename is safe."""
     # Check for path traversal
     if ".." in filename or "/" in filename or "\\" in filename:
-        raise ValueError("Invalid filename: path traversal detected")
+        raise ValidationException("Invalid filename: path traversal detected", field="filename")
     
     # Check extension
     allowed_extensions = ['.csv', '.xlsx', '.xls', '.json', '.parquet']
     if not any(filename.lower().endswith(ext) for ext in allowed_extensions):
-        raise ValueError(f"Invalid file extension. Allowed: {allowed_extensions}")
+        raise ValidationException(f"Invalid file extension. Allowed: {allowed_extensions}", field="file_extension")
     
     return filename
 
@@ -70,7 +71,7 @@ class EnhancedCreateDatasetRequest(BaseModel):
         v = validate_no_script_tags(v)
         # Additional validation: no special characters except spaces, hyphens, underscores
         if not re.match(r'^[\w\s\-\.]+$', v):
-            raise ValueError("Name can only contain letters, numbers, spaces, hyphens, dots and underscores")
+            raise ValidationException("Name can only contain letters, numbers, spaces, hyphens, dots and underscores", field="name")
         return v
     
     @validator('description')
@@ -87,7 +88,7 @@ class EnhancedCreateDatasetRequest(BaseModel):
             v = validate_no_script_tags(v)
             # Tags should be alphanumeric with hyphens
             if not re.match(r'^[\w\-]+$', v):
-                raise ValueError("Tags can only contain letters, numbers, and hyphens")
+                raise ValidationException("Tags can only contain letters, numbers, and hyphens", field="tags")
         return v
 
 
@@ -109,7 +110,7 @@ class EnhancedUpdateDatasetRequest(BaseModel):
     @validator('name', 'description', 'tags')
     def validate_at_least_one_field(cls, v, values):
         if not any(values.get(field) is not None for field in ['name', 'description', 'tags']):
-            raise ValueError("At least one field must be provided for update")
+            raise ValidationException("At least one field must be provided for update")
         return v
     
     # Apply same validators as create
@@ -135,7 +136,7 @@ class EnhancedGrantPermissionRequest(BaseModel):
     def validate_permission_type(cls, v):
         allowed = ['read', 'write', 'admin']
         if v not in allowed:
-            raise ValueError(f"Permission type must be one of: {allowed}")
+            raise ValidationException(f"Permission type must be one of: {allowed}", field="permission_type")
         return v
 
 
@@ -160,13 +161,13 @@ class EnhancedCreateUserRequest(BaseModel):
     def validate_password_strength(cls, v):
         # At least one uppercase, one lowercase, one digit, one special character
         if not re.search(r'[A-Z]', v):
-            raise ValueError("Password must contain at least one uppercase letter")
+            raise ValidationException("Password must contain at least one uppercase letter", field="password")
         if not re.search(r'[a-z]', v):
-            raise ValueError("Password must contain at least one lowercase letter")
+            raise ValidationException("Password must contain at least one lowercase letter", field="password")
         if not re.search(r'\d', v):
-            raise ValueError("Password must contain at least one digit")
+            raise ValidationException("Password must contain at least one digit", field="password")
         if not re.search(r'[!@#$%^&*(),.?":{}|<>]', v):
-            raise ValueError("Password must contain at least one special character")
+            raise ValidationException("Password must contain at least one special character", field="password")
         return v
 
 
@@ -216,20 +217,20 @@ class EnhancedCreateCommitRequest(BaseModel):
         first_keys = set(v[0].keys())
         for i, row in enumerate(v[1:], 1):
             if set(row.keys()) != first_keys:
-                raise ValueError(f"Row {i} has different keys than first row")
+                raise ValidationException(f"Row {i} has different keys than first row", field="data")
         
         # Validate data types and sizes
         for row in v:
             for key, value in row.items():
                 # Key validation
                 if not isinstance(key, str):
-                    raise ValueError("All keys must be strings")
+                    raise ValidationException("All keys must be strings", field="data")
                 if len(key) > 100:
-                    raise ValueError("Key names must be less than 100 characters")
+                    raise ValidationException("Key names must be less than 100 characters", field="data")
                 
                 # Value validation
                 if isinstance(value, str) and len(value) > 10000:
-                    raise ValueError("String values must be less than 10000 characters")
+                    raise ValidationException("String values must be less than 10000 characters", field="data")
                 
                 # Check for potentially dangerous content in strings
                 if isinstance(value, str):
@@ -261,7 +262,7 @@ class EnhancedGetDataRequest(BaseModel):
         if v:
             v = validate_no_sql_injection(v)
             if not re.match(r'^[\w\s\-\.]+$', v):
-                raise ValueError("Sheet name can only contain letters, numbers, spaces, hyphens, dots and underscores")
+                raise ValidationException("Sheet name can only contain letters, numbers, spaces, hyphens, dots and underscores", field="sheet_name")
         return v
 
 
@@ -311,5 +312,5 @@ class TableOperationParams(BaseModel):
     @validator('ref_name', 'table_key')
     def validate_names(cls, v):
         if not re.match(r'^[\w\-\.]+$', v):
-            raise ValueError("Name can only contain letters, numbers, hyphens, dots and underscores")
+            raise ValidationException("Name can only contain letters, numbers, hyphens, dots and underscores", field="name")
         return v

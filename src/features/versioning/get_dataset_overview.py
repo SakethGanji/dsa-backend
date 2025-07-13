@@ -2,6 +2,7 @@ from typing import List
 from src.core.abstractions import IUnitOfWork, ITableReader
 from src.models.pydantic_models import DatasetOverviewResponse, RefWithTables, TableInfo
 from src.features.base_handler import BaseHandler, with_error_handling
+from src.core.domain_exceptions import EntityNotFoundException
 
 
 class GetDatasetOverviewHandler(BaseHandler):
@@ -18,7 +19,7 @@ class GetDatasetOverviewHandler(BaseHandler):
             # Get dataset info
             dataset = await self.uow.datasets.get_dataset_by_id(dataset_id)
             if not dataset:
-                raise ValueError(f"Dataset {dataset_id} not found")
+                raise EntityNotFoundException("Dataset", dataset_id)
             
             # Get all refs for the dataset
             refs = await self.uow.commits.list_refs(dataset_id)
@@ -41,14 +42,33 @@ class GetDatasetOverviewHandler(BaseHandler):
                         # Get row count (reusing existing interface)
                         row_count = await self.table_reader.count_table_rows(commit_id, table_key)
                         
-                        # Get column count from schema
+                        # Get column count and names from schema
                         schema = await self.table_reader.get_table_schema(commit_id, table_key)
-                        column_count = len(schema.columns) if schema and hasattr(schema, 'columns') else None
+                        if schema and isinstance(schema, dict):
+                            # Schema has 'columns' key 
+                            columns_data = schema.get('columns', [])
+                            if isinstance(columns_data, list) and len(columns_data) > 0:
+                                # Check if columns are strings (column names) or dicts (column objects)
+                                if isinstance(columns_data[0], str):
+                                    # Direct column names
+                                    column_names = columns_data
+                                elif isinstance(columns_data[0], dict):
+                                    # Column objects with 'name' field
+                                    column_names = [col.get('name', f'col_{i}') for i, col in enumerate(columns_data)]
+                                else:
+                                    column_names = []
+                            else:
+                                column_names = []
+                            column_count = len(column_names)
+                        else:
+                            column_names = []
+                            column_count = 0
                         
                         tables.append(TableInfo(
                             table_key=table_key,
                             row_count=row_count,
-                            column_count=column_count
+                            column_count=column_count,
+                            columns=column_names
                         ))
                 else:
                     # Empty ref (no commits yet)

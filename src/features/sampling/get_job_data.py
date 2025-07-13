@@ -7,7 +7,8 @@ import csv
 
 from src.core.abstractions.uow import IUnitOfWork
 from src.core.abstractions.repositories import ITableReader
-from src.features.base_handler import BaseHandler, PaginationMixin, with_error_handling
+from src.features.base_handler import BaseHandler, with_error_handling
+from src.core.common.pagination import PaginationMixin
 from fastapi import HTTPException
 
 

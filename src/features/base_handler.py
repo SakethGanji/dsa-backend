@@ -4,6 +4,12 @@ from typing import TypeVar, Generic, Optional, Callable, Any
 from functools import wraps
 import logging
 from ..core.abstractions.uow import IUnitOfWork
+from ..core.common.pagination import PaginationMixin
+from ..core.domain_exceptions import (
+    DomainException, 
+    ValidationException, 
+    ForbiddenException
+)
 
 # Type variable for handler return types
 TResult = TypeVar('TResult')
@@ -29,15 +35,25 @@ def with_error_handling(func: Callable) -> Callable:
     async def wrapper(self, *args, **kwargs) -> Any:
         try:
             return await func(self, *args, **kwargs)
+        except DomainException as e:
+            # Domain exceptions are expected - log at INFO level
+            logger.info(f"Domain exception in {self.__class__.__name__}: {e}")
+            raise  # Re-raise as-is, will be handled by API layer
         except ValueError as e:
+            # Convert to ValidationException
             logger.warning(f"Validation error in {self.__class__.__name__}: {str(e)}")
-            raise
+            raise ValidationException(str(e))
         except PermissionError as e:
+            # Convert to ForbiddenException
             logger.warning(f"Permission denied in {self.__class__.__name__}: {str(e)}")
-            raise
+            raise ForbiddenException(str(e))
         except Exception as e:
+            # Unexpected exceptions - log at ERROR level
             logger.error(f"Unexpected error in {self.__class__.__name__}: {str(e)}", exc_info=True)
-            raise
+            raise DomainException(
+                "An unexpected error occurred",
+                details={"original_error": str(e), "error_type": type(e).__name__}
+            )
     return wrapper
 
 
@@ -60,32 +76,5 @@ def with_transaction(func: Callable) -> Callable:
     return wrapper
 
 
-class PaginationMixin:
-    """Mixin for pagination support in handlers."""
-    
-    def validate_pagination(self, offset: int = 0, limit: int = 100) -> tuple[int, int]:
-        """Validate and normalize pagination parameters."""
-        if offset < 0:
-            raise ValueError("Offset must be non-negative")
-        if limit < 1:
-            raise ValueError("Limit must be at least 1")
-        if limit > 10000:
-            raise ValueError("Limit cannot exceed 10000")
-        return offset, limit
-    
-    def create_paginated_response(
-        self, 
-        items: list,
-        total: int,
-        offset: int,
-        limit: int,
-        response_class: type
-    ) -> Any:
-        """Create a paginated response object."""
-        return response_class(
-            items=items,
-            total=total,
-            offset=offset,
-            limit=limit,
-            has_more=offset + len(items) < total
-        )
+# Import PaginationMixin from unified module for backward compatibility
+__all__ = ['BaseHandler', 'with_error_handling', 'with_transaction', 'PaginationMixin']

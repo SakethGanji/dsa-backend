@@ -4,7 +4,8 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 
 from src.core.abstractions.uow import IUnitOfWork
-from src.features.base_handler import BaseHandler, PaginationMixin, with_error_handling
+from src.features.base_handler import BaseHandler, with_error_handling
+from src.core.common.pagination import PaginationMixin
 from fastapi import HTTPException
 
 

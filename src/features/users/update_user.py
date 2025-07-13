@@ -1,12 +1,13 @@
-"""Handler for updating user information."""
+"""Handler for updating user information using BaseUpdateHandler."""
 
-from typing import Optional
+from typing import Optional, Dict, Any
 from dataclasses import dataclass
 from datetime import datetime
 from passlib.context import CryptContext
 from src.core.abstractions import IUnitOfWork, IUserRepository
-from src.features.base_handler import BaseHandler, with_transaction
+from src.features.base_update_handler import BaseUpdateHandler
 from src.core.decorators import requires_role
+from src.core.domain_exceptions import ConflictException
 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -30,30 +31,42 @@ class UpdateUserResponse:
     updated_at: datetime
 
 
-class UpdateUserHandler(BaseHandler):
+class UpdateUserHandler(BaseUpdateHandler[UpdateUserCommand, UpdateUserResponse, Dict[str, Any]]):
     """Handler for updating user information."""
     
     def __init__(self, uow: IUnitOfWork, user_repo: IUserRepository):
         super().__init__(uow)
         self._user_repo = user_repo
     
-    @with_transaction
-    @requires_role("admin")  # Only admins can update users
-    async def handle(self, command: UpdateUserCommand) -> UpdateUserResponse:
-        """Update user information."""
-        # Check if target user exists
-        user = await self._user_repo.get_by_id(command.target_user_id)
-        if not user:
-            raise ValueError(f"User {command.target_user_id} not found")
-        
-        # Prepare update data
+    def get_entity_id(self, command: UpdateUserCommand) -> int:
+        """Extract entity ID from command."""
+        return command.target_user_id
+    
+    async def get_entity(self, entity_id: int) -> Optional[Dict[str, Any]]:
+        """Retrieve the user to update."""
+        return await self._user_repo.get_by_id(entity_id)
+    
+    def get_entity_name(self) -> str:
+        """Get entity name for error messages."""
+        return "User"
+    
+    async def validate_update(self, command: UpdateUserCommand, existing: Dict[str, Any]) -> None:
+        """Validate the update operation."""
+        # Check if new soeid is already taken
+        if command.soeid is not None:
+            existing_user = await self._user_repo.get_by_soeid(command.soeid)
+            if existing_user and existing_user['id'] != command.target_user_id:
+                raise ConflictException(
+                    f"SOEID {command.soeid} is already taken",
+                    conflicting_field="soeid",
+                    existing_value=command.soeid
+                )
+    
+    async def prepare_update_data(self, command: UpdateUserCommand, existing: Dict[str, Any]) -> Dict[str, Any]:
+        """Prepare data for update based on command."""
         update_data = {}
         
         if command.soeid is not None:
-            # Check if new soeid is already taken
-            existing = await self._user_repo.get_by_soeid(command.soeid)
-            if existing and existing['id'] != command.target_user_id:
-                raise ValueError(f"SOEID {command.soeid} is already taken")
             update_data['soeid'] = command.soeid
         
         if command.password is not None:
@@ -63,20 +76,27 @@ class UpdateUserHandler(BaseHandler):
         if command.role_id is not None:
             update_data['role_id'] = command.role_id
         
-        # Update user if there are changes
-        if update_data:
-            await self._user_repo.update_user(
-                user_id=command.target_user_id,
-                **update_data
-            )
-        
-        # Get updated user
-        updated_user = await self._user_repo.get_by_id(command.target_user_id)
-        
-        return UpdateUserResponse(
-            id=updated_user['id'],
-            soeid=updated_user['soeid'],
-            role_id=updated_user['role_id'],
-            role_name=updated_user.get('role_name'),
-            updated_at=updated_user['updated_at']
+        return update_data
+    
+    async def perform_update(self, entity_id: int, update_data: Dict[str, Any]) -> None:
+        """Perform the actual update operation."""
+        await self._user_repo.update_user(
+            user_id=entity_id,
+            **update_data
         )
+    
+    async def build_response(self, updated_entity: Dict[str, Any]) -> UpdateUserResponse:
+        """Build response from updated entity."""
+        return UpdateUserResponse(
+            id=updated_entity['id'],
+            soeid=updated_entity['soeid'],
+            role_id=updated_entity['role_id'],
+            role_name=updated_entity.get('role_name'),
+            updated_at=updated_entity['updated_at']
+        )
+    
+    @requires_role("admin")  # Only admins can update users
+    async def handle(self, command: UpdateUserCommand) -> UpdateUserResponse:
+        """Update user information."""
+        # Call parent's handle method which implements the template
+        return await super().handle(command)

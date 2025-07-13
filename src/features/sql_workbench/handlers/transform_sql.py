@@ -9,6 +9,7 @@ from ....core.abstractions.services import IWorkbenchService, WorkbenchContext, 
 from ....core.abstractions.repositories import IDatasetRepository, IJobRepository, ICommitRepository
 # Use standard Python exceptions instead of custom error classes
 from ..models.sql_transform import SqlTransformRequest, SqlTransformResponse
+from src.core.domain_exceptions import ForbiddenException
 
 
 class TransformSqlHandler(BaseHandler[SqlTransformResponse]):
@@ -128,7 +129,7 @@ class TransformSqlHandler(BaseHandler[SqlTransformResponse]):
                 permission_type='read'
             )
             if not has_read:
-                raise PermissionError(f"No read permission for source dataset {source.dataset_id}")
+                raise ForbiddenException()
         
         # Check write permission for target
         has_write = await self._dataset_repository.check_user_permission(
@@ -137,7 +138,7 @@ class TransformSqlHandler(BaseHandler[SqlTransformResponse]):
             permission_type='write'
         )
         if not has_write:
-            raise PermissionError(f"No write permission for target dataset {request.target.dataset_id}")
+            raise ForbiddenException()
         
         # If creating new dataset, check create permission
         if request.target.create_new_dataset:

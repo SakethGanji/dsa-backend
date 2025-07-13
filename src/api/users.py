@@ -12,6 +12,7 @@ from ..models.pydantic_models import (
 )
 from ..core.authorization import require_admin_role
 from ..core.dependencies import get_db_pool
+from ..core.domain_exceptions import ConflictException
 from typing import Annotated
 
 
@@ -86,7 +87,11 @@ async def create_user_public(
         # Check if user already exists
         existing_user = await user_repo.get_by_soeid(request.soeid)
         if existing_user:
-            raise ValueError(f"User with SOEID {request.soeid} already exists")
+            raise ConflictException(
+                f"User with SOEID {request.soeid} already exists",
+                conflicting_field="soeid",
+                existing_value=request.soeid
+            )
         
         # Hash the password
         from passlib.context import CryptContext

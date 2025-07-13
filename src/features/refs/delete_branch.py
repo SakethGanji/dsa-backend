@@ -1,61 +1,71 @@
-"""Handler for deleting a branch."""
+"""Handler for deleting a branch with standardized response."""
 
-from typing import Dict
+from dataclasses import dataclass
 from src.core.abstractions import IUnitOfWork
 from src.models.pydantic_models import PermissionType
-from src.features.base_handler import BaseHandler, with_error_handling, with_transaction
+from src.features.base_handler import BaseHandler, with_transaction
+from src.core.decorators import requires_permission
+from src.core.domain_exceptions import EntityNotFoundException, BusinessRuleViolation
 
 
-class DeleteBranchHandler(BaseHandler[Dict[str, str]]):
+@dataclass
+class DeleteBranchCommand:
+    user_id: int  # Must be first for decorator
+    dataset_id: int
+    ref_name: str
+
+
+@dataclass
+class DeleteBranchResponse:
+    """Standardized delete response."""
+    entity_type: str = "Branch"
+    entity_id: str = None  # Using str since branch names are strings
+    success: bool = True
+    message: str = None
+    
+    def __post_init__(self):
+        if self.entity_id and not self.message:
+            self.message = f"{self.entity_type} '{self.entity_id}' deleted successfully"
+
+
+class DeleteBranchHandler(BaseHandler):
     """Handler for deleting a branch/ref."""
     
     def __init__(self, uow: IUnitOfWork):
         super().__init__(uow)
     
     @with_transaction
-    @with_error_handling
-    async def handle(
-        self, 
-        dataset_id: int, 
-        ref_name: str,
-        user_id: int
-    ) -> Dict[str, str]:
+    @requires_permission("datasets", "write")
+    async def handle(self, command: DeleteBranchCommand) -> DeleteBranchResponse:
         """
         Delete a branch/ref.
         
-        Args:
-            dataset_id: The dataset ID
-            ref_name: The ref name to delete
-            user_id: The user ID for permission checking
-            
+        Business Rules:
+        - Cannot delete the default branch
+        - Branch must exist
+        
         Returns:
-            Dict with success message
+            DeleteBranchResponse with standardized delete information
         """
-        async with self._uow:
-            # Check write permission
-            has_permission = await self._uow.datasets.check_user_permission(
-                dataset_id=dataset_id,
-                user_id=user_id,
-                required_permission=PermissionType.WRITE.value
+        # Get default branch
+        default_branch = await self._uow.commits.get_default_branch(command.dataset_id)
+        
+        # Prevent deletion of default branch
+        if command.ref_name == default_branch:
+            raise BusinessRuleViolation(
+                f"Cannot delete the default branch '{default_branch}'",
+                rule="protect_default_branch"
             )
-            
-            if not has_permission:
-                # Check if user is admin
-                user = await self._uow.users.get_by_id(user_id)
-                if not user or user.get('role_name') != 'admin':
-                    raise PermissionError(f"User {user_id} does not have permission to delete branches in dataset {dataset_id}")
-            
-            # Get default branch
-            default_branch = await self._uow.commits.get_default_branch(dataset_id)
-            
-            # Prevent deletion of default branch
-            if ref_name == default_branch:
-                raise ValueError(f"Cannot delete the default branch '{default_branch}'")
-            
-            # Delete the ref
-            deleted = await self._uow.commits.delete_ref(dataset_id, ref_name)
-            
-            if not deleted:
-                raise ValueError(f"Branch '{ref_name}' not found")
-            
-            return {"message": f"Branch '{ref_name}' deleted successfully"}
+        
+        # Delete the ref
+        deleted = await self._uow.commits.delete_ref(command.dataset_id, command.ref_name)
+        
+        if not deleted:
+            raise EntityNotFoundException("Branch", command.ref_name)
+        
+        # Return standardized response
+        return DeleteBranchResponse(
+            entity_type="Branch",
+            entity_id=command.ref_name,
+            message=f"Branch '{command.ref_name}' deleted successfully from dataset {command.dataset_id}"
+        )

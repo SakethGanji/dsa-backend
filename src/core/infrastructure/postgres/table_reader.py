@@ -45,13 +45,36 @@ class PostgresTableReader(ITableReader):
     
     async def get_table_schema(self, commit_id: str, table_key: str) -> Optional[Dict[str, Any]]:
         """Get the schema for a specific table within a commit."""
+        # First try to get by table_key directly (for newer schemas)
         query = """
             SELECT schema_definition -> $2 AS table_schema
             FROM dsa_core.commit_schemas
             WHERE commit_id = $1
         """
         result = await self._conn.fetchval(query, commit_id, table_key)
-        return result if result else None
+        
+        if result:
+            # asyncpg may return JSONB as string, parse it if needed
+            if isinstance(result, str):
+                import json
+                return json.loads(result)
+            return result
+            
+        # Fallback: Get full schema and extract the sheet
+        query = """
+            SELECT schema_definition
+            FROM dsa_core.commit_schemas
+            WHERE commit_id = $1
+        """
+        full_schema = await self._conn.fetchval(query, commit_id)
+        
+        if full_schema and 'sheets' in full_schema:
+            # Find the matching sheet
+            for sheet in full_schema['sheets']:
+                if sheet.get('sheet_name') == table_key:
+                    return sheet
+                    
+        return None
     
     async def get_table_statistics(self, commit_id: str, table_key: str) -> Optional[Dict[str, Any]]:
         """Get statistics for a specific table within a commit."""

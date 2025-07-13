@@ -4,6 +4,7 @@ from typing import List, Dict, Any
 from src.core.abstractions import IUnitOfWork
 from src.models.pydantic_models import ListRefsResponse, RefInfo, PermissionType
 from src.features.base_handler import BaseHandler, with_error_handling
+from src.core.domain_exceptions import ForbiddenException
 
 
 class ListRefsHandler(BaseHandler[ListRefsResponse]):
@@ -36,7 +37,7 @@ class ListRefsHandler(BaseHandler[ListRefsResponse]):
                 # Check if user is admin
                 user = await self._uow.users.get_by_id(user_id)
                 if not user or user.get('role_name') != 'admin':
-                    raise PermissionError(f"User {user_id} does not have permission to view dataset {dataset_id}")
+                    raise ForbiddenException()
             
             # Get all refs for the dataset
             refs = await self._uow.commits.list_refs(dataset_id)
@@ -44,8 +45,9 @@ class ListRefsHandler(BaseHandler[ListRefsResponse]):
             # Convert to response model
             ref_infos = [
                 RefInfo(
-                    name=ref['name'],
+                    ref_name=ref['name'],
                     commit_id=ref['commit_id'],
+                    is_default=ref.get('name') == 'main',  # Assuming 'main' is default
                     created_at=ref['created_at'],
                     updated_at=ref['updated_at']
                 )

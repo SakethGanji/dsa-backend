@@ -1,4 +1,4 @@
-"""Main FastAPI application."""
+"""Main FastAPI application - REFACTORED with new error handling."""
 
 from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,9 +15,14 @@ from .core.dependencies import (
     set_stats_calculator
 )
 from .core.infrastructure.services import FileParserFactory, DefaultStatisticsCalculator
-from .core.exceptions import PermissionDeniedError, permission_exception_handler
+
+# Import new error handling
 from .api.error_handlers import register_error_handlers
+
+# Import API routers
 from .api import users, datasets, versioning, jobs, search, sampling, exploration, workbench, downloads
+
+# Import workers
 from .workers.job_worker import JobWorker
 from .workers.import_executor import ImportJobExecutor
 from .workers.sampling_executor import SamplingJobExecutor
@@ -51,99 +56,103 @@ async def lifespan(app: FastAPI):
     set_database_pool(db_pool)
     set_parser_factory(FileParserFactory())
     set_stats_calculator(DefaultStatisticsCalculator())
-    logger.info("Dependencies initialized")
     
-    # Start job worker in background
-    worker = JobWorker(db_pool)
-    worker.register_executor('import', ImportJobExecutor())
-    worker.register_executor('sampling', SamplingJobExecutor())
-    worker.register_executor('exploration', ExplorationExecutor(db_pool))
-    worker.register_executor('sql_transform', SqlTransformExecutor())
+    # Initialize and start job worker
+    executors = {
+        'import': ImportJobExecutor(db_pool),
+        'sampling': SamplingJobExecutor(db_pool),
+        'exploration': ExplorationExecutor(db_pool),
+        'sql_transform': SqlTransformExecutor(db_pool)
+    }
+    
+    worker = JobWorker(db_pool, executors)
     worker_task = asyncio.create_task(worker.start())
     logger.info("Job worker started")
     
     yield
     
     # Cleanup
-    if worker_task and worker:
+    logger.info("Shutting down DSA Platform...")
+    
+    # Stop worker
+    if worker:
         await worker.stop()
+    if worker_task:
         worker_task.cancel()
         try:
             await worker_task
         except asyncio.CancelledError:
             pass
     
+    # Close database pool
     if db_pool:
         await db_pool.close()
-    logger.info("Database pool closed")
+    
+    logger.info("Shutdown complete")
 
 
 # Create FastAPI app
 app = FastAPI(
     title="DSA Platform API",
-    version="2.0.0",
+    description="Data Storage and Analytics Platform",
+    version="1.0.0",
     lifespan=lifespan
 )
 
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=get_settings().cors_origins,
+    allow_origins=["*"],  # Configure appropriately for production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Register all error handlers using the new unified system
+# Register error handlers - NEW!
 register_error_handlers(app)
 
-# Keep legacy handler for backward compatibility
-app.add_exception_handler(PermissionDeniedError, permission_exception_handler)
-
-
-# Dependency to get database pool
-async def get_db_pool() -> DatabasePool:
-    """Get the global database pool."""
-    if not db_pool:
-        raise RuntimeError("Database pool not initialized")
-    return db_pool
-
-
 # Include routers
-app.include_router(users.router, prefix="/api")
-app.include_router(search.router, prefix="/api")  # Search must come before datasets to avoid route conflicts
-app.include_router(datasets.router, prefix="/api")
-app.include_router(versioning.router, prefix="/api")
-app.include_router(jobs.router, prefix="/api")
-app.include_router(sampling.router, prefix="/api")
-app.include_router(exploration.router, prefix="/api")
-app.include_router(workbench.router, prefix="/api")
-app.include_router(downloads.router, prefix="/api")
-
-# Override dependencies using FastAPI's dependency_overrides
-from .core import authorization
-app.dependency_overrides[users.get_db_pool] = get_db_pool
-app.dependency_overrides[datasets.get_db_pool] = get_db_pool
-app.dependency_overrides[authorization.get_db_pool] = get_db_pool
-app.dependency_overrides[search.get_db_pool] = get_db_pool
-app.dependency_overrides[sampling.get_db_pool] = get_db_pool
-app.dependency_overrides[exploration.get_db_pool] = get_db_pool
-app.dependency_overrides[workbench.get_db_pool] = get_db_pool
-app.dependency_overrides[downloads.get_db_pool] = get_db_pool
+app.include_router(users.router, prefix="/api/v1")
+app.include_router(datasets.router, prefix="/api/v1")
+app.include_router(versioning.router, prefix="/api/v1")
+app.include_router(jobs.router, prefix="/api/v1")
+app.include_router(search.router, prefix="/api/v1")
+app.include_router(sampling.router, prefix="/api/v1")
+app.include_router(exploration.router, prefix="/api/v1")
+app.include_router(workbench.router, prefix="/api/v1")
+app.include_router(downloads.router, prefix="/api/v1")
 
 
 @app.get("/")
 async def root():
     """Root endpoint."""
-    return {"message": "DSA Platform API v2.0"}
+    return {"message": "DSA Platform API", "version": "1.0.0"}
 
 
 @app.get("/health")
-async def health_check():
+async def health():
     """Health check endpoint."""
-    return {"status": "healthy", "version": "2.0.0"}
+    return {
+        "status": "healthy",
+        "database": "connected" if db_pool and not db_pool._closed else "disconnected",
+        "worker": "running" if worker_task and not worker_task.done() else "stopped"
+    }
 
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+# Request ID middleware for tracing
+@app.middleware("http")
+async def add_request_id(request: Request, call_next):
+    """Add request ID to all requests for tracing."""
+    import uuid
+    request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+    request.state.request_id = request_id
+    
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+
+# Example of how error handling works:
+# 1. Handler raises domain exception: raise EntityNotFoundException("Dataset", 123)
+# 2. Error handler converts to HTTP response: {"error": "NOT_FOUND", "message": "Dataset 123 not found"}
+# 3. Client receives proper HTTP status (404) with structured error

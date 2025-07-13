@@ -16,6 +16,7 @@ from ..core.services.sampling_service import PostgresSamplingService, SamplingJo
 from ..core.infrastructure.postgres.table_reader import PostgresTableReader
 from ..core.authorization import get_current_user_info, require_dataset_read
 from ..core.exceptions import resource_not_found
+from ..core.domain_exceptions import ValidationException
 from ..models.pydantic_models import CurrentUser
 from ..features.sampling import (
     GetSamplingJobDataHandler,
@@ -52,7 +53,7 @@ class FilterSpec(BaseModel):
     @validator('logic')
     def validate_logic(cls, v):
         if v.upper() not in ['AND', 'OR']:
-            raise ValueError("Logic must be AND or OR")
+            raise ValidationException("Logic must be AND or OR", field="logic")
         return v.upper()
 
 
@@ -82,32 +83,32 @@ class SamplingRoundConfig(BaseModel):
         # Validate random sampling parameters
         if method == 'random':
             if 'sample_size' not in v:
-                raise ValueError("Random sampling requires 'sample_size' parameter")
+                raise ValidationException("Random sampling requires 'sample_size' parameter", field="parameters.sample_size")
             if not isinstance(v['sample_size'], int) or v['sample_size'] <= 0:
-                raise ValueError("sample_size must be a positive integer")
+                raise ValidationException("sample_size must be a positive integer", field="parameters.sample_size")
                 
         # Validate stratified sampling parameters
         elif method == 'stratified':
             if 'strata_columns' not in v:
-                raise ValueError("Stratified sampling requires 'strata_columns' parameter")
+                raise ValidationException("Stratified sampling requires 'strata_columns' parameter", field="parameters.strata_columns")
             if not isinstance(v['strata_columns'], list) or not v['strata_columns']:
-                raise ValueError("strata_columns must be a non-empty list")
+                raise ValidationException("strata_columns must be a non-empty list", field="parameters.strata_columns")
             if 'sample_size' not in v:
-                raise ValueError("Stratified sampling requires 'sample_size' parameter")
+                raise ValidationException("Stratified sampling requires 'sample_size' parameter", field="parameters.sample_size")
                 
         # Validate systematic sampling parameters
         elif method == 'systematic':
             if 'interval' not in v:
-                raise ValueError("Systematic sampling requires 'interval' parameter")
+                raise ValidationException("Systematic sampling requires 'interval' parameter", field="parameters.interval")
             if not isinstance(v['interval'], int) or v['interval'] <= 0:
-                raise ValueError("interval must be a positive integer")
+                raise ValidationException("interval must be a positive integer", field="parameters.interval")
                 
         # Validate cluster sampling parameters
         elif method == 'cluster':
             if 'cluster_column' not in v:
-                raise ValueError("Cluster sampling requires 'cluster_column' parameter")
+                raise ValidationException("Cluster sampling requires 'cluster_column' parameter", field="parameters.cluster_column")
             if 'num_clusters' not in v:
-                raise ValueError("Cluster sampling requires 'num_clusters' parameter")
+                raise ValidationException("Cluster sampling requires 'num_clusters' parameter", field="parameters.num_clusters")
                 
         return v
 

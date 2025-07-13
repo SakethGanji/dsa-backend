@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from src.core.abstractions import IUnitOfWork, IDatasetRepository
 from src.models.pydantic_models import DatasetListItem
 from src.features.base_handler import BaseHandler
-from src.api.common import PaginationMixin
+from src.core.common.pagination import PaginationMixin
 
 
 @dataclass

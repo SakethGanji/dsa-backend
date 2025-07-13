@@ -1,15 +1,30 @@
-"""Handler for deleting datasets."""
+"""Handler for deleting datasets with standardized response."""
 
 from dataclasses import dataclass
 from src.core.abstractions import IUnitOfWork, IDatasetRepository
 from src.features.base_handler import BaseHandler, with_transaction
 from src.core.decorators import requires_permission
+from src.core.domain_exceptions import EntityNotFoundException
+from src.models.pydantic_models import BaseDeleteResponse
 
 
 @dataclass
 class DeleteDatasetCommand:
     user_id: int  # Must be first for decorator
     dataset_id: int
+
+
+@dataclass
+class DeleteDatasetResponse:
+    """Standardized delete response."""
+    entity_type: str = "Dataset"
+    entity_id: int = None
+    success: bool = True
+    message: str = None
+    
+    def __post_init__(self):
+        if self.entity_id and not self.message:
+            self.message = f"{self.entity_type} {self.entity_id} deleted successfully"
 
 
 class DeleteDatasetHandler(BaseHandler):
@@ -25,7 +40,7 @@ class DeleteDatasetHandler(BaseHandler):
     
     @with_transaction
     @requires_permission("datasets", "admin")  # Only admins can delete datasets
-    async def handle(self, command: DeleteDatasetCommand) -> None:
+    async def handle(self, command: DeleteDatasetCommand) -> DeleteDatasetResponse:
         """
         Delete a dataset and all its associated data.
         
@@ -39,7 +54,7 @@ class DeleteDatasetHandler(BaseHandler):
         # Check if dataset exists
         dataset = await self._dataset_repo.get_dataset_by_id(command.dataset_id)
         if not dataset:
-            raise ValueError(f"Dataset {command.dataset_id} not found")
+            raise EntityNotFoundException("Dataset", command.dataset_id)
         
         # Delete all associated data
         # Note: The order matters due to foreign key constraints
@@ -64,3 +79,10 @@ class DeleteDatasetHandler(BaseHandler):
         
         # Note: Row data cleanup might be handled by a separate cleanup job
         # to avoid deleting rows that are shared across datasets
+        
+        # Return standardized response
+        return DeleteDatasetResponse(
+            entity_type="Dataset",
+            entity_id=command.dataset_id,
+            message=f"Dataset '{dataset['name']}' and all related data have been deleted successfully"
+        )

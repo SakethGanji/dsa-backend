@@ -4,7 +4,9 @@ from typing import Optional
 from ...core.abstractions.uow import IUnitOfWork
 from ...core.abstractions.repositories import ITableReader
 from ...models.pydantic_models import CheckoutResponse
-from ..base_handler import BaseHandler, with_error_handling, PaginationMixin
+from ..base_handler import BaseHandler, with_error_handling
+from ...core.common.pagination import PaginationMixin
+from src.core.domain_exceptions import EntityNotFoundException
 
 
 class CheckoutCommitHandler(BaseHandler[CheckoutResponse], PaginationMixin):
@@ -25,7 +27,7 @@ class CheckoutCommitHandler(BaseHandler[CheckoutResponse], PaginationMixin):
             # Verify commit belongs to dataset
             commit = await self._uow.commits.get_commit_by_id(commit_id)
             if not commit or commit['dataset_id'] != dataset_id:
-                raise ValueError("Commit not found for this dataset")
+                raise EntityNotFoundException("Commit", commit_id)
             
             # Get data using ITableReader
             if table_key:

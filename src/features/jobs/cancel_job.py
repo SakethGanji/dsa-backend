@@ -5,6 +5,7 @@ from uuid import UUID
 from src.core.abstractions import IUnitOfWork, IJobRepository
 from src.features.base_handler import BaseHandler, with_transaction
 from src.core.decorators import requires_permission
+from src.core.domain_exceptions import EntityNotFoundException
 
 
 @dataclass
@@ -43,7 +44,7 @@ class CancelJobHandler(BaseHandler):
         # Get job details
         job = await self._job_repo.get_job_by_id(command.job_id)
         if not job:
-            raise ValueError(f"Job {command.job_id} not found")
+            raise EntityNotFoundException("Job", command.job_id)
         
         # Verify job belongs to the dataset
         if job['dataset_id'] != command.dataset_id:
@@ -58,7 +59,7 @@ class CancelJobHandler(BaseHandler):
         is_admin = user and user.get('role_name') == 'admin'
         
         if not is_admin and job['user_id'] != command.user_id:
-            raise PermissionError("Only the job creator or admin can cancel this job")
+            raise ForbiddenException()
         
         # Cancel the job
         await self._job_repo.update_job_status(

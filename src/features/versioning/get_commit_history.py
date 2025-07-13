@@ -3,7 +3,8 @@
 from typing import List
 from ...core.abstractions.uow import IUnitOfWork
 from ...models.pydantic_models import GetCommitHistoryResponse, CommitInfo
-from ..base_handler import BaseHandler, with_error_handling, PaginationMixin
+from ..base_handler import BaseHandler, with_error_handling
+from ...core.common.pagination import PaginationMixin
 
 
 class GetCommitHistoryHandler(BaseHandler[GetCommitHistoryResponse], PaginationMixin):

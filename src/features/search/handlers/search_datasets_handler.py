@@ -7,6 +7,7 @@ from ...base_handler import BaseHandler
 from ....core.abstractions.uow import IUnitOfWork
 from ..models.search_request import SearchRequest
 from ..models.search_response import SearchResponse
+from src.core.domain_exceptions import ValidationException
 
 
 class SearchDatasetsHandler(BaseHandler[SearchResponse]):
@@ -30,7 +31,7 @@ class SearchDatasetsHandler(BaseHandler[SearchResponse]):
             # Get current user ID from context
             user_id = request.context.get('user_id')
             if not user_id:
-                raise ValueError("User ID not found in request context")
+                raise ValidationException("User ID not found in request context")
             
             # Execute search through repository
             result = await uow.search_repository.search(

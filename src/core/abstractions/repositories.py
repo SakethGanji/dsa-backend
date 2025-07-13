@@ -28,6 +28,26 @@ class IUserRepository(ABC):
     @abstractmethod
     async def update_user_password(self, user_id: int, new_password_hash: str) -> None:
         pass
+    
+    @abstractmethod
+    async def update_user(self, user_id: int, soeid: Optional[str] = None, role_id: Optional[int] = None) -> bool:
+        """Update user information"""
+        pass
+    
+    @abstractmethod
+    async def delete_user(self, user_id: int) -> bool:
+        """Delete a user"""
+        pass
+    
+    @abstractmethod
+    async def count_users_by_role(self, role_name: str) -> int:
+        """Count users with a specific role"""
+        pass
+    
+    @abstractmethod
+    async def list_users(self, offset: int = 0, limit: int = 100, role_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List users with pagination and optional role filter"""
+        pass
 
 
 class IDatasetRepository(ABC):

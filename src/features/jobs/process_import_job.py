@@ -10,6 +10,7 @@ from src.features.base_handler import BaseHandler, with_error_handling
 from src.core.decorators import requires_permission
 from uuid import UUID
 from dataclasses import dataclass
+from src.core.domain_exceptions import EntityNotFoundException
 
 
 @dataclass
@@ -53,7 +54,7 @@ class ProcessImportJobHandler(BaseHandler):
         # Get job details
         job = await self._job_repo.get_job_by_id(job_id)
         if not job:
-            raise ValueError(f"Job {job_id} not found")
+            raise EntityNotFoundException("Job", job_id)
         
         if job['status'] != 'pending':
             return  # Already processed

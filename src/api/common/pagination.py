@@ -1,36 +1,47 @@
-"""Pagination utilities for API endpoints."""
+"""
+Pagination utilities for API endpoints.
 
-from typing import TypeVar, Generic, List, Callable, Tuple
-from pydantic import BaseModel, Field
-from fastapi import Query, Depends
+DEPRECATED: This module is deprecated in favor of src.core.common.pagination.
+It is maintained for backward compatibility only.
+"""
+
+import warnings
+from typing import Callable
 import functools
+from fastapi import Query
+from pydantic import Field
 
-T = TypeVar('T')
+# Import everything from the new unified pagination module
+from src.core.common.pagination import (
+    PaginationConfig,
+    pagination_config,
+    PaginationParams as _BasePaginationParams,
+    PaginatedResponse,
+    PaginationMixin
+)
+
+# Show deprecation warning
+warnings.warn(
+    "Importing from api.common.pagination is deprecated. "
+    "Use src.core.common.pagination instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 
-class PaginationParams(BaseModel):
+# Extend PaginationParams to work with FastAPI Query
+class PaginationParams(_BasePaginationParams):
     """Standard pagination parameters for list endpoints."""
     offset: int = Field(
         Query(default=0, ge=0),
         description="Number of items to skip"
     )
     limit: int = Field(
-        Query(default=100, ge=1, le=1000),
+        Query(default=pagination_config.DEFAULT_LIMIT, 
+              ge=pagination_config.MIN_LIMIT, 
+              le=pagination_config.MAX_LIMIT),
         description="Number of items to return"
     )
-
-
-class PaginatedResponse(BaseModel, Generic[T]):
-    """Standard paginated response format."""
-    items: List[T]
-    total: int
-    offset: int
-    limit: int
-    has_more: bool
-    
-    class Config:
-        """Pydantic config to allow generic types."""
-        arbitrary_types_allowed = True
 
 
 def paginate(func: Callable) -> Callable:
@@ -85,42 +96,12 @@ def paginate(func: Callable) -> Callable:
     return wrapper
 
 
-class PaginationMixin:
-    """
-    Mixin class for handlers that need pagination support.
-    
-    Usage:
-        class ListDatasetsHandler(BaseHandler, PaginationMixin):
-            async def handle(self, offset: int, limit: int):
-                items = await self._repo.list(offset=offset, limit=limit)
-                total = await self._repo.count()
-                return self.paginate_response(items, total, offset, limit)
-    """
-    
-    @staticmethod
-    def paginate_response(
-        items: List[T],
-        total: int,
-        offset: int,
-        limit: int
-    ) -> PaginatedResponse[T]:
-        """Create a paginated response."""
-        return PaginatedResponse(
-            items=items,
-            total=total,
-            offset=offset,
-            limit=limit,
-            has_more=total > offset + limit
-        )
-    
-    @staticmethod
-    def validate_pagination(offset: int, limit: int) -> Tuple[int, int]:
-        """
-        Validate and normalize pagination parameters.
-        
-        Returns:
-            Tuple of (offset, limit) with validated values
-        """
-        offset = max(0, offset)
-        limit = max(1, min(1000, limit))
-        return offset, limit
+# Re-export everything for backward compatibility
+__all__ = [
+    'PaginationConfig',
+    'pagination_config',
+    'PaginationParams',
+    'PaginatedResponse',
+    'PaginationMixin',
+    'paginate'
+]
