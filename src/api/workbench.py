@@ -9,7 +9,7 @@ from ..core.abstractions.services import IWorkbenchService
 from ..core.abstractions.repositories import ITableReader, IDatasetRepository, IJobRepository, ICommitRepository
 from ..core.authorization import get_current_user_info
 # Custom exception classes will be handled as standard Python exceptions
-from ..models.pydantic_models import CurrentUser
+from ..api.models import CurrentUser
 from ..features.sql_workbench.models.sql_preview import SqlPreviewRequest, SqlPreviewResponse
 from ..features.sql_workbench.models.sql_transform import SqlTransformRequest, SqlTransformResponse
 from ..features.sql_workbench.handlers.preview_sql import PreviewSqlHandler

@@ -8,7 +8,7 @@ from fastapi.responses import StreamingResponse
 import openpyxl
 from openpyxl import Workbook
 
-from ..models.pydantic_models import CurrentUser
+from ..api.models import CurrentUser
 from ..core.authorization import get_current_user_info, require_dataset_read
 from ..core.exceptions import resource_not_found
 from .dependencies import get_uow, get_db_pool

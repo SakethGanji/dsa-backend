@@ -2,16 +2,16 @@ from fastapi import APIRouter, Depends, Query, status
 from uuid import UUID
 from typing import Optional, List
 
-from src.models.pydantic_models import (
+from src.api.models import (
     JobListResponse, JobDetailResponse, JobSummary, JobDetail
 )
-from src.features.jobs.get_jobs import GetJobsHandler
-from src.features.jobs.get_job_by_id import GetJobByIdHandler
+from src.features.jobs.handlers.get_jobs import GetJobsHandler
+from src.features.jobs.handlers.get_job_by_id import GetJobByIdHandler
 from src.core.authorization import get_current_user_info
 from src.core.exceptions import resource_not_found
 from src.api.dependencies import get_uow
 from src.core.abstractions import IUnitOfWork
-from src.models.pydantic_models import CurrentUser
+from src.api.models import CurrentUser
 
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -56,7 +56,7 @@ async def get_jobs(
     # Convert to response model
     jobs = [
         JobSummary(
-            id=job["id"],
+            job_id=job["id"],
             run_type=job["run_type"],
             status=job["status"],
             dataset_id=job["dataset_id"],
@@ -64,6 +64,7 @@ async def get_jobs(
             user_id=job["user_id"],
             user_soeid=job["user_soeid"],
             created_at=job["created_at"],
+            updated_at=job["updated_at"],
             completed_at=job["completed_at"],
             error_message=job["error_message"]
         )
@@ -98,7 +99,7 @@ async def get_job_by_id(
     # Permission check is now handled by the handler using decorators
     
     return JobDetail(
-        id=job["id"],
+        job_id=job["id"],
         run_type=job["run_type"],
         status=job["status"],
         dataset_id=job["dataset_id"],
@@ -110,6 +111,6 @@ async def get_job_by_id(
         output_summary=job["output_summary"],
         error_message=job["error_message"],
         created_at=job["created_at"],
-        completed_at=job["completed_at"],
-        duration_seconds=job["duration_seconds"]
+        updated_at=job.get("updated_at", job["created_at"]),  # Use created_at if updated_at not available
+        completed_at=job["completed_at"]
     )

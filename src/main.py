@@ -124,15 +124,15 @@ app.add_middleware(
 register_error_handlers(app)
 
 # Include routers
-app.include_router(users.router, prefix="/api/v1")
-app.include_router(datasets.router, prefix="/api/v1")
-app.include_router(versioning.router, prefix="/api/v1")
-app.include_router(jobs.router, prefix="/api/v1")
-app.include_router(search.router, prefix="/api/v1")
-app.include_router(sampling.router, prefix="/api/v1")
-app.include_router(exploration.router, prefix="/api/v1")
-app.include_router(workbench.router, prefix="/api/v1")
-app.include_router(downloads.router, prefix="/api/v1")
+app.include_router(users.router, prefix="/api")
+app.include_router(search.router, prefix="/api")  # Must come before datasets to avoid route conflict
+app.include_router(datasets.router, prefix="/api")
+app.include_router(versioning.router, prefix="/api")
+app.include_router(jobs.router, prefix="/api")
+app.include_router(sampling.router, prefix="/api")
+app.include_router(exploration.router, prefix="/api")
+app.include_router(workbench.router, prefix="/api")
+app.include_router(downloads.router, prefix="/api")
 
 
 @app.get("/")

@@ -13,7 +13,7 @@ from ..features.search.models import (
     SearchResponse, 
     SuggestResponse
 )
-from ..models.pydantic_models import CurrentUser
+from ..api.models import CurrentUser
 from ..core.abstractions.uow import IUnitOfWork
 from .dependencies import get_db_pool
 

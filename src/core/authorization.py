@@ -4,7 +4,7 @@ from typing import Dict, Any, Optional
 from fastapi import Depends, HTTPException, status
 from .auth import get_current_user
 from .abstractions import IDatasetRepository
-from ..models.pydantic_models import CurrentUser, PermissionType
+from ..api.models import CurrentUser, PermissionType
 from ..infrastructure.postgres.database import DatabasePool
 from .exceptions import PermissionDeniedError, permission_denied, unauthorized
 

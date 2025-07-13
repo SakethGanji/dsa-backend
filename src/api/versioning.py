@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query, File, UploadFile, Form, status, Path
 from typing import List, Dict, Any, Optional
 
-from src.models.pydantic_models import (
+from src.api.models import (
     CreateCommitRequest, CreateCommitResponse,
     GetDataRequest, GetDataResponse,
     CommitSchemaResponse, QueueImportRequest, QueueImportResponse,
@@ -9,18 +9,18 @@ from src.models.pydantic_models import (
     ListRefsResponse, CreateBranchRequest, CreateBranchResponse,
     TableAnalysisResponse, DatasetOverviewResponse
 )
-from src.features.versioning.create_commit import CreateCommitHandler
-from src.features.versioning.get_data_at_ref import GetDataAtRefHandler
-from src.features.versioning.get_commit_schema import GetCommitSchemaHandler
-from src.features.versioning.get_table_data import (
+from src.features.versioning.handlers.create_commit import CreateCommitHandler
+from src.features.versioning.handlers.get_data_at_ref import GetDataAtRefHandler
+from src.features.versioning.handlers.get_commit_schema import GetCommitSchemaHandler
+from src.features.versioning.handlers.get_table_data import (
     GetTableDataHandler, ListTablesHandler, GetTableSchemaHandler
 )
-from src.features.versioning.get_table_analysis import GetTableAnalysisHandler
-from src.features.versioning.queue_import_job import QueueImportJobHandler
-from src.features.versioning.get_commit_history import GetCommitHistoryHandler
-from src.features.versioning.checkout_commit import CheckoutCommitHandler
-from src.features.versioning.get_dataset_overview import GetDatasetOverviewHandler
-from src.features.refs import ListRefsHandler, CreateBranchHandler, DeleteBranchHandler
+from src.features.versioning.handlers.get_table_analysis import GetTableAnalysisHandler
+from src.features.versioning.handlers.queue_import_job import QueueImportJobHandler
+from src.features.versioning.handlers.get_commit_history import GetCommitHistoryHandler
+from src.features.versioning.handlers.checkout_commit import CheckoutCommitHandler
+from src.features.versioning.handlers.get_dataset_overview import GetDatasetOverviewHandler
+from src.features.refs.handlers import ListRefsHandler, CreateBranchHandler, DeleteBranchHandler
 from src.infrastructure.postgres.database import DatabasePool, UnitOfWorkFactory
 from src.core.authorization import get_current_user_info, PermissionType, require_dataset_read, require_dataset_write
 from src.api.dependencies import get_uow, get_db_pool
@@ -88,7 +88,7 @@ async def get_data_at_ref(
 ):
     """Get paginated data for a ref"""
     handler = GetDataAtRefHandler(uow, uow.table_reader)
-    request = GetDataRequest(table_key=table_key, offset=offset, limit=limit)
+    request = GetDataRequest(sheet_name=table_key, offset=offset, limit=limit)
     return await handler.handle(dataset_id, ref_name, request, current_user.user_id)
 
 
@@ -253,7 +253,7 @@ async def delete_branch(
     _: CurrentUser = Depends(require_dataset_write)
 ):
     """Delete a branch/ref."""
-    from src.features.refs.delete_branch import DeleteBranchCommand, DeleteBranchResponse
+    from src.features.refs.handlers.delete_branch import DeleteBranchCommand, DeleteBranchResponse
     handler = DeleteBranchHandler(uow)
     command = DeleteBranchCommand(
         user_id=current_user.user_id,

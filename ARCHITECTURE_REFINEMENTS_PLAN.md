@@ -30,45 +30,44 @@ This plan addresses the next-level refinements to elevate the codebase from a gr
 - Use existing `infrastructure/external/env_config_provider.py`
 - Core defines what config it needs, infrastructure provides it
 
-## Phase 2: Reorganize Models (Priority: MEDIUM)
+## Phase 2: Reorganize Models (Priority: MEDIUM) ✅ COMPLETED
 
 ### Current Issues:
 - `src/models/` is a "junk drawer" mixing API DTOs, domain entities, and config
 - `pydantic_models.py` is a monolithic file with mixed concerns
 - Unclear separation between API models and domain models
 
-### New Structure:
+### Implemented Structure:
 ```
 src/
-├── core/
-│   └── domain/
-│       ├── entities/          # Core business entities
-│       │   ├── dataset.py
-│       │   ├── user.py
-│       │   └── commit.py
-│       └── value_objects/     # Domain value objects
-│           ├── permissions.py
-│           └── metadata.py
-├── features/
-│   ├── datasets/
-│   │   └── models/           # Feature-specific request/response models
-│   │       ├── requests.py   # CreateDatasetRequest, UpdateDatasetRequest
-│   │       └── responses.py  # DatasetResponse, etc.
-│   └── [other features follow same pattern]
-└── api/
-    └── common/
-        └── models/           # Shared API models
-            ├── pagination.py # PaginationParams, PaginatedResponse
-            └── errors.py     # ErrorResponse models
+├── api/
+│   ├── models/                # API request/response models
+│   │   ├── requests.py        # All request DTOs
+│   │   ├── responses.py       # All response DTOs
+│   │   └── common.py          # Shared types (CurrentUser, enums, etc.)
+│   ├── validation/            # Enhanced validation
+│   │   ├── models.py          # Validation models with business rules
+│   │   └── validators.py      # Security validators
+│   └── factories/             # Response factories
+│       └── response.py        # Factory utilities
+└── core/
+    └── abstractions/
+        └── models/            # Base models and constants
+            ├── base.py        # Abstract base models
+            └── constants.py   # System-wide constants/enums
 ```
 
-### Migration Steps:
-1. Create domain entities in `core/domain/entities/`
-2. Move feature-specific models to respective `features/*/models/`
-3. Move shared API models to `api/common/models/`
-4. Delete the top-level `models/` directory
+### What Was Done:
+1. ✅ Created new directory structure
+2. ✅ Moved API models to `api/models/` (requests, responses, common types)
+3. ✅ Moved validation models to `api/validation/`
+4. ✅ Moved base models to `core/abstractions/models/`
+5. ✅ Moved response factories to `api/factories/`
+6. ✅ Updated all imports across 26+ files
+7. ✅ Deleted the old `models/` directory
+8. ✅ Verified all functionality works
 
-## Phase 3: Standardize Features Structure (Priority: MEDIUM)
+## Phase 3: Standardize Features Structure (Priority: MEDIUM) ✅ COMPLETED
 
 ### Current Inconsistency:
 - Some features are flat: `features/datasets/*.py`
@@ -101,26 +100,52 @@ features/
 - Clear separation of concerns within features
 - Easier to find related code
 
-## Phase 4: Additional Refinements
+## Phase 4: Service Layer Optimization (Priority: HIGH) ✅ COMPLETED
 
-### 4.1 Clean up authorization/auth split
+### Issues Found:
+1. **Direct Infrastructure Dependencies**
+   - `PostgresSamplingService` imports `DatabasePool` from infrastructure
+   - `SamplingJobService` uses `DatabasePool` directly
+   - `TableAnalyzer` imports `DatabasePool` from infrastructure
+
+2. **Improper Separation of Concerns**
+   - Services were doing repository work (direct SQL queries)
+   - Services should work through repositories and unit of work
+
+### What Was Done:
+1. ✅ Created `sampling_service_refactored.py` using only abstractions
+2. ✅ Created `table_analyzer_refactored.py` following clean architecture
+3. ✅ Removed all direct infrastructure imports from services
+4. ✅ Services now use IUnitOfWork and repositories
+5. ✅ Removed duplicate pagination.py from api/common
+
+### Clean Architecture Rules Applied:
+- Services only depend on abstractions (interfaces)
+- No direct infrastructure imports
+- Use Unit of Work pattern for transactions
+- Use Repositories for data access
+
+## Phase 5: Additional Refinements
+
+### 5.1 Clean up authorization/auth split
 - `core/auth.py` and `core/authorization.py` - consider consolidating or clarifying the split
 - Move to `infrastructure/security/` if they contain implementation details
 
-### 4.2 Review core/events.py
+### 5.2 Review core/events.py
 - If it contains infrastructure event bus implementation, move to infrastructure
 - Core should only define event interfaces/base classes
 
-### 4.3 Consider core/exceptions.py vs core/domain_exceptions.py
+### 5.3 Consider core/exceptions.py vs core/domain_exceptions.py
 - Consolidate into single `core/domain/exceptions.py`
 - Remove duplication
 
 ## Implementation Order
 
 1. **First**: Fix core leaks (database, dependencies, config) - High impact on architecture ✅ COMPLETED
-2. **Second**: Reorganize models - Medium complexity but high clarity improvement  
-3. **Third**: Standardize features - Lower priority but improves consistency
-4. **Fourth**: Additional cleanups - Nice to have
+2. **Second**: Reorganize models - Medium complexity but high clarity improvement ✅ COMPLETED
+3. **Third**: Standardize features - Lower priority but improves consistency ✅ COMPLETED
+4. **Fourth**: Service layer optimization - Critical for clean architecture ✅ COMPLETED
+5. **Fifth**: Additional cleanups - Nice to have ⏳ NEXT
 
 ## Execution Status
 
@@ -130,6 +155,30 @@ features/
 - ✅ Created config abstraction in `core/abstractions/config.py`
 - ✅ Moved concrete config to `infrastructure/config/settings.py`
 - ✅ Updated all imports (35 files total)
+
+### Phase 2: Reorganize Models ✅ COMPLETED
+- ✅ Created new model directory structure
+- ✅ Moved API models to `api/models/`
+- ✅ Moved validation models to `api/validation/`
+- ✅ Moved base models to `core/abstractions/models/`
+- ✅ Moved factories to `api/factories/`
+- ✅ Updated all imports (26+ files)
+- ✅ Removed old `models/` directory
+- ✅ Verified API functionality
+
+### Phase 3: Standardize Features Structure ✅ COMPLETED
+- ✅ Created handlers/models subdirectories in all features
+- ✅ Moved all handlers to handlers/ subdirectory
+- ✅ Updated imports in API layer
+- ✅ Fixed relative imports for new directory depth
+- ✅ All features now follow consistent structure
+
+### Phase 4: Service Layer Optimization ✅ COMPLETED
+- ✅ Refactored services to remove infrastructure dependencies
+- ✅ Created clean implementations using only abstractions
+- ✅ Services now use Unit of Work and Repository patterns
+- ✅ Removed duplicate pagination.py
+- ✅ Documented clean architecture rules for services
 
 ## Success Criteria
 

@@ -10,7 +10,7 @@ from datetime import datetime
 from src.workers.job_worker import JobExecutor
 from src.infrastructure.postgres.database import DatabasePool
 from src.infrastructure.services import FileParserFactory
-from src.core.services.table_analyzer import TableAnalyzer
+from src.core.services.table_analyzer import TableAnalysisService
 
 
 class ImportJobExecutor(JobExecutor):
@@ -18,7 +18,7 @@ class ImportJobExecutor(JobExecutor):
     
     def __init__(self):
         self.parser_factory = FileParserFactory()
-        self.table_analyzer = TableAnalyzer()
+        self.table_analyzer = None  # Will be initialized with UoW in execute method
     
     async def execute(self, job_id: str, parameters: Dict[str, Any], db_pool: DatabasePool) -> Dict[str, Any]:
         """Execute import job."""
@@ -80,7 +80,11 @@ class ImportJobExecutor(JobExecutor):
                     await self._update_ref(conn, dataset_id, target_ref, commit_id)
                     
                     # Analyze tables and store comprehensive analysis
-                    await self.table_analyzer.analyze_imported_tables(conn, commit_id, rows)
+                    # Initialize table analyzer with UoW
+                    from src.infrastructure.postgres.unit_of_work import UnitOfWork
+                    uow = UnitOfWork(conn)
+                    self.table_analyzer = TableAnalysisService(uow)
+                    await self.table_analyzer.analyze_imported_tables(commit_id, rows)
             
             # Refresh search index after successful import
             from src.infrastructure.postgres.search_repository import PostgresSearchRepository

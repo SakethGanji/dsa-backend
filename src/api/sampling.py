@@ -12,13 +12,13 @@ import csv
 from ..infrastructure.postgres.database import DatabasePool, UnitOfWorkFactory
 from ..core.abstractions.uow import IUnitOfWork
 from ..core.abstractions.services import SamplingMethod, SampleConfig
-from ..core.services.sampling_service import PostgresSamplingService, SamplingJobService
+from ..core.services.sampling_service import SamplingService, SamplingJobManager
 from ..infrastructure.postgres.table_reader import PostgresTableReader
 from ..core.authorization import get_current_user_info, require_dataset_read
 from ..core.exceptions import resource_not_found
 from ..core.domain_exceptions import ValidationException
-from ..models.pydantic_models import CurrentUser
-from ..features.sampling import (
+from ..api.models import CurrentUser
+from ..features.sampling.handlers import (
     GetSamplingJobDataHandler,
     GetDatasetSamplingHistoryHandler,
     GetUserSamplingHistoryHandler
@@ -224,7 +224,7 @@ async def create_sampling_job(
         job_params['rounds'].append(round_params)
     
     # Create job
-    job_service = SamplingJobService(pool)
+    job_service = SamplingJobManager(uow)
     job_id = await job_service.create_sampling_job(
         dataset_id=dataset_id,
         source_commit_id=source_commit_id,
@@ -271,8 +271,8 @@ async def sample_data_direct(
     )
     
     # Perform sampling
-    table_reader = PostgresTableReader(uow.connection)
-    sampling_service = PostgresSamplingService(pool)
+    table_reader = uow.table_reader
+    sampling_service = SamplingService(uow)
     
     result = await sampling_service.sample(
         table_reader, commit_id, table_key, config
@@ -353,7 +353,7 @@ async def get_sampling_methods(
     # Permission check will be handled by the handler/service
     
     # Return available methods
-    sampling_service = PostgresSamplingService(pool)
+    sampling_service = SamplingService(uow)
     methods = sampling_service.list_available_methods()
     
     return {

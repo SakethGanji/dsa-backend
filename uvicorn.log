@@ -1,301 +1,52 @@
 INFO:     Will watch for changes in these directories: ['/home/saketh/Projects/dsa']
 INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-INFO:     Started reloader process [19416] using WatchFiles
-/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_fields.py:198: UserWarning: Field name "app_name" in "Settings" shadows an attribute in parent "ISettings"
-  warnings.warn(
-/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_fields.py:198: UserWarning: Field name "version" in "Settings" shadows an attribute in parent "ISettings"
-  warnings.warn(
-/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_fields.py:198: UserWarning: Field name "debug" in "Settings" shadows an attribute in parent "ISettings"
-  warnings.warn(
-/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_fields.py:198: UserWarning: Field name "database_url" in "Settings" shadows an attribute in parent "ISettings"
-  warnings.warn(
-/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_fields.py:198: UserWarning: Field name "db_pool_min_size" in "Settings" shadows an attribute in parent "ISettings"
-  warnings.warn(
-/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_fields.py:198: UserWarning: Field name "db_pool_max_size" in "Settings" shadows an attribute in parent "ISettings"
-  warnings.warn(
-/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_fields.py:198: UserWarning: Field name "secret_key" in "Settings" shadows an attribute in parent "ISettings"
-  warnings.warn(
-/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_fields.py:198: UserWarning: Field name "algorithm" in "Settings" shadows an attribute in parent "ISettings"
-  warnings.warn(
-/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_fields.py:198: UserWarning: Field name "access_token_expire_minutes" in "Settings" shadows an attribute in parent "ISettings"
-  warnings.warn(
-/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_fields.py:198: UserWarning: Field name "cors_origins" in "Settings" shadows an attribute in parent "ISettings"
-  warnings.warn(
-/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_fields.py:198: UserWarning: Field name "upload_dir" in "Settings" shadows an attribute in parent "ISettings"
-  warnings.warn(
-/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_fields.py:198: UserWarning: Field name "max_upload_size" in "Settings" shadows an attribute in parent "ISettings"
-  warnings.warn(
-/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_fields.py:198: UserWarning: Field name "import_batch_size" in "Settings" shadows an attribute in parent "ISettings"
-  warnings.warn(
-/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
-* 'allow_population_by_field_name' has been renamed to 'validate_by_name'
-  warnings.warn(message, UserWarning)
-/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
-* 'schema_extra' has been renamed to 'json_schema_extra'
-  warnings.warn(message, UserWarning)
-INFO:src.api.error_handlers:Error handlers registered successfully
-INFO:     Started server process [19419]
-INFO:     Waiting for application startup.
-INFO:src.main:Starting DSA Platform...
-ERROR:    Traceback (most recent call last):
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 692, in lifespan
-    async with self.lifespan_context(app) as maybe_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/Projects/dsa/src/main.py", line 52, in lifespan
-    await db_pool.initialize()
-  File "/home/saketh/Projects/dsa/src/infrastructure/postgres/database.py", line 22, in initialize
-    self._pool = await asyncpg.create_pool(
-  File "/home/saketh/.local/lib/python3.10/site-packages/asyncpg/pool.py", line 418, in _async__init__
-    await self._initialize()
-  File "/home/saketh/.local/lib/python3.10/site-packages/asyncpg/pool.py", line 445, in _initialize
-    await first_ch.connect()
-  File "/home/saketh/.local/lib/python3.10/site-packages/asyncpg/pool.py", line 132, in connect
-    self._con = await self._pool._get_new_connection()
-  File "/home/saketh/.local/lib/python3.10/site-packages/asyncpg/pool.py", line 517, in _get_new_connection
-    con = await self._connect(
-  File "/home/saketh/.local/lib/python3.10/site-packages/asyncpg/connection.py", line 2421, in connect
-    return await connect_utils._connect(
-  File "/home/saketh/.local/lib/python3.10/site-packages/asyncpg/connect_utils.py", line 1049, in _connect
-    conn = await _connect_addr(
-  File "/home/saketh/.local/lib/python3.10/site-packages/asyncpg/connect_utils.py", line 886, in _connect_addr
-    return await __connect_addr(params, True, *args)
-  File "/home/saketh/.local/lib/python3.10/site-packages/asyncpg/connect_utils.py", line 934, in __connect_addr
-    await connected
-asyncpg.exceptions.InvalidPasswordError: password authentication failed for user "saketh"
-
-ERROR:    Application startup failed. Exiting.
-[1;34mUpgrade to ydata-sdk[0m
-Improve your data and profiling with ydata-sdk, featuring data quality scoring, redundancy detection, outlier identification, text validation, and synthetic data generation.
-Register at https://ydata.ai/register
-WARNING:  WatchFiles detected changes in 'src/infrastructure/config/settings.py'. Reloading...
-/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
-* 'allow_population_by_field_name' has been renamed to 'validate_by_name'
-  warnings.warn(message, UserWarning)
+INFO:     Started reloader process [33962] using WatchFiles
+Process SpawnProcess-1:
+Traceback (most recent call last):
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 314, in _bootstrap
+    self.run()
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/_subprocess.py", line 80, in subprocess_started
+    target(sockets=sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 66, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "/usr/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 70, in serve
+    await self._serve(sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 77, in _serve
+    config.load()
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/config.py", line 435, in load
+    self.loaded_app = import_from_string(self.app)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/importer.py", line 22, in import_from_string
+    raise exc from None
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "/usr/lib/python3.10/importlib/__init__.py", line 126, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "<frozen importlib._bootstrap>", line 1050, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1027, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1006, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 688, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 883, in exec_module
+  File "<frozen importlib._bootstrap>", line 241, in _call_with_frames_removed
+  File "/home/saketh/Projects/dsa/src/main.py", line 23, in <module>
+    from .api import users, datasets, versioning, jobs, search, sampling, exploration, workbench, downloads
+  File "/home/saketh/Projects/dsa/src/api/versioning.py", line 23, in <module>
+    from src.features.refs.handlers import ListRefsHandler, CreateBranchHandler, DeleteBranchHandler
+  File "/home/saketh/Projects/dsa/src/features/refs/handlers/__init__.py", line 3, in <module>
+    from .list_refs import ListRefsHandler
+  File "/home/saketh/Projects/dsa/src/features/refs/handlers/list_refs.py", line 6, in <module>
+    from ..base_handler import BaseHandler, with_error_handling
+ModuleNotFoundError: No module named 'src.features.refs.base_handler'
+WARNING:  WatchFiles detected changes in 'src/features/datasets/handlers/update_dataset.py', 'src/features/sampling/handlers/get_job_data.py', 'src/features/users/handlers/login_user.py', 'src/features/search/handlers/suggest_handler.py', 'src/features/versioning/handlers/get_table_analysis.py', 'src/features/versioning/handlers/get_commit_history.py', 'src/features/search/handlers/refresh_search_index_handler.py', 'src/features/versioning/handlers/queue_import_job.py', 'src/features/users/handlers/__init__.py', 'src/features/jobs/handlers/cancel_job.py', 'src/features/sql_workbench/handlers/preview_sql.py', 'src/features/refs/handlers/delete_branch.py', 'src/features/search/handlers/__init__.py', 'src/features/refs/handlers/__init__.py', 'src/features/jobs/handlers/get_jobs.py', 'src/features/versioning/handlers/get_dataset_overview.py', 'src/features/jobs/handlers/get_job_status.py', 'src/features/datasets/handlers/grant_permission.py', 'src/features/versioning/handlers/__init__.py', 'src/features/users/handlers/create_user.py', 'src/features/versioning/handlers/get_commit_schema.py', 'src/features/versioning/handlers/checkout_commit.py', 'src/features/users/handlers/update_user.py', 'src/features/jobs/handlers/process_import_job.py', 'src/features/sampling/handlers/get_sampling_history.py', 'src/features/users/handlers/delete_user.py', 'src/features/versioning/handlers/get_data_at_ref.py', 'src/features/sql_workbench/handlers/__init__.py', 'src/features/jobs/handlers/__init__.py', 'src/features/refs/handlers/list_refs.py', 'src/features/datasets/handlers/delete_dataset.py', 'src/features/sql_workbench/handlers/transform_sql.py', 'src/features/versioning/handlers/create_commit.py', 'src/features/datasets/handlers/list_datasets.py', 'src/features/sampling/handlers/__init__.py', 'src/features/datasets/handlers/create_dataset.py', 'src/features/versioning/handlers/get_table_data.py', 'src/features/refs/handlers/create_branch.py', 'src/features/users/handlers/list_users.py', 'src/features/jobs/handlers/get_job_by_id.py', 'src/features/versioning/handlers/queue_import_job_optimized.py', 'src/features/datasets/handlers/create_dataset_with_file.py', 'src/features/search/handlers/search_datasets_handler.py', 'src/features/jobs/handlers/create_job.py', 'src/features/datasets/handlers/__init__.py'. Reloading...
 /home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
 * 'schema_extra' has been renamed to 'json_schema_extra'
   warnings.warn(message, UserWarning)
 INFO:src.api.error_handlers:Error handlers registered successfully
-INFO:     Started server process [19525]
-INFO:     Waiting for application startup.
-INFO:src.main:Starting DSA Platform...
-INFO:src.main:Database pool initialized
-ERROR:    Traceback (most recent call last):
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 692, in lifespan
-    async with self.lifespan_context(app) as maybe_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/Projects/dsa/src/main.py", line 62, in lifespan
-    'import': ImportJobExecutor(db_pool),
-TypeError: ImportJobExecutor.__init__() takes 1 positional argument but 2 were given
-
-ERROR:    Application startup failed. Exiting.
-[1;34mUpgrade to ydata-sdk[0m
-Improve your data and profiling with ydata-sdk, featuring data quality scoring, redundancy detection, outlier identification, text validation, and synthetic data generation.
-Register at https://ydata.ai/register
-WARNING:  WatchFiles detected changes in 'src/main.py'. Reloading...
-/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
-* 'allow_population_by_field_name' has been renamed to 'validate_by_name'
-  warnings.warn(message, UserWarning)
-/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
-* 'schema_extra' has been renamed to 'json_schema_extra'
-  warnings.warn(message, UserWarning)
-INFO:src.api.error_handlers:Error handlers registered successfully
-INFO:     Started server process [19633]
-INFO:     Waiting for application startup.
-INFO:src.main:Starting DSA Platform...
-INFO:src.main:Database pool initialized
-ERROR:    Traceback (most recent call last):
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 692, in lifespan
-    async with self.lifespan_context(app) as maybe_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/Projects/dsa/src/main.py", line 64, in lifespan
-    'exploration': ExplorationExecutor(),
-TypeError: ExplorationExecutor.__init__() missing 1 required positional argument: 'pool'
-
-ERROR:    Application startup failed. Exiting.
-[1;34mUpgrade to ydata-sdk[0m
-Improve your data and profiling with ydata-sdk, featuring data quality scoring, redundancy detection, outlier identification, text validation, and synthetic data generation.
-Register at https://ydata.ai/register
-WARNING:  WatchFiles detected changes in 'src/main.py'. Reloading...
-/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
-* 'allow_population_by_field_name' has been renamed to 'validate_by_name'
-  warnings.warn(message, UserWarning)
-/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
-* 'schema_extra' has been renamed to 'json_schema_extra'
-  warnings.warn(message, UserWarning)
-INFO:src.api.error_handlers:Error handlers registered successfully
-INFO:     Started server process [19782]
-INFO:     Waiting for application startup.
-INFO:src.main:Starting DSA Platform...
-INFO:src.main:Database pool initialized
-ERROR:    Traceback (most recent call last):
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 692, in lifespan
-    async with self.lifespan_context(app) as maybe_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 133, in merged_lifespan
-    async with original_context(app) as maybe_original_state:
-  File "/usr/lib/python3.10/contextlib.py", line 199, in __aenter__
-    return await anext(self.gen)
-  File "/home/saketh/Projects/dsa/src/main.py", line 68, in lifespan
-    worker = JobWorker(db_pool, executors)
-TypeError: JobWorker.__init__() takes 2 positional arguments but 3 were given
-
-ERROR:    Application startup failed. Exiting.
-[1;34mUpgrade to ydata-sdk[0m
-Improve your data and profiling with ydata-sdk, featuring data quality scoring, redundancy detection, outlier identification, text validation, and synthetic data generation.
-Register at https://ydata.ai/register
-WARNING:  WatchFiles detected changes in 'src/main.py'. Reloading...
-/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
-* 'allow_population_by_field_name' has been renamed to 'validate_by_name'
-  warnings.warn(message, UserWarning)
-/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
-* 'schema_extra' has been renamed to 'json_schema_extra'
-  warnings.warn(message, UserWarning)
-INFO:src.api.error_handlers:Error handlers registered successfully
-INFO:     Started server process [19928]
+INFO:     Started server process [34055]
 INFO:     Waiting for application startup.
 INFO:src.main:Starting DSA Platform...
 INFO:src.main:Database pool initialized
@@ -306,563 +57,19 @@ INFO:src.workers.job_worker:Registered executor for job type: sql_transform
 INFO:src.main:Job worker started
 INFO:src.workers.job_worker:Starting job worker...
 INFO:     Application startup complete.
-[1;34mUpgrade to ydata-sdk[0m
-Improve your data and profiling with ydata-sdk, featuring data quality scoring, redundancy detection, outlier identification, text validation, and synthetic data generation.
-Register at https://ydata.ai/register
-INFO:     127.0.0.1:52694 - "GET / HTTP/1.1" 200 OK
-INFO:     127.0.0.1:33582 - "POST /api/v1/users/login HTTP/1.1" 200 OK
-INFO:     127.0.0.1:39514 - "GET /api/v1/datasets HTTP/1.1" 307 Temporary Redirect
-ERROR:src.api.error_handlers:Unexpected error handling request 5ce14735-56ef-4eae-8fc9-44494b9bc896: Database pool not configured
-  + Exception Group Traceback (most recent call last):
-  |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_utils.py", line 76, in collapse_excgroups
-  |     yield
-  |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 177, in __call__
-  |     async with anyio.create_task_group() as task_group:
-  |   File "/home/saketh/.local/lib/python3.10/site-packages/anyio/_backends/_asyncio.py", line 772, in __aexit__
-  |     raise BaseExceptionGroup(
-  | exceptiongroup.ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
-  +-+---------------- 1 ----------------
-    | Traceback (most recent call last):
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/errors.py", line 165, in __call__
-    |     await self.app(scope, receive, _send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 176, in __call__
-    |     with recv_stream, send_stream, collapse_excgroups():
-    |   File "/usr/lib/python3.10/contextlib.py", line 153, in __exit__
-    |     self.gen.throw(typ, value, traceback)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_utils.py", line 82, in collapse_excgroups
-    |     raise exc
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 178, in __call__
-    |     response = await self.dispatch_func(request, call_next)
-    |   File "/home/saketh/Projects/dsa/src/main.py", line 148, in add_request_id
-    |     response = await call_next(request)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 156, in call_next
-    |     raise app_exc
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 141, in coro
-    |     await self.app(scope, receive_or_disconnect, send_no_error)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/cors.py", line 85, in __call__
-    |     await self.app(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/exceptions.py", line 62, in __call__
-    |     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
-    |     raise exc
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
-    |     await app(scope, receive, sender)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 714, in __call__
-    |     await self.middleware_stack(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 734, in app
-    |     await route.handle(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 288, in handle
-    |     await self.app(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 76, in app
-    |     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
-    |     raise exc
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
-    |     await app(scope, receive, sender)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 73, in app
-    |     response = await f(request)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 291, in app
-    |     solved_result = await solve_dependencies(
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/dependencies/utils.py", line 615, in solve_dependencies
-    |     solved_result = await solve_dependencies(
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/dependencies/utils.py", line 640, in solve_dependencies
-    |     solved = await run_in_threadpool(call, **solved_result.values)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/concurrency.py", line 37, in run_in_threadpool
-    |     return await anyio.to_thread.run_sync(func)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/anyio/to_thread.py", line 56, in run_sync
-    |     return await get_async_backend().run_sync_in_worker_thread(
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/anyio/_backends/_asyncio.py", line 2470, in run_sync_in_worker_thread
-    |     return await future
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/anyio/_backends/_asyncio.py", line 967, in run
-    |     result = context.run(func, *args)
-    |   File "/home/saketh/Projects/dsa/src/core/authorization.py", line 15, in get_db_pool
-    |     raise NotImplementedError("Database pool not configured")
-    | NotImplementedError: Database pool not configured
-    +------------------------------------
-
-During handling of the above exception, another exception occurred:
-
-Traceback (most recent call last):
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/errors.py", line 165, in __call__
-    await self.app(scope, receive, _send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 176, in __call__
-    with recv_stream, send_stream, collapse_excgroups():
-  File "/usr/lib/python3.10/contextlib.py", line 153, in __exit__
-    self.gen.throw(typ, value, traceback)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_utils.py", line 82, in collapse_excgroups
-    raise exc
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 178, in __call__
-    response = await self.dispatch_func(request, call_next)
-  File "/home/saketh/Projects/dsa/src/main.py", line 148, in add_request_id
-    response = await call_next(request)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 156, in call_next
-    raise app_exc
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 141, in coro
-    await self.app(scope, receive_or_disconnect, send_no_error)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/cors.py", line 85, in __call__
-    await self.app(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/exceptions.py", line 62, in __call__
-    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 714, in __call__
-    await self.middleware_stack(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 734, in app
-    await route.handle(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 288, in handle
-    await self.app(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 76, in app
-    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 73, in app
-    response = await f(request)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 291, in app
-    solved_result = await solve_dependencies(
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/dependencies/utils.py", line 615, in solve_dependencies
-    solved_result = await solve_dependencies(
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/dependencies/utils.py", line 640, in solve_dependencies
-    solved = await run_in_threadpool(call, **solved_result.values)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/concurrency.py", line 37, in run_in_threadpool
-    return await anyio.to_thread.run_sync(func)
-  File "/home/saketh/.local/lib/python3.10/site-packages/anyio/to_thread.py", line 56, in run_sync
-    return await get_async_backend().run_sync_in_worker_thread(
-  File "/home/saketh/.local/lib/python3.10/site-packages/anyio/_backends/_asyncio.py", line 2470, in run_sync_in_worker_thread
-    return await future
-  File "/home/saketh/.local/lib/python3.10/site-packages/anyio/_backends/_asyncio.py", line 967, in run
-    result = context.run(func, *args)
-  File "/home/saketh/Projects/dsa/src/core/authorization.py", line 15, in get_db_pool
-    raise NotImplementedError("Database pool not configured")
-NotImplementedError: Database pool not configured
-INFO:     127.0.0.1:60942 - "GET /api/v1/datasets/ HTTP/1.1" 500 Internal Server Error
-ERROR:    Exception in ASGI application
-  + Exception Group Traceback (most recent call last):
-  |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_utils.py", line 76, in collapse_excgroups
-  |     yield
-  |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 177, in __call__
-  |     async with anyio.create_task_group() as task_group:
-  |   File "/home/saketh/.local/lib/python3.10/site-packages/anyio/_backends/_asyncio.py", line 772, in __aexit__
-  |     raise BaseExceptionGroup(
-  | exceptiongroup.ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
-  +-+---------------- 1 ----------------
-    | Traceback (most recent call last):
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/protocols/http/httptools_impl.py", line 409, in run_asgi
-    |     result = await app(  # type: ignore[func-returns-value]
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/middleware/proxy_headers.py", line 60, in __call__
-    |     return await self.app(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/applications.py", line 1054, in __call__
-    |     await super().__call__(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/applications.py", line 112, in __call__
-    |     await self.middleware_stack(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/errors.py", line 187, in __call__
-    |     raise exc
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/errors.py", line 165, in __call__
-    |     await self.app(scope, receive, _send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 176, in __call__
-    |     with recv_stream, send_stream, collapse_excgroups():
-    |   File "/usr/lib/python3.10/contextlib.py", line 153, in __exit__
-    |     self.gen.throw(typ, value, traceback)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_utils.py", line 82, in collapse_excgroups
-    |     raise exc
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 178, in __call__
-    |     response = await self.dispatch_func(request, call_next)
-    |   File "/home/saketh/Projects/dsa/src/main.py", line 148, in add_request_id
-    |     response = await call_next(request)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 156, in call_next
-    |     raise app_exc
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 141, in coro
-    |     await self.app(scope, receive_or_disconnect, send_no_error)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/cors.py", line 85, in __call__
-    |     await self.app(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/exceptions.py", line 62, in __call__
-    |     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
-    |     raise exc
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
-    |     await app(scope, receive, sender)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 714, in __call__
-    |     await self.middleware_stack(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 734, in app
-    |     await route.handle(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 288, in handle
-    |     await self.app(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 76, in app
-    |     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
-    |     raise exc
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
-    |     await app(scope, receive, sender)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 73, in app
-    |     response = await f(request)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 291, in app
-    |     solved_result = await solve_dependencies(
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/dependencies/utils.py", line 615, in solve_dependencies
-    |     solved_result = await solve_dependencies(
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/dependencies/utils.py", line 640, in solve_dependencies
-    |     solved = await run_in_threadpool(call, **solved_result.values)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/concurrency.py", line 37, in run_in_threadpool
-    |     return await anyio.to_thread.run_sync(func)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/anyio/to_thread.py", line 56, in run_sync
-    |     return await get_async_backend().run_sync_in_worker_thread(
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/anyio/_backends/_asyncio.py", line 2470, in run_sync_in_worker_thread
-    |     return await future
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/anyio/_backends/_asyncio.py", line 967, in run
-    |     result = context.run(func, *args)
-    |   File "/home/saketh/Projects/dsa/src/core/authorization.py", line 15, in get_db_pool
-    |     raise NotImplementedError("Database pool not configured")
-    | NotImplementedError: Database pool not configured
-    +------------------------------------
-
-During handling of the above exception, another exception occurred:
-
-Traceback (most recent call last):
-  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/protocols/http/httptools_impl.py", line 409, in run_asgi
-    result = await app(  # type: ignore[func-returns-value]
-  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/middleware/proxy_headers.py", line 60, in __call__
-    return await self.app(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/applications.py", line 1054, in __call__
-    await super().__call__(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/applications.py", line 112, in __call__
-    await self.middleware_stack(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/errors.py", line 187, in __call__
-    raise exc
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/errors.py", line 165, in __call__
-    await self.app(scope, receive, _send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 176, in __call__
-    with recv_stream, send_stream, collapse_excgroups():
-  File "/usr/lib/python3.10/contextlib.py", line 153, in __exit__
-    self.gen.throw(typ, value, traceback)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_utils.py", line 82, in collapse_excgroups
-    raise exc
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 178, in __call__
-    response = await self.dispatch_func(request, call_next)
-  File "/home/saketh/Projects/dsa/src/main.py", line 148, in add_request_id
-    response = await call_next(request)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 156, in call_next
-    raise app_exc
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 141, in coro
-    await self.app(scope, receive_or_disconnect, send_no_error)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/cors.py", line 85, in __call__
-    await self.app(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/exceptions.py", line 62, in __call__
-    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 714, in __call__
-    await self.middleware_stack(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 734, in app
-    await route.handle(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 288, in handle
-    await self.app(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 76, in app
-    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 73, in app
-    response = await f(request)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 291, in app
-    solved_result = await solve_dependencies(
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/dependencies/utils.py", line 615, in solve_dependencies
-    solved_result = await solve_dependencies(
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/dependencies/utils.py", line 640, in solve_dependencies
-    solved = await run_in_threadpool(call, **solved_result.values)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/concurrency.py", line 37, in run_in_threadpool
-    return await anyio.to_thread.run_sync(func)
-  File "/home/saketh/.local/lib/python3.10/site-packages/anyio/to_thread.py", line 56, in run_sync
-    return await get_async_backend().run_sync_in_worker_thread(
-  File "/home/saketh/.local/lib/python3.10/site-packages/anyio/_backends/_asyncio.py", line 2470, in run_sync_in_worker_thread
-    return await future
-  File "/home/saketh/.local/lib/python3.10/site-packages/anyio/_backends/_asyncio.py", line 967, in run
-    result = context.run(func, *args)
-  File "/home/saketh/Projects/dsa/src/core/authorization.py", line 15, in get_db_pool
-    raise NotImplementedError("Database pool not configured")
-NotImplementedError: Database pool not configured
-WARNING:  WatchFiles detected changes in 'src/core/authorization.py'. Reloading...
+WARNING:  WatchFiles detected changes in 'src/features/refs/handlers/__init__.py'. Reloading...
 INFO:     Shutting down
 INFO:     Waiting for application shutdown.
 INFO:src.main:Shutting down DSA Platform...
 INFO:src.workers.job_worker:Stopping job worker...
 INFO:src.main:Shutdown complete
 INFO:     Application shutdown complete.
-INFO:     Finished server process [19928]
-/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
-* 'allow_population_by_field_name' has been renamed to 'validate_by_name'
-  warnings.warn(message, UserWarning)
+INFO:     Finished server process [34055]
 /home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
 * 'schema_extra' has been renamed to 'json_schema_extra'
   warnings.warn(message, UserWarning)
 INFO:src.api.error_handlers:Error handlers registered successfully
-INFO:     Started server process [20067]
-INFO:     Waiting for application startup.
-INFO:src.main:Starting DSA Platform...
-INFO:src.main:Database pool initialized
-INFO:src.workers.job_worker:Registered executor for job type: import
-INFO:src.workers.job_worker:Registered executor for job type: sampling
-INFO:src.workers.job_worker:Registered executor for job type: exploration
-INFO:src.workers.job_worker:Registered executor for job type: sql_transform
-INFO:src.main:Job worker started
-INFO:src.workers.job_worker:Starting job worker...
-INFO:     Application startup complete.
-ERROR:src.api.error_handlers:Unexpected error handling request 41f8b3d7-8789-46e1-8d96-f4aaf9fed992: No module named 'src.core.infrastructure'
-  + Exception Group Traceback (most recent call last):
-  |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_utils.py", line 76, in collapse_excgroups
-  |     yield
-  |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 177, in __call__
-  |     async with anyio.create_task_group() as task_group:
-  |   File "/home/saketh/.local/lib/python3.10/site-packages/anyio/_backends/_asyncio.py", line 772, in __aexit__
-  |     raise BaseExceptionGroup(
-  | exceptiongroup.ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
-  +-+---------------- 1 ----------------
-    | Traceback (most recent call last):
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/errors.py", line 165, in __call__
-    |     await self.app(scope, receive, _send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 176, in __call__
-    |     with recv_stream, send_stream, collapse_excgroups():
-    |   File "/usr/lib/python3.10/contextlib.py", line 153, in __exit__
-    |     self.gen.throw(typ, value, traceback)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_utils.py", line 82, in collapse_excgroups
-    |     raise exc
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 178, in __call__
-    |     response = await self.dispatch_func(request, call_next)
-    |   File "/home/saketh/Projects/dsa/src/main.py", line 148, in add_request_id
-    |     response = await call_next(request)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 156, in call_next
-    |     raise app_exc
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 141, in coro
-    |     await self.app(scope, receive_or_disconnect, send_no_error)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/cors.py", line 85, in __call__
-    |     await self.app(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/exceptions.py", line 62, in __call__
-    |     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
-    |     raise exc
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
-    |     await app(scope, receive, sender)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 714, in __call__
-    |     await self.middleware_stack(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 734, in app
-    |     await route.handle(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 288, in handle
-    |     await self.app(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 76, in app
-    |     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
-    |     raise exc
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
-    |     await app(scope, receive, sender)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 73, in app
-    |     response = await f(request)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 291, in app
-    |     solved_result = await solve_dependencies(
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/dependencies/utils.py", line 638, in solve_dependencies
-    |     solved = await call(**solved_result.values)
-    |   File "/home/saketh/Projects/dsa/src/core/authorization.py", line 29, in get_current_user_info
-    |     from .infrastructure.postgres import PostgresUserRepository
-    | ModuleNotFoundError: No module named 'src.core.infrastructure'
-    +------------------------------------
-
-During handling of the above exception, another exception occurred:
-
-Traceback (most recent call last):
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/errors.py", line 165, in __call__
-    await self.app(scope, receive, _send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 176, in __call__
-    with recv_stream, send_stream, collapse_excgroups():
-  File "/usr/lib/python3.10/contextlib.py", line 153, in __exit__
-    self.gen.throw(typ, value, traceback)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_utils.py", line 82, in collapse_excgroups
-    raise exc
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 178, in __call__
-    response = await self.dispatch_func(request, call_next)
-  File "/home/saketh/Projects/dsa/src/main.py", line 148, in add_request_id
-    response = await call_next(request)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 156, in call_next
-    raise app_exc
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 141, in coro
-    await self.app(scope, receive_or_disconnect, send_no_error)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/cors.py", line 85, in __call__
-    await self.app(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/exceptions.py", line 62, in __call__
-    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 714, in __call__
-    await self.middleware_stack(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 734, in app
-    await route.handle(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 288, in handle
-    await self.app(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 76, in app
-    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 73, in app
-    response = await f(request)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 291, in app
-    solved_result = await solve_dependencies(
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/dependencies/utils.py", line 638, in solve_dependencies
-    solved = await call(**solved_result.values)
-  File "/home/saketh/Projects/dsa/src/core/authorization.py", line 29, in get_current_user_info
-    from .infrastructure.postgres import PostgresUserRepository
-ModuleNotFoundError: No module named 'src.core.infrastructure'
-[1;34mUpgrade to ydata-sdk[0m
-Improve your data and profiling with ydata-sdk, featuring data quality scoring, redundancy detection, outlier identification, text validation, and synthetic data generation.
-Register at https://ydata.ai/register
-INFO:     127.0.0.1:52630 - "GET /api/v1/datasets/ HTTP/1.1" 500 Internal Server Error
-ERROR:    Exception in ASGI application
-  + Exception Group Traceback (most recent call last):
-  |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_utils.py", line 76, in collapse_excgroups
-  |     yield
-  |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 177, in __call__
-  |     async with anyio.create_task_group() as task_group:
-  |   File "/home/saketh/.local/lib/python3.10/site-packages/anyio/_backends/_asyncio.py", line 772, in __aexit__
-  |     raise BaseExceptionGroup(
-  | exceptiongroup.ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
-  +-+---------------- 1 ----------------
-    | Traceback (most recent call last):
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/protocols/http/httptools_impl.py", line 409, in run_asgi
-    |     result = await app(  # type: ignore[func-returns-value]
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/middleware/proxy_headers.py", line 60, in __call__
-    |     return await self.app(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/applications.py", line 1054, in __call__
-    |     await super().__call__(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/applications.py", line 112, in __call__
-    |     await self.middleware_stack(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/errors.py", line 187, in __call__
-    |     raise exc
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/errors.py", line 165, in __call__
-    |     await self.app(scope, receive, _send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 176, in __call__
-    |     with recv_stream, send_stream, collapse_excgroups():
-    |   File "/usr/lib/python3.10/contextlib.py", line 153, in __exit__
-    |     self.gen.throw(typ, value, traceback)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_utils.py", line 82, in collapse_excgroups
-    |     raise exc
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 178, in __call__
-    |     response = await self.dispatch_func(request, call_next)
-    |   File "/home/saketh/Projects/dsa/src/main.py", line 148, in add_request_id
-    |     response = await call_next(request)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 156, in call_next
-    |     raise app_exc
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 141, in coro
-    |     await self.app(scope, receive_or_disconnect, send_no_error)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/cors.py", line 85, in __call__
-    |     await self.app(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/exceptions.py", line 62, in __call__
-    |     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
-    |     raise exc
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
-    |     await app(scope, receive, sender)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 714, in __call__
-    |     await self.middleware_stack(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 734, in app
-    |     await route.handle(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 288, in handle
-    |     await self.app(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 76, in app
-    |     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
-    |     raise exc
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
-    |     await app(scope, receive, sender)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 73, in app
-    |     response = await f(request)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 291, in app
-    |     solved_result = await solve_dependencies(
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/dependencies/utils.py", line 638, in solve_dependencies
-    |     solved = await call(**solved_result.values)
-    |   File "/home/saketh/Projects/dsa/src/core/authorization.py", line 29, in get_current_user_info
-    |     from .infrastructure.postgres import PostgresUserRepository
-    | ModuleNotFoundError: No module named 'src.core.infrastructure'
-    +------------------------------------
-
-During handling of the above exception, another exception occurred:
-
-Traceback (most recent call last):
-  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/protocols/http/httptools_impl.py", line 409, in run_asgi
-    result = await app(  # type: ignore[func-returns-value]
-  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/middleware/proxy_headers.py", line 60, in __call__
-    return await self.app(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/applications.py", line 1054, in __call__
-    await super().__call__(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/applications.py", line 112, in __call__
-    await self.middleware_stack(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/errors.py", line 187, in __call__
-    raise exc
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/errors.py", line 165, in __call__
-    await self.app(scope, receive, _send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 176, in __call__
-    with recv_stream, send_stream, collapse_excgroups():
-  File "/usr/lib/python3.10/contextlib.py", line 153, in __exit__
-    self.gen.throw(typ, value, traceback)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_utils.py", line 82, in collapse_excgroups
-    raise exc
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 178, in __call__
-    response = await self.dispatch_func(request, call_next)
-  File "/home/saketh/Projects/dsa/src/main.py", line 148, in add_request_id
-    response = await call_next(request)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 156, in call_next
-    raise app_exc
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 141, in coro
-    await self.app(scope, receive_or_disconnect, send_no_error)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/cors.py", line 85, in __call__
-    await self.app(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/exceptions.py", line 62, in __call__
-    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 714, in __call__
-    await self.middleware_stack(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 734, in app
-    await route.handle(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 288, in handle
-    await self.app(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 76, in app
-    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 73, in app
-    response = await f(request)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 291, in app
-    solved_result = await solve_dependencies(
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/dependencies/utils.py", line 638, in solve_dependencies
-    solved = await call(**solved_result.values)
-  File "/home/saketh/Projects/dsa/src/core/authorization.py", line 29, in get_current_user_info
-    from .infrastructure.postgres import PostgresUserRepository
-ModuleNotFoundError: No module named 'src.core.infrastructure'
-WARNING:  WatchFiles detected changes in 'src/core/authorization.py'. Reloading...
-INFO:     Shutting down
-INFO:     Waiting for application shutdown.
-INFO:src.main:Shutting down DSA Platform...
-INFO:src.workers.job_worker:Stopping job worker...
-INFO:src.main:Shutdown complete
-INFO:     Application shutdown complete.
-INFO:     Finished server process [20067]
-/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
-* 'allow_population_by_field_name' has been renamed to 'validate_by_name'
-  warnings.warn(message, UserWarning)
-/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
-* 'schema_extra' has been renamed to 'json_schema_extra'
-  warnings.warn(message, UserWarning)
-INFO:src.api.error_handlers:Error handlers registered successfully
-INFO:     Started server process [20177]
+INFO:     Started server process [34176]
 INFO:     Waiting for application startup.
 INFO:src.main:Starting DSA Platform...
 INFO:src.main:Database pool initialized
@@ -876,256 +83,286 @@ INFO:     Application startup complete.
 [1;34mUpgrade to ydata-sdk[0m
 Improve your data and profiling with ydata-sdk, featuring data quality scoring, redundancy detection, outlier identification, text validation, and synthetic data generation.
 Register at https://ydata.ai/register
-INFO:     127.0.0.1:35244 - "GET /api/v1/datasets/ HTTP/1.1" 200 OK
-ERROR:src.api.error_handlers:Unexpected error handling request de529053-685d-4065-b45e-4c12577803f2: 'DatabasePool' object has no attribute '_closed'
-  + Exception Group Traceback (most recent call last):
-  |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_utils.py", line 76, in collapse_excgroups
-  |     yield
-  |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 177, in __call__
-  |     async with anyio.create_task_group() as task_group:
-  |   File "/home/saketh/.local/lib/python3.10/site-packages/anyio/_backends/_asyncio.py", line 772, in __aexit__
-  |     raise BaseExceptionGroup(
-  | exceptiongroup.ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
-  +-+---------------- 1 ----------------
-    | Traceback (most recent call last):
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/errors.py", line 165, in __call__
-    |     await self.app(scope, receive, _send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 176, in __call__
-    |     with recv_stream, send_stream, collapse_excgroups():
-    |   File "/usr/lib/python3.10/contextlib.py", line 153, in __exit__
-    |     self.gen.throw(typ, value, traceback)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_utils.py", line 82, in collapse_excgroups
-    |     raise exc
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 178, in __call__
-    |     response = await self.dispatch_func(request, call_next)
-    |   File "/home/saketh/Projects/dsa/src/main.py", line 148, in add_request_id
-    |     response = await call_next(request)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 156, in call_next
-    |     raise app_exc
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 141, in coro
-    |     await self.app(scope, receive_or_disconnect, send_no_error)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/cors.py", line 85, in __call__
-    |     await self.app(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/exceptions.py", line 62, in __call__
-    |     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
-    |     raise exc
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
-    |     await app(scope, receive, sender)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 714, in __call__
-    |     await self.middleware_stack(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 734, in app
-    |     await route.handle(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 288, in handle
-    |     await self.app(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 76, in app
-    |     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
-    |     raise exc
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
-    |     await app(scope, receive, sender)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 73, in app
-    |     response = await f(request)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 301, in app
-    |     raw_response = await run_endpoint_function(
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 212, in run_endpoint_function
-    |     return await dependant.call(**values)
-    |   File "/home/saketh/Projects/dsa/src/main.py", line 135, in health
-    |     "database": "connected" if db_pool and not db_pool._closed else "disconnected",
-    | AttributeError: 'DatabasePool' object has no attribute '_closed'. Did you mean: 'close'?
-    +------------------------------------
-
-During handling of the above exception, another exception occurred:
-
+INFO:     127.0.0.1:49032 - "POST /api/users/register-public HTTP/1.1" 422 Unprocessable Entity
+INFO:     127.0.0.1:60684 - "POST /api/users/register-public HTTP/1.1" 409 Conflict
+INFO:     127.0.0.1:54340 - "POST /api/users/token HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49292 - "GET /api/datasets?limit=5 HTTP/1.1" 307 Temporary Redirect
+INFO:     127.0.0.1:49294 - "POST /api/datasets HTTP/1.1" 307 Temporary Redirect
+INFO:     127.0.0.1:60302 - "GET /api/datasets/?limit=5 HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:60316 - "GET /api/datasets/?limit=5 HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:60324 - "POST /api/datasets/ HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:58748 - "POST /api/users/token HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58754 - "GET /api/users/me HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:55590 - "GET /api/datasets/ HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:55606 - "GET /api/jobs/ HTTP/1.1" 307 Temporary Redirect
+INFO:     127.0.0.1:55622 - "GET /api/search/datasets?q=test HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:60596 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:35080 - "POST /api/users/register-public HTTP/1.1" 200 OK
+INFO:     127.0.0.1:35090 - "POST /api/users/token HTTP/1.1" 200 OK
+INFO:     127.0.0.1:35972 - "GET /docs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58296 - "GET /docs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58296 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58310 - "GET /docs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58310 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54260 - "GET /api/datasets/ HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:54270 - "POST /api/datasets/ HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:54276 - "GET /api/datasets/null HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:60458 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60466 - "POST /api/users/token HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60470 - "GET /api/users/ HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:55466 - "POST /api/users/token HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55476 - "GET /api/datasets/ HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55488 - "POST /api/datasets/ HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42610 - "GET /api/datasets/109 HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:42616 - "GET /api/datasets/109/refs HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:42630 - "GET /api/jobs HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:50518 - "POST /api/users/token HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50520 - "GET /api/datasets/109 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50532 - "GET /api/jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50542 - "GET /api/datasets/search/?q=test&limit=3 HTTP/1.1" 200 OK
+WARNING:  WatchFiles detected changes in 'src/api/common/pagination.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.main:Shutting down DSA Platform...
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Shutdown complete
+INFO:     Application shutdown complete.
+INFO:     Finished server process [34176]
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+INFO:src.api.error_handlers:Error handlers registered successfully
+INFO:     Started server process [35009]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.workers.job_worker:Registered executor for job type: sampling
+INFO:src.workers.job_worker:Registered executor for job type: exploration
+INFO:src.workers.job_worker:Registered executor for job type: sql_transform
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/core/services/sampling_service_refactored.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.main:Shutting down DSA Platform...
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Shutdown complete
+INFO:     Application shutdown complete.
+INFO:     Finished server process [35009]
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+INFO:src.api.error_handlers:Error handlers registered successfully
+INFO:     Started server process [35181]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.workers.job_worker:Registered executor for job type: sampling
+INFO:src.workers.job_worker:Registered executor for job type: exploration
+INFO:src.workers.job_worker:Registered executor for job type: sql_transform
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/core/services/table_analyzer_refactored.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.main:Shutting down DSA Platform...
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Shutdown complete
+INFO:     Application shutdown complete.
+INFO:     Finished server process [35181]
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+INFO:src.api.error_handlers:Error handlers registered successfully
+INFO:     Started server process [35277]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.workers.job_worker:Registered executor for job type: sampling
+INFO:src.workers.job_worker:Registered executor for job type: exploration
+INFO:src.workers.job_worker:Registered executor for job type: sql_transform
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+[1;34mUpgrade to ydata-sdk[0m
+Improve your data and profiling with ydata-sdk, featuring data quality scoring, redundancy detection, outlier identification, text validation, and synthetic data generation.
+Register at https://ydata.ai/register
+INFO:     127.0.0.1:38596 - "POST /api/users/token HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38612 - "GET /api/datasets/?limit=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38614 - "GET /api/datasets/search/?q=test&limit=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38624 - "GET /api/jobs?limit=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50478 - "GET /docs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50478 - "GET /openapi.json HTTP/1.1" 200 OK
+WARNING:  WatchFiles detected changes in 'src/core/services/sampling_service.py', 'src/core/services/sampling_service_refactored.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.main:Shutting down DSA Platform...
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Shutdown complete
+INFO:     Application shutdown complete.
+INFO:     Finished server process [35277]
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+Process SpawnProcess-7:
 Traceback (most recent call last):
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/errors.py", line 165, in __call__
-    await self.app(scope, receive, _send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 176, in __call__
-    with recv_stream, send_stream, collapse_excgroups():
-  File "/usr/lib/python3.10/contextlib.py", line 153, in __exit__
-    self.gen.throw(typ, value, traceback)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_utils.py", line 82, in collapse_excgroups
-    raise exc
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 178, in __call__
-    response = await self.dispatch_func(request, call_next)
-  File "/home/saketh/Projects/dsa/src/main.py", line 148, in add_request_id
-    response = await call_next(request)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 156, in call_next
-    raise app_exc
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 141, in coro
-    await self.app(scope, receive_or_disconnect, send_no_error)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/cors.py", line 85, in __call__
-    await self.app(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/exceptions.py", line 62, in __call__
-    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 714, in __call__
-    await self.middleware_stack(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 734, in app
-    await route.handle(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 288, in handle
-    await self.app(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 76, in app
-    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 73, in app
-    response = await f(request)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 301, in app
-    raw_response = await run_endpoint_function(
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 212, in run_endpoint_function
-    return await dependant.call(**values)
-  File "/home/saketh/Projects/dsa/src/main.py", line 135, in health
-    "database": "connected" if db_pool and not db_pool._closed else "disconnected",
-AttributeError: 'DatabasePool' object has no attribute '_closed'. Did you mean: 'close'?
-INFO:     127.0.0.1:33352 - "GET /health HTTP/1.1" 500 Internal Server Error
-ERROR:    Exception in ASGI application
-  + Exception Group Traceback (most recent call last):
-  |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_utils.py", line 76, in collapse_excgroups
-  |     yield
-  |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 177, in __call__
-  |     async with anyio.create_task_group() as task_group:
-  |   File "/home/saketh/.local/lib/python3.10/site-packages/anyio/_backends/_asyncio.py", line 772, in __aexit__
-  |     raise BaseExceptionGroup(
-  | exceptiongroup.ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
-  +-+---------------- 1 ----------------
-    | Traceback (most recent call last):
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/protocols/http/httptools_impl.py", line 409, in run_asgi
-    |     result = await app(  # type: ignore[func-returns-value]
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/middleware/proxy_headers.py", line 60, in __call__
-    |     return await self.app(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/applications.py", line 1054, in __call__
-    |     await super().__call__(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/applications.py", line 112, in __call__
-    |     await self.middleware_stack(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/errors.py", line 187, in __call__
-    |     raise exc
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/errors.py", line 165, in __call__
-    |     await self.app(scope, receive, _send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 176, in __call__
-    |     with recv_stream, send_stream, collapse_excgroups():
-    |   File "/usr/lib/python3.10/contextlib.py", line 153, in __exit__
-    |     self.gen.throw(typ, value, traceback)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_utils.py", line 82, in collapse_excgroups
-    |     raise exc
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 178, in __call__
-    |     response = await self.dispatch_func(request, call_next)
-    |   File "/home/saketh/Projects/dsa/src/main.py", line 148, in add_request_id
-    |     response = await call_next(request)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 156, in call_next
-    |     raise app_exc
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 141, in coro
-    |     await self.app(scope, receive_or_disconnect, send_no_error)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/cors.py", line 85, in __call__
-    |     await self.app(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/exceptions.py", line 62, in __call__
-    |     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
-    |     raise exc
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
-    |     await app(scope, receive, sender)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 714, in __call__
-    |     await self.middleware_stack(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 734, in app
-    |     await route.handle(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 288, in handle
-    |     await self.app(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 76, in app
-    |     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
-    |     raise exc
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
-    |     await app(scope, receive, sender)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 73, in app
-    |     response = await f(request)
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 301, in app
-    |     raw_response = await run_endpoint_function(
-    |   File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 212, in run_endpoint_function
-    |     return await dependant.call(**values)
-    |   File "/home/saketh/Projects/dsa/src/main.py", line 135, in health
-    |     "database": "connected" if db_pool and not db_pool._closed else "disconnected",
-    | AttributeError: 'DatabasePool' object has no attribute '_closed'. Did you mean: 'close'?
-    +------------------------------------
-
-During handling of the above exception, another exception occurred:
-
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 314, in _bootstrap
+    self.run()
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/_subprocess.py", line 80, in subprocess_started
+    target(sockets=sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 66, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "/usr/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 70, in serve
+    await self._serve(sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 77, in _serve
+    config.load()
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/config.py", line 435, in load
+    self.loaded_app = import_from_string(self.app)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "/usr/lib/python3.10/importlib/__init__.py", line 126, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "<frozen importlib._bootstrap>", line 1050, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1027, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1006, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 688, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 883, in exec_module
+  File "<frozen importlib._bootstrap>", line 241, in _call_with_frames_removed
+  File "/home/saketh/Projects/dsa/src/main.py", line 23, in <module>
+    from .api import users, datasets, versioning, jobs, search, sampling, exploration, workbench, downloads
+  File "/home/saketh/Projects/dsa/src/api/sampling.py", line 15, in <module>
+    from ..core.services.sampling_service import PostgresSamplingService, SamplingJobService
+ImportError: cannot import name 'PostgresSamplingService' from 'src.core.services.sampling_service' (/home/saketh/Projects/dsa/src/core/services/sampling_service.py)
+WARNING:  WatchFiles detected changes in 'src/core/services/table_analyzer.py', 'src/core/services/table_analyzer_refactored.py'. Reloading...
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+Process SpawnProcess-8:
 Traceback (most recent call last):
-  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/protocols/http/httptools_impl.py", line 409, in run_asgi
-    result = await app(  # type: ignore[func-returns-value]
-  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/middleware/proxy_headers.py", line 60, in __call__
-    return await self.app(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/applications.py", line 1054, in __call__
-    await super().__call__(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/applications.py", line 112, in __call__
-    await self.middleware_stack(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/errors.py", line 187, in __call__
-    raise exc
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/errors.py", line 165, in __call__
-    await self.app(scope, receive, _send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 176, in __call__
-    with recv_stream, send_stream, collapse_excgroups():
-  File "/usr/lib/python3.10/contextlib.py", line 153, in __exit__
-    self.gen.throw(typ, value, traceback)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_utils.py", line 82, in collapse_excgroups
-    raise exc
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 178, in __call__
-    response = await self.dispatch_func(request, call_next)
-  File "/home/saketh/Projects/dsa/src/main.py", line 148, in add_request_id
-    response = await call_next(request)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 156, in call_next
-    raise app_exc
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/base.py", line 141, in coro
-    await self.app(scope, receive_or_disconnect, send_no_error)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/cors.py", line 85, in __call__
-    await self.app(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/middleware/exceptions.py", line 62, in __call__
-    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 714, in __call__
-    await self.middleware_stack(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 734, in app
-    await route.handle(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 288, in handle
-    await self.app(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 76, in app
-    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
-    raise exc
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
-    await app(scope, receive, sender)
-  File "/home/saketh/.local/lib/python3.10/site-packages/starlette/routing.py", line 73, in app
-    response = await f(request)
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 301, in app
-    raw_response = await run_endpoint_function(
-  File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 212, in run_endpoint_function
-    return await dependant.call(**values)
-  File "/home/saketh/Projects/dsa/src/main.py", line 135, in health
-    "database": "connected" if db_pool and not db_pool._closed else "disconnected",
-AttributeError: 'DatabasePool' object has no attribute '_closed'. Did you mean: 'close'?
-WARNING:  WatchFiles detected changes in 'src/main.py'. Reloading...
-INFO:     Shutting down
-INFO:     Waiting for application shutdown.
-INFO:src.main:Shutting down DSA Platform...
-INFO:src.workers.job_worker:Stopping job worker...
-INFO:src.main:Shutdown complete
-INFO:     Application shutdown complete.
-INFO:     Finished server process [20177]
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 314, in _bootstrap
+    self.run()
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/_subprocess.py", line 80, in subprocess_started
+    target(sockets=sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 66, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "/usr/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 70, in serve
+    await self._serve(sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 77, in _serve
+    config.load()
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/config.py", line 435, in load
+    self.loaded_app = import_from_string(self.app)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "/usr/lib/python3.10/importlib/__init__.py", line 126, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "<frozen importlib._bootstrap>", line 1050, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1027, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1006, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 688, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 883, in exec_module
+  File "<frozen importlib._bootstrap>", line 241, in _call_with_frames_removed
+  File "/home/saketh/Projects/dsa/src/main.py", line 23, in <module>
+    from .api import users, datasets, versioning, jobs, search, sampling, exploration, workbench, downloads
+  File "/home/saketh/Projects/dsa/src/api/sampling.py", line 15, in <module>
+    from ..core.services.sampling_service import PostgresSamplingService, SamplingJobService
+ImportError: cannot import name 'PostgresSamplingService' from 'src.core.services.sampling_service' (/home/saketh/Projects/dsa/src/core/services/sampling_service.py)
+WARNING:  WatchFiles detected changes in 'src/api/sampling.py'. Reloading...
 /home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
-* 'allow_population_by_field_name' has been renamed to 'validate_by_name'
+* 'schema_extra' has been renamed to 'json_schema_extra'
   warnings.warn(message, UserWarning)
+Process SpawnProcess-9:
+Traceback (most recent call last):
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 314, in _bootstrap
+    self.run()
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/_subprocess.py", line 80, in subprocess_started
+    target(sockets=sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 66, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "/usr/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 70, in serve
+    await self._serve(sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 77, in _serve
+    config.load()
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/config.py", line 435, in load
+    self.loaded_app = import_from_string(self.app)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "/usr/lib/python3.10/importlib/__init__.py", line 126, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "<frozen importlib._bootstrap>", line 1050, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1027, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1006, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 688, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 883, in exec_module
+  File "<frozen importlib._bootstrap>", line 241, in _call_with_frames_removed
+  File "/home/saketh/Projects/dsa/src/main.py", line 27, in <module>
+    from .workers.import_executor import ImportJobExecutor
+  File "/home/saketh/Projects/dsa/src/workers/import_executor.py", line 13, in <module>
+    from src.core.services.table_analyzer import TableAnalyzer
+ImportError: cannot import name 'TableAnalyzer' from 'src.core.services.table_analyzer' (/home/saketh/Projects/dsa/src/core/services/table_analyzer.py)
+WARNING:  WatchFiles detected changes in 'src/api/sampling.py'. Reloading...
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+Process SpawnProcess-10:
+Traceback (most recent call last):
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 314, in _bootstrap
+    self.run()
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/_subprocess.py", line 80, in subprocess_started
+    target(sockets=sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 66, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "/usr/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 70, in serve
+    await self._serve(sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 77, in _serve
+    config.load()
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/config.py", line 435, in load
+    self.loaded_app = import_from_string(self.app)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "/usr/lib/python3.10/importlib/__init__.py", line 126, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "<frozen importlib._bootstrap>", line 1050, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1027, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1006, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 688, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 883, in exec_module
+  File "<frozen importlib._bootstrap>", line 241, in _call_with_frames_removed
+  File "/home/saketh/Projects/dsa/src/main.py", line 27, in <module>
+    from .workers.import_executor import ImportJobExecutor
+  File "/home/saketh/Projects/dsa/src/workers/import_executor.py", line 13, in <module>
+    from src.core.services.table_analyzer import TableAnalyzer
+ImportError: cannot import name 'TableAnalyzer' from 'src.core.services.table_analyzer' (/home/saketh/Projects/dsa/src/core/services/table_analyzer.py)
+WARNING:  WatchFiles detected changes in 'src/workers/import_executor.py'. Reloading...
 /home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
 * 'schema_extra' has been renamed to 'json_schema_extra'
   warnings.warn(message, UserWarning)
 INFO:src.api.error_handlers:Error handlers registered successfully
-INFO:     Started server process [20293]
+INFO:     Started server process [36462]
 INFO:     Waiting for application startup.
 INFO:src.main:Starting DSA Platform...
 INFO:src.main:Database pool initialized
@@ -1136,22 +373,19 @@ INFO:src.workers.job_worker:Registered executor for job type: sql_transform
 INFO:src.main:Job worker started
 INFO:src.workers.job_worker:Starting job worker...
 INFO:     Application startup complete.
-WARNING:  WatchFiles detected changes in 'src/main.py'. Reloading...
+WARNING:  WatchFiles detected changes in 'src/workers/import_executor_optimized.py'. Reloading...
 INFO:     Shutting down
 INFO:     Waiting for application shutdown.
 INFO:src.main:Shutting down DSA Platform...
 INFO:src.workers.job_worker:Stopping job worker...
 INFO:src.main:Shutdown complete
 INFO:     Application shutdown complete.
-INFO:     Finished server process [20293]
-/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
-* 'allow_population_by_field_name' has been renamed to 'validate_by_name'
-  warnings.warn(message, UserWarning)
+INFO:     Finished server process [36462]
 /home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
 * 'schema_extra' has been renamed to 'json_schema_extra'
   warnings.warn(message, UserWarning)
 INFO:src.api.error_handlers:Error handlers registered successfully
-INFO:     Started server process [20375]
+INFO:     Started server process [36554]
 INFO:     Waiting for application startup.
 INFO:src.main:Starting DSA Platform...
 INFO:src.main:Database pool initialized
@@ -1162,22 +396,19 @@ INFO:src.workers.job_worker:Registered executor for job type: sql_transform
 INFO:src.main:Job worker started
 INFO:src.workers.job_worker:Starting job worker...
 INFO:     Application startup complete.
-WARNING:  WatchFiles detected changes in 'src/main.py'. Reloading...
+WARNING:  WatchFiles detected changes in 'src/api/sampling.py'. Reloading...
 INFO:     Shutting down
 INFO:     Waiting for application shutdown.
 INFO:src.main:Shutting down DSA Platform...
 INFO:src.workers.job_worker:Stopping job worker...
 INFO:src.main:Shutdown complete
 INFO:     Application shutdown complete.
-INFO:     Finished server process [20375]
-/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
-* 'allow_population_by_field_name' has been renamed to 'validate_by_name'
-  warnings.warn(message, UserWarning)
+INFO:     Finished server process [36554]
 /home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
 * 'schema_extra' has been renamed to 'json_schema_extra'
   warnings.warn(message, UserWarning)
 INFO:src.api.error_handlers:Error handlers registered successfully
-INFO:     Started server process [20459]
+INFO:     Started server process [36684]
 INFO:     Waiting for application startup.
 INFO:src.main:Starting DSA Platform...
 INFO:src.main:Database pool initialized
@@ -1188,22 +419,19 @@ INFO:src.workers.job_worker:Registered executor for job type: sql_transform
 INFO:src.main:Job worker started
 INFO:src.workers.job_worker:Starting job worker...
 INFO:     Application startup complete.
-WARNING:  WatchFiles detected changes in 'src/main.py'. Reloading...
+WARNING:  WatchFiles detected changes in 'src/api/sampling.py'. Reloading...
 INFO:     Shutting down
 INFO:     Waiting for application shutdown.
 INFO:src.main:Shutting down DSA Platform...
 INFO:src.workers.job_worker:Stopping job worker...
 INFO:src.main:Shutdown complete
 INFO:     Application shutdown complete.
-INFO:     Finished server process [20459]
-/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
-* 'allow_population_by_field_name' has been renamed to 'validate_by_name'
-  warnings.warn(message, UserWarning)
+INFO:     Finished server process [36684]
 /home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
 * 'schema_extra' has been renamed to 'json_schema_extra'
   warnings.warn(message, UserWarning)
 INFO:src.api.error_handlers:Error handlers registered successfully
-INFO:     Started server process [20541]
+INFO:     Started server process [36978]
 INFO:     Waiting for application startup.
 INFO:src.main:Starting DSA Platform...
 INFO:src.main:Database pool initialized
@@ -1214,7 +442,82 @@ INFO:src.workers.job_worker:Registered executor for job type: sql_transform
 INFO:src.main:Job worker started
 INFO:src.workers.job_worker:Starting job worker...
 INFO:     Application startup complete.
-ERROR:src.api.error_handlers:Unexpected error handling request 1ec1f38b-d9a9-43b1-b001-73c996b798a7: 'DatabasePool' object has no attribute '_closed'
+WARNING:  WatchFiles detected changes in 'src/workers/import_executor.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.main:Shutting down DSA Platform...
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Shutdown complete
+INFO:     Application shutdown complete.
+INFO:     Finished server process [36978]
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+INFO:src.api.error_handlers:Error handlers registered successfully
+INFO:     Started server process [37066]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.workers.job_worker:Registered executor for job type: sampling
+INFO:src.workers.job_worker:Registered executor for job type: exploration
+INFO:src.workers.job_worker:Registered executor for job type: sql_transform
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/workers/import_executor.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.main:Shutting down DSA Platform...
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Shutdown complete
+INFO:     Application shutdown complete.
+INFO:     Finished server process [37066]
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+INFO:src.api.error_handlers:Error handlers registered successfully
+INFO:     Started server process [37271]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.workers.job_worker:Registered executor for job type: sampling
+INFO:src.workers.job_worker:Registered executor for job type: exploration
+INFO:src.workers.job_worker:Registered executor for job type: sql_transform
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/workers/import_executor_optimized.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.main:Shutting down DSA Platform...
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Shutdown complete
+INFO:     Application shutdown complete.
+INFO:     Finished server process [37271]
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+INFO:src.api.error_handlers:Error handlers registered successfully
+INFO:     Started server process [37343]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.workers.job_worker:Registered executor for job type: sampling
+INFO:src.workers.job_worker:Registered executor for job type: exploration
+INFO:src.workers.job_worker:Registered executor for job type: sql_transform
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+[1;34mUpgrade to ydata-sdk[0m
+Improve your data and profiling with ydata-sdk, featuring data quality scoring, redundancy detection, outlier identification, text validation, and synthetic data generation.
+Register at https://ydata.ai/register
+INFO:     127.0.0.1:44272 - "POST /api/users/token HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56208 - "GET /api/sampling/datasets/109/sampling-methods HTTP/1.1" 200 OK
+INFO:src.core.services.sampling_service:Starting random sampling for table primary
+ERROR:src.api.error_handlers:Unexpected error handling request 8314d467-8fee-4d67-93a4-41c95bf2dc96: 'SampleConfig' object has no attribute 'stratify_column'
   + Exception Group Traceback (most recent call last):
   |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_utils.py", line 76, in collapse_excgroups
   |     yield
@@ -1267,9 +570,13 @@ ERROR:src.api.error_handlers:Unexpected error handling request 1ec1f38b-d9a9-43b
     |     raw_response = await run_endpoint_function(
     |   File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 212, in run_endpoint_function
     |     return await dependant.call(**values)
-    |   File "/home/saketh/Projects/dsa/src/main.py", line 152, in health
-    |     "database": "connected" if db_pool and not db_pool._closed else "disconnected",
-    | AttributeError: 'DatabasePool' object has no attribute '_closed'. Did you mean: 'close'?
+    |   File "/home/saketh/Projects/dsa/src/api/sampling.py", line 277, in sample_data_direct
+    |     result = await sampling_service.sample(
+    |   File "/home/saketh/Projects/dsa/src/core/services/sampling_service.py", line 45, in sample
+    |     sample_params = self._config_to_params(config)
+    |   File "/home/saketh/Projects/dsa/src/core/services/sampling_service.py", line 189, in _config_to_params
+    |     if config.stratify_column:
+    | AttributeError: 'SampleConfig' object has no attribute 'stratify_column'. Did you mean: 'stratify_columns'?
     +------------------------------------
 
 During handling of the above exception, another exception occurred:
@@ -1317,13 +624,14 @@ Traceback (most recent call last):
     raw_response = await run_endpoint_function(
   File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 212, in run_endpoint_function
     return await dependant.call(**values)
-  File "/home/saketh/Projects/dsa/src/main.py", line 152, in health
-    "database": "connected" if db_pool and not db_pool._closed else "disconnected",
-AttributeError: 'DatabasePool' object has no attribute '_closed'. Did you mean: 'close'?
-[1;34mUpgrade to ydata-sdk[0m
-Improve your data and profiling with ydata-sdk, featuring data quality scoring, redundancy detection, outlier identification, text validation, and synthetic data generation.
-Register at https://ydata.ai/register
-INFO:     127.0.0.1:60828 - "GET /health HTTP/1.1" 500 Internal Server Error
+  File "/home/saketh/Projects/dsa/src/api/sampling.py", line 277, in sample_data_direct
+    result = await sampling_service.sample(
+  File "/home/saketh/Projects/dsa/src/core/services/sampling_service.py", line 45, in sample
+    sample_params = self._config_to_params(config)
+  File "/home/saketh/Projects/dsa/src/core/services/sampling_service.py", line 189, in _config_to_params
+    if config.stratify_column:
+AttributeError: 'SampleConfig' object has no attribute 'stratify_column'. Did you mean: 'stratify_columns'?
+INFO:     127.0.0.1:50978 - "POST /api/sampling/datasets/109/sample?ref_name=main&table_key=primary HTTP/1.1" 500 Internal Server Error
 ERROR:    Exception in ASGI application
   + Exception Group Traceback (most recent call last):
   |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_utils.py", line 76, in collapse_excgroups
@@ -1387,9 +695,13 @@ ERROR:    Exception in ASGI application
     |     raw_response = await run_endpoint_function(
     |   File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 212, in run_endpoint_function
     |     return await dependant.call(**values)
-    |   File "/home/saketh/Projects/dsa/src/main.py", line 152, in health
-    |     "database": "connected" if db_pool and not db_pool._closed else "disconnected",
-    | AttributeError: 'DatabasePool' object has no attribute '_closed'. Did you mean: 'close'?
+    |   File "/home/saketh/Projects/dsa/src/api/sampling.py", line 277, in sample_data_direct
+    |     result = await sampling_service.sample(
+    |   File "/home/saketh/Projects/dsa/src/core/services/sampling_service.py", line 45, in sample
+    |     sample_params = self._config_to_params(config)
+    |   File "/home/saketh/Projects/dsa/src/core/services/sampling_service.py", line 189, in _config_to_params
+    |     if config.stratify_column:
+    | AttributeError: 'SampleConfig' object has no attribute 'stratify_column'. Did you mean: 'stratify_columns'?
     +------------------------------------
 
 During handling of the above exception, another exception occurred:
@@ -1447,15 +759,38 @@ Traceback (most recent call last):
     raw_response = await run_endpoint_function(
   File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 212, in run_endpoint_function
     return await dependant.call(**values)
-  File "/home/saketh/Projects/dsa/src/main.py", line 152, in health
-    "database": "connected" if db_pool and not db_pool._closed else "disconnected",
-AttributeError: 'DatabasePool' object has no attribute '_closed'. Did you mean: 'close'?
-INFO:     127.0.0.1:56460 - "GET /docs HTTP/1.1" 200 OK
+  File "/home/saketh/Projects/dsa/src/api/sampling.py", line 277, in sample_data_direct
+    result = await sampling_service.sample(
+  File "/home/saketh/Projects/dsa/src/core/services/sampling_service.py", line 45, in sample
+    sample_params = self._config_to_params(config)
+  File "/home/saketh/Projects/dsa/src/core/services/sampling_service.py", line 189, in _config_to_params
+    if config.stratify_column:
+AttributeError: 'SampleConfig' object has no attribute 'stratify_column'. Did you mean: 'stratify_columns'?
+WARNING:  WatchFiles detected changes in 'src/core/services/sampling_service.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.main:Shutting down DSA Platform...
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Shutdown complete
+INFO:     Application shutdown complete.
+INFO:     Finished server process [37343]
 /home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
-* 'allow_population_by_field_name' has been renamed to 'validate_by_name'
+* 'schema_extra' has been renamed to 'json_schema_extra'
   warnings.warn(message, UserWarning)
-INFO:     127.0.0.1:56460 - "GET /openapi.json HTTP/1.1" 200 OK
-ERROR:src.api.error_handlers:Unexpected error handling request 3648a16f-ef37-44e7-beec-0006b6a417b4: 'DatabasePool' object has no attribute '_closed'
+INFO:src.api.error_handlers:Error handlers registered successfully
+INFO:     Started server process [37517]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.workers.job_worker:Registered executor for job type: sampling
+INFO:src.workers.job_worker:Registered executor for job type: exploration
+INFO:src.workers.job_worker:Registered executor for job type: sql_transform
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+INFO:src.core.services.sampling_service:Starting random sampling for table primary
+ERROR:src.api.error_handlers:Unexpected error handling request ba8532cd-c0bf-4de2-ab2b-016e7ec7e440: 'SampleConfig' object has no attribute 'cluster_columns'
   + Exception Group Traceback (most recent call last):
   |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_utils.py", line 76, in collapse_excgroups
   |     yield
@@ -1508,9 +843,13 @@ ERROR:src.api.error_handlers:Unexpected error handling request 3648a16f-ef37-44e
     |     raw_response = await run_endpoint_function(
     |   File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 212, in run_endpoint_function
     |     return await dependant.call(**values)
-    |   File "/home/saketh/Projects/dsa/src/main.py", line 152, in health
-    |     "database": "connected" if db_pool and not db_pool._closed else "disconnected",
-    | AttributeError: 'DatabasePool' object has no attribute '_closed'. Did you mean: 'close'?
+    |   File "/home/saketh/Projects/dsa/src/api/sampling.py", line 277, in sample_data_direct
+    |     result = await sampling_service.sample(
+    |   File "/home/saketh/Projects/dsa/src/core/services/sampling_service.py", line 45, in sample
+    |     sample_params = self._config_to_params(config)
+    |   File "/home/saketh/Projects/dsa/src/core/services/sampling_service.py", line 191, in _config_to_params
+    |     if config.cluster_columns:
+    | AttributeError: 'SampleConfig' object has no attribute 'cluster_columns'. Did you mean: 'cluster_column'?
     +------------------------------------
 
 During handling of the above exception, another exception occurred:
@@ -1558,10 +897,17 @@ Traceback (most recent call last):
     raw_response = await run_endpoint_function(
   File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 212, in run_endpoint_function
     return await dependant.call(**values)
-  File "/home/saketh/Projects/dsa/src/main.py", line 152, in health
-    "database": "connected" if db_pool and not db_pool._closed else "disconnected",
-AttributeError: 'DatabasePool' object has no attribute '_closed'. Did you mean: 'close'?
-INFO:     127.0.0.1:47352 - "GET /health HTTP/1.1" 500 Internal Server Error
+  File "/home/saketh/Projects/dsa/src/api/sampling.py", line 277, in sample_data_direct
+    result = await sampling_service.sample(
+  File "/home/saketh/Projects/dsa/src/core/services/sampling_service.py", line 45, in sample
+    sample_params = self._config_to_params(config)
+  File "/home/saketh/Projects/dsa/src/core/services/sampling_service.py", line 191, in _config_to_params
+    if config.cluster_columns:
+AttributeError: 'SampleConfig' object has no attribute 'cluster_columns'. Did you mean: 'cluster_column'?
+[1;34mUpgrade to ydata-sdk[0m
+Improve your data and profiling with ydata-sdk, featuring data quality scoring, redundancy detection, outlier identification, text validation, and synthetic data generation.
+Register at https://ydata.ai/register
+INFO:     127.0.0.1:53466 - "POST /api/sampling/datasets/109/sample?ref_name=main&table_key=primary HTTP/1.1" 500 Internal Server Error
 ERROR:    Exception in ASGI application
   + Exception Group Traceback (most recent call last):
   |   File "/home/saketh/.local/lib/python3.10/site-packages/starlette/_utils.py", line 76, in collapse_excgroups
@@ -1625,9 +971,13 @@ ERROR:    Exception in ASGI application
     |     raw_response = await run_endpoint_function(
     |   File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 212, in run_endpoint_function
     |     return await dependant.call(**values)
-    |   File "/home/saketh/Projects/dsa/src/main.py", line 152, in health
-    |     "database": "connected" if db_pool and not db_pool._closed else "disconnected",
-    | AttributeError: 'DatabasePool' object has no attribute '_closed'. Did you mean: 'close'?
+    |   File "/home/saketh/Projects/dsa/src/api/sampling.py", line 277, in sample_data_direct
+    |     result = await sampling_service.sample(
+    |   File "/home/saketh/Projects/dsa/src/core/services/sampling_service.py", line 45, in sample
+    |     sample_params = self._config_to_params(config)
+    |   File "/home/saketh/Projects/dsa/src/core/services/sampling_service.py", line 191, in _config_to_params
+    |     if config.cluster_columns:
+    | AttributeError: 'SampleConfig' object has no attribute 'cluster_columns'. Did you mean: 'cluster_column'?
     +------------------------------------
 
 During handling of the above exception, another exception occurred:
@@ -1685,25 +1035,26 @@ Traceback (most recent call last):
     raw_response = await run_endpoint_function(
   File "/home/saketh/.local/lib/python3.10/site-packages/fastapi/routing.py", line 212, in run_endpoint_function
     return await dependant.call(**values)
-  File "/home/saketh/Projects/dsa/src/main.py", line 152, in health
-    "database": "connected" if db_pool and not db_pool._closed else "disconnected",
-AttributeError: 'DatabasePool' object has no attribute '_closed'. Did you mean: 'close'?
-WARNING:  WatchFiles detected changes in 'src/main.py'. Reloading...
+  File "/home/saketh/Projects/dsa/src/api/sampling.py", line 277, in sample_data_direct
+    result = await sampling_service.sample(
+  File "/home/saketh/Projects/dsa/src/core/services/sampling_service.py", line 45, in sample
+    sample_params = self._config_to_params(config)
+  File "/home/saketh/Projects/dsa/src/core/services/sampling_service.py", line 191, in _config_to_params
+    if config.cluster_columns:
+AttributeError: 'SampleConfig' object has no attribute 'cluster_columns'. Did you mean: 'cluster_column'?
+WARNING:  WatchFiles detected changes in 'src/core/services/sampling_service.py'. Reloading...
 INFO:     Shutting down
 INFO:     Waiting for application shutdown.
 INFO:src.main:Shutting down DSA Platform...
 INFO:src.workers.job_worker:Stopping job worker...
 INFO:src.main:Shutdown complete
 INFO:     Application shutdown complete.
-INFO:     Finished server process [20541]
-/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
-* 'allow_population_by_field_name' has been renamed to 'validate_by_name'
-  warnings.warn(message, UserWarning)
+INFO:     Finished server process [37517]
 /home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
 * 'schema_extra' has been renamed to 'json_schema_extra'
   warnings.warn(message, UserWarning)
 INFO:src.api.error_handlers:Error handlers registered successfully
-INFO:     Started server process [20747]
+INFO:     Started server process [37680]
 INFO:     Waiting for application startup.
 INFO:src.main:Starting DSA Platform...
 INFO:src.main:Database pool initialized
@@ -1714,13 +1065,50 @@ INFO:src.workers.job_worker:Registered executor for job type: sql_transform
 INFO:src.main:Job worker started
 INFO:src.workers.job_worker:Starting job worker...
 INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/core/services/sampling_service.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.main:Shutting down DSA Platform...
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Shutdown complete
+INFO:     Application shutdown complete.
+INFO:     Finished server process [37680]
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+INFO:src.api.error_handlers:Error handlers registered successfully
+INFO:     Started server process [37840]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.workers.job_worker:Registered executor for job type: sampling
+INFO:src.workers.job_worker:Registered executor for job type: exploration
+INFO:src.workers.job_worker:Registered executor for job type: sql_transform
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+INFO:src.core.services.sampling_service:Starting random sampling for table primary
+INFO:src.core.services.sampling_service:Sampled 0 rows using random
 [1;34mUpgrade to ydata-sdk[0m
 Improve your data and profiling with ydata-sdk, featuring data quality scoring, redundancy detection, outlier identification, text validation, and synthetic data generation.
 Register at https://ydata.ai/register
-INFO:     127.0.0.1:54348 - "GET /health HTTP/1.1" 200 OK
-INFO:     127.0.0.1:48502 - "POST /api/v1/login HTTP/1.1" 404 Not Found
-INFO:     127.0.0.1:34580 - "POST /api/v1/users/login HTTP/1.1" 422 Unprocessable Entity
-INFO:     127.0.0.1:40048 - "POST /api/v1/users/login HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52642 - "GET /api/v1/datasets HTTP/1.1" 307 Temporary Redirect
-INFO:     127.0.0.1:57684 - "GET /api/v1/datasets/ HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59378 - "GET /api/v1/datasets/87 HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:35436 - "POST /api/sampling/datasets/109/sample?ref_name=main&table_key=primary HTTP/1.1" 200 OK
+INFO:src.core.services.sampling_service:Created sampling job c069179a-36b0-4ef4-9906-4d9841a2c804 for dataset 109
+INFO:     127.0.0.1:49710 - "POST /api/sampling/datasets/109/jobs HTTP/1.1" 200 OK
+INFO:src.workers.job_worker:Processing job c069179a-36b0-4ef4-9906-4d9841a2c804 of type sampling
+INFO:src.workers.job_worker:Job parameters type: <class 'dict'>, value: {'rounds': [{'method': 'random', 'parameters': {'sample_size': 100}, 'output_name': 'random_sample'}], 'user_id': 87, 'table_key': 'primary', 'dataset_id': 109, 'commit_message': 'Test sampling', 'export_residual': False, 'source_commit_id': None, 'create_output_commit': True, 'residual_output_name': None}
+INFO:src.workers.sampling_executor:Starting sampling job c069179a-36b0-4ef4-9906-4d9841a2c804 with parameters: {'rounds': [{'method': 'random', 'parameters': {'sample_size': 100}, 'output_name': 'random_sample'}], 'user_id': 87, 'table_key': 'primary', 'dataset_id': 109, 'commit_message': 'Test sampling', 'export_residual': False, 'source_commit_id': None, 'create_output_commit': True, 'residual_output_name': None}
+INFO:src.workers.sampling_executor:Executing sampling round 1
+ERROR:src.workers.job_worker:Job c069179a-36b0-4ef4-9906-4d9841a2c804 failed: 'NoneType' object has no attribute 'strip'
+Traceback (most recent call last):
+  File "/home/saketh/Projects/dsa/src/workers/job_worker.py", line 72, in process_job
+    result = await executor.execute(job_id, parameters, self.db_pool)
+  File "/home/saketh/Projects/dsa/src/workers/sampling_executor.py", line 425, in execute
+    parameters['source_commit_id'].strip(),  # Remove any trailing spaces
+AttributeError: 'NoneType' object has no attribute 'strip'
+
+INFO:     127.0.0.1:40350 - "GET /api/sampling/datasets/109/history?limit=5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56032 - "POST /api/users/token HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56032 - "OPTIONS /api/datasets/search/?fuzzy=true&limit=12&sort_by=relevance&sort_order=desc&include_facets=true HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56032 - "GET /api/datasets/search/?fuzzy=true&limit=12&sort_by=relevance&sort_order=desc&include_facets=true HTTP/1.1" 200 OK

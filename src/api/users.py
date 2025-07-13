@@ -4,9 +4,9 @@ from fastapi import APIRouter, Depends, status
 from fastapi.security import OAuth2PasswordRequestForm
 from ..infrastructure.postgres.database import DatabasePool, UnitOfWorkFactory
 from ..infrastructure.postgres import PostgresUserRepository
-from ..features.users.create_user import CreateUserHandler
-from ..features.users.login_user import LoginUserHandler
-from ..models.pydantic_models import (
+from ..features.users.handlers.create_user import CreateUserHandler
+from ..features.users.handlers.login_user import LoginUserHandler
+from ..api.models import (
     CreateUserRequest, CreateUserResponse,
     LoginRequest, LoginResponse
 )
@@ -121,9 +121,10 @@ async def create_user_public(
         user = await user_repo.get_by_id(user_id)
         
         return CreateUserResponse(
-            id=user['id'],
+            user_id=user['id'],
             soeid=user['soeid'],
             role_id=user['role_id'],
             role_name=user.get('role_name'),
+            is_active=user.get('is_active', True),
             created_at=user['created_at']
         )

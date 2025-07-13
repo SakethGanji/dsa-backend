@@ -15,7 +15,7 @@ from src.workers.job_worker import JobExecutor
 from src.infrastructure.postgres.database import DatabasePool
 from src.infrastructure.config import get_settings
 from src.infrastructure.services import FileParserFactory
-from src.core.services.table_analyzer import TableAnalyzer
+from src.core.services.table_analyzer import TableAnalysisService
 
 
 class ImportJobExecutor(JobExecutor):
@@ -26,7 +26,7 @@ class ImportJobExecutor(JobExecutor):
         self.settings = get_settings()
         self.batch_size = self.settings.import_batch_size
         self.chunk_size = self.settings.import_chunk_size
-        self.table_analyzer = TableAnalyzer()
+        self.table_analyzer = None  # Will be initialized with UoW in execute method
     
     async def execute(self, job_id: str, parameters: Dict[str, Any], db_pool: DatabasePool) -> Dict[str, Any]:
         """Execute import job with batch processing."""
@@ -165,7 +165,12 @@ class ImportJobExecutor(JobExecutor):
         await self._update_ref(db_pool, dataset_id, target_ref, commit_id)
         
         # Analyze tables and store comprehensive analysis
-        await self.table_analyzer.analyze_committed_tables(db_pool, commit_id)
+        # Initialize table analyzer with UoW
+        from src.infrastructure.postgres.unit_of_work import UnitOfWork
+        async with db_pool.acquire() as conn:
+            uow = UnitOfWork(conn)
+            self.table_analyzer = TableAnalysisService(uow)
+            await self.table_analyzer.analyze_committed_tables(commit_id)
         
         return commit_id
     
@@ -248,7 +253,12 @@ class ImportJobExecutor(JobExecutor):
         await self._update_ref(db_pool, dataset_id, target_ref, commit_id)
         
         # Analyze tables and store comprehensive analysis
-        await self.table_analyzer.analyze_committed_tables(db_pool, commit_id)
+        # Initialize table analyzer with UoW
+        from src.infrastructure.postgres.unit_of_work import UnitOfWork
+        async with db_pool.acquire() as conn:
+            uow = UnitOfWork(conn)
+            self.table_analyzer = TableAnalysisService(uow)
+            await self.table_analyzer.analyze_committed_tables(commit_id)
         
         return commit_id
     

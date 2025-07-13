@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends, status, Path, UploadFile, File, Form
 from typing import Annotated, AsyncGenerator, Dict, Any
 from ..infrastructure.postgres.database import DatabasePool, UnitOfWorkFactory
 from ..infrastructure.postgres import PostgresDatasetRepository
-from ..features.datasets.grant_permission import GrantPermissionHandler
-from ..models.pydantic_models import (
+from ..features.datasets.handlers.grant_permission import GrantPermissionHandler
+from ..api.models import (
     CreateDatasetRequest, CreateDatasetResponse,
     GrantPermissionRequest, GrantPermissionResponse,
     CurrentUser, ListDatasetsResponse, DatasetSummary,
@@ -85,11 +85,15 @@ async def create_dataset(
         search_repo = PostgresSearchRepository(conn)
         await search_repo.refresh_search_index()
         
+        # Get the created dataset to fetch timestamps
+        dataset = await dataset_repo.get_dataset_by_id(dataset_id)
+        
         return CreateDatasetResponse(
             dataset_id=dataset_id,
             name=request.name,
             description=request.description,
-            tags=tags
+            tags=tags,
+            created_at=dataset['created_at']
         )
 
 
@@ -361,7 +365,7 @@ async def get_dataset(
             import_status = latest_import_job['status']
         
         return DatasetDetailResponse(
-            dataset_id=dataset['id'],  # Changed from dataset_id to id
+            id=dataset['id'],
             name=dataset['name'],
             description=dataset['description'],
             created_by=dataset['created_by'],
