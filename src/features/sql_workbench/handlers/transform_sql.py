@@ -122,7 +122,7 @@ class TransformSqlHandler(BaseHandler[SqlTransformResponse]):
         """Validate user permissions for the transformation."""
         # Check read permissions for all sources
         for source in request.sources:
-            has_read = await self._dataset_repository.user_has_permission(
+            has_read = await self._dataset_repository.check_user_permission(
                 dataset_id=source.dataset_id,
                 user_id=user_id,
                 permission_type='read'
@@ -131,7 +131,7 @@ class TransformSqlHandler(BaseHandler[SqlTransformResponse]):
                 raise PermissionError(f"No read permission for source dataset {source.dataset_id}")
         
         # Check write permission for target
-        has_write = await self._dataset_repository.user_has_permission(
+        has_write = await self._dataset_repository.check_user_permission(
             dataset_id=request.target.dataset_id,
             user_id=user_id,
             permission_type='write'

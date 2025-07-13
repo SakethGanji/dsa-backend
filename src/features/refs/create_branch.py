@@ -2,7 +2,7 @@
 
 from src.core.abstractions import IUnitOfWork
 from src.models.pydantic_models import CreateBranchRequest, CreateBranchResponse, PermissionType
-from src.features.base_handler import BaseHandler, with_error_handling
+from src.features.base_handler import BaseHandler, with_error_handling, with_transaction
 
 
 class CreateBranchHandler(BaseHandler[CreateBranchResponse]):
@@ -11,6 +11,7 @@ class CreateBranchHandler(BaseHandler[CreateBranchResponse]):
     def __init__(self, uow: IUnitOfWork):
         super().__init__(uow)
     
+    @with_transaction
     @with_error_handling
     async def handle(
         self, 

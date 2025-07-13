@@ -6,12 +6,25 @@ import os
 import tempfile
 import aiofiles
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 
 from src.core.abstractions import IUnitOfWork, IJobRepository, IDatasetRepository
 from src.core.config import get_settings
 from src.models.pydantic_models import QueueImportRequest, QueueImportResponse
-from src.features.base_handler import BaseHandler, with_error_handling
+from src.features.base_handler import BaseHandler, with_error_handling, with_transaction
+from src.core.decorators import requires_permission
 from fastapi import HTTPException
+
+
+@dataclass
+class QueueImportJobOptimizedCommand:
+    """Command for queuing import job with optimized file handling"""
+    dataset_id: int
+    ref_name: str
+    file: BinaryIO
+    filename: str
+    request: QueueImportRequest
+    user_id: int
 
 
 class QueueImportJobHandler(BaseHandler[QueueImportResponse]):
@@ -85,6 +98,8 @@ class QueueImportJobHandler(BaseHandler[QueueImportResponse]):
                 pass  # File already deleted
     
     @with_error_handling
+    @with_transaction
+    @requires_permission("dataset", "write")
     async def handle(
         self,
         dataset_id: int,
@@ -103,13 +118,7 @@ class QueueImportJobHandler(BaseHandler[QueueImportResponse]):
         3. Create job record with parameters
         4. Return job_id for status polling
         """
-        # POC MODE: Skip permission check
-        # TODO: Re-enable permission check for production
-        # has_permission = await self._uow.datasets.check_user_permission(
-        #     dataset_id, user_id, 'write'
-        # )
-        # if not has_permission:
-        #     raise PermissionError("User lacks write permission for this dataset")
+        # Permission check handled by @requires_permission decorator
         
         # Get current commit for the ref
         current_commit = await self._uow.commits.get_current_commit_for_ref(
@@ -138,18 +147,13 @@ class QueueImportJobHandler(BaseHandler[QueueImportResponse]):
                 "user_id": user_id
             }
             
-            await self._uow.begin()
-            try:
-                job_id = await self._uow.jobs.create_job(
-                    run_type='import',
-                    dataset_id=dataset_id,
-                    user_id=user_id,
-                    source_commit_id=current_commit,
-                    run_parameters=job_parameters
-                )
-                await self._uow.commit()
-                
-                return QueueImportResponse(job_id=job_id)
-            except Exception:
-                await self._uow.rollback()
-                raise
+            # Transaction management handled by @with_transaction decorator
+            job_id = await self._uow.jobs.create_job(
+                run_type='import',
+                dataset_id=dataset_id,
+                user_id=user_id,
+                source_commit_id=current_commit,
+                run_parameters=job_parameters
+            )
+            
+            return QueueImportResponse(job_id=job_id)

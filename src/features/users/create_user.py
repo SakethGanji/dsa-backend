@@ -2,50 +2,59 @@
 
 from typing import Dict, Any
 from passlib.context import CryptContext
-from ...core.services.interfaces import IUnitOfWork, IUserRepository
+from ...core.abstractions import IUnitOfWork, IUserRepository
 from ...models.pydantic_models import CreateUserRequest, CreateUserResponse
+from ...features.base_handler import BaseHandler, with_transaction
+from ...core.decorators import requires_role
+from dataclasses import dataclass
 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
-class CreateUserHandler:
+@dataclass
+class CreateUserCommand:
+    user_id: int  # Must be first for decorator - this is the creating user (admin)
+    soeid: str
+    password: str
+    role_id: int
+
+
+class CreateUserHandler(BaseHandler):
     """Handler for creating new users with proper password hashing."""
     
     def __init__(self, uow: IUnitOfWork, user_repo: IUserRepository):
-        self._uow = uow
+        super().__init__(uow)
         self._user_repo = user_repo
     
-    async def handle(self, request: CreateUserRequest) -> CreateUserResponse:
+    @with_transaction
+    @requires_role("admin")  # Only admins can create users
+    async def handle(self, command: CreateUserCommand) -> CreateUserResponse:
         """Create a new user with hashed password."""
+        # Transaction and role check handled by decorators
+        
         # Check if user already exists
-        existing_user = await self._user_repo.get_by_soeid(request.soeid)
+        existing_user = await self._user_repo.get_by_soeid(command.soeid)
         if existing_user:
-            raise ValueError(f"User with SOEID {request.soeid} already exists")
+            raise ValueError(f"User with SOEID {command.soeid} already exists")
         
         # Hash the password
-        password_hash = pwd_context.hash(request.password)
+        password_hash = pwd_context.hash(command.password)
         
-        # Create user in transaction
-        await self._uow.begin()
-        try:
-            user_id = await self._user_repo.create_user(
-                soeid=request.soeid,
-                password_hash=password_hash,
-                role_id=request.role_id
-            )
-            await self._uow.commit()
-            
-            # Get the created user details
-            user = await self._user_repo.get_by_id(user_id)
-            
-            return CreateUserResponse(
-                id=user['id'],
-                soeid=user['soeid'],
-                role_id=user['role_id'],
-                role_name=user.get('role_name'),
-                created_at=user['created_at']
-            )
-        except Exception as e:
-            await self._uow.rollback()
-            raise
+        # Create user
+        user_id = await self._user_repo.create_user(
+            soeid=command.soeid,
+            password_hash=password_hash,
+            role_id=command.role_id
+        )
+        
+        # Get the created user details
+        user = await self._user_repo.get_by_id(user_id)
+        
+        return CreateUserResponse(
+            id=user['id'],
+            soeid=user['soeid'],
+            role_id=user['role_id'],
+            role_name=user.get('role_name'),
+            created_at=user['created_at']
+        )

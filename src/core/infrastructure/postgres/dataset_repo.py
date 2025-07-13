@@ -41,7 +41,7 @@ class PostgresDatasetRepository(IDatasetRepository):
     async def get_dataset_by_id(self, dataset_id: int) -> Optional[Dict[str, Any]]:
         """Get dataset by ID."""
         query = """
-            SELECT id as dataset_id, name, description, created_by, created_at, updated_at
+            SELECT id, name, description, created_by, created_at, updated_at
             FROM dsa_core.datasets
             WHERE id = $1
         """
@@ -89,9 +89,6 @@ class PostgresDatasetRepository(IDatasetRepository):
         """
         await self._conn.execute(query, dataset_id, user_id, permission_type)
     
-    async def user_has_permission(self, dataset_id: int, user_id: int, permission_type: str) -> bool:
-        """Check if user has specific permission on dataset."""
-        return await self.check_user_permission(dataset_id, user_id, permission_type)
     
     async def list_user_datasets(self, user_id: int) -> List[Dict[str, Any]]:
         """List all datasets accessible to a user."""
@@ -193,7 +190,7 @@ class PostgresDatasetRepository(IDatasetRepository):
         
         # 4. Delete jobs related to dataset
         await self._conn.execute(
-            "DELETE FROM dsa_core.jobs WHERE dataset_id = $1",
+            "DELETE FROM dsa_jobs.analysis_runs WHERE dataset_id = $1",
             dataset_id
         )
         

@@ -1,13 +1,25 @@
 from typing import BinaryIO
 import os
 import tempfile
+from dataclasses import dataclass
+
 from src.core.abstractions import IUnitOfWork, IDatasetRepository, ICommitRepository, IJobRepository
 from src.models.pydantic_models import CreateDatasetWithFileRequest, CreateDatasetWithFileResponse
 from src.features.datasets.create_dataset import CreateDatasetHandler
 from src.features.versioning.queue_import_job import QueueImportJobHandler
+from src.features.base_handler import BaseHandler, with_error_handling, with_transaction
 
 
-class CreateDatasetWithFileHandler:
+@dataclass
+class CreateDatasetWithFileCommand:
+    """Command for creating dataset with file"""
+    request: CreateDatasetWithFileRequest
+    file: BinaryIO
+    filename: str
+    user_id: int
+
+
+class CreateDatasetWithFileHandler(BaseHandler[CreateDatasetWithFileResponse]):
     """Handler for creating a dataset and importing a file in one operation"""
     
     def __init__(
@@ -16,13 +28,14 @@ class CreateDatasetWithFileHandler:
         dataset_repo: IDatasetRepository,
         commit_repo: ICommitRepository
     ):
-        self._uow = uow
+        super().__init__(uow)
         self._dataset_repo = dataset_repo
         self._commit_repo = commit_repo
         # Reuse existing handlers
         self._create_dataset_handler = CreateDatasetHandler(uow, dataset_repo, commit_repo)
         self._queue_import_handler = QueueImportJobHandler(uow)
     
+    @with_error_handling
     async def handle(
         self,
         request: CreateDatasetWithFileRequest,

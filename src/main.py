@@ -1,7 +1,8 @@
 """Main FastAPI application."""
 
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import logging
 import asyncio
@@ -14,6 +15,7 @@ from .core.dependencies import (
     set_stats_calculator
 )
 from .core.infrastructure.services import FileParserFactory, DefaultStatisticsCalculator
+from .core.exceptions import PermissionDeniedError, permission_exception_handler
 from .api import users, datasets, versioning, jobs, search, sampling, exploration, workbench, downloads
 from .workers.job_worker import JobWorker
 from .workers.import_executor import ImportJobExecutor
@@ -90,6 +92,40 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Register custom exception handlers
+app.add_exception_handler(PermissionDeniedError, permission_exception_handler)
+
+# Add generic exception handlers
+@app.exception_handler(ValueError)
+async def validation_exception_handler(request: Request, exc: ValueError):
+    return JSONResponse(
+        status_code=400,
+        content={
+            "error": "validation_error",
+            "detail": str(exc)
+        }
+    )
+
+@app.exception_handler(PermissionError)
+async def permission_error_handler(request: Request, exc: PermissionError):
+    return JSONResponse(
+        status_code=403,
+        content={
+            "error": "permission_denied",
+            "detail": str(exc)
+        }
+    )
+
+@app.exception_handler(KeyError)
+async def not_found_error_handler(request: Request, exc: KeyError):
+    return JSONResponse(
+        status_code=404,
+        content={
+            "error": "not_found",
+            "detail": f"Resource not found: {str(exc)}"
+        }
+    )
 
 
 # Dependency to get database pool

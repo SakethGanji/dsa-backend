@@ -1,6 +1,6 @@
 """Dataset management API endpoints."""
 
-from fastapi import APIRouter, Depends, HTTPException, status, Path, UploadFile, File, Form
+from fastapi import APIRouter, Depends, status, Path, UploadFile, File, Form
 from typing import Annotated, AsyncGenerator, Dict, Any
 from ..core.database import DatabasePool, UnitOfWorkFactory
 from ..core.infrastructure.postgres import PostgresDatasetRepository
@@ -20,17 +20,14 @@ from ..core.authorization import (
     require_dataset_write,
     PermissionType
 )
+from ..core.exceptions import resource_not_found
+from ..core.dependencies import get_db_pool
 
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
 
-# Dependency injection helpers (will be overridden in main.py)
-def get_db_pool() -> DatabasePool:
-    """Get database pool."""
-    raise NotImplementedError("Database pool not configured")
-
-
+# Local dependency helpers
 async def get_uow_factory(
     pool: DatabasePool = Depends(get_db_pool)
 ) -> UnitOfWorkFactory:
@@ -62,10 +59,7 @@ async def create_dataset(
             user_id=current_user.user_id
         )
         if existing:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Dataset with name '{request.name}' already exists"
-            )
+            raise ValueError(f"Dataset with name '{request.name}' already exists")
         
         # Create the dataset
         dataset_id = await dataset_repo.create_dataset(
@@ -120,128 +114,116 @@ async def create_dataset_with_file(
     )
     
     # Implement the logic directly without handlers to avoid connection issues
-    try:
-        async with pool.acquire() as conn:
-            from ..core.infrastructure.postgres import (
-                PostgresDatasetRepository, 
-                PostgresCommitRepository,
-                PostgresJobRepository
+    async with pool.acquire() as conn:
+        from ..core.infrastructure.postgres import (
+            PostgresDatasetRepository, 
+            PostgresCommitRepository,
+            PostgresJobRepository
+        )
+        
+        # Start transaction
+        async with conn.transaction():
+            dataset_repo = PostgresDatasetRepository(conn)
+            commit_repo = PostgresCommitRepository(conn)
+            job_repo = PostgresJobRepository(conn)
+            
+            # Check if dataset with same name already exists
+            existing = await dataset_repo.get_dataset_by_name_and_user(
+                name=request.name,
+                user_id=current_user.user_id
+            )
+            if existing:
+                raise ValueError(f"Dataset with name '{request.name}' already exists")
+            
+            # Create the dataset
+            dataset_id = await dataset_repo.create_dataset(
+                name=request.name,
+                description=request.description or "",
+                created_by=current_user.user_id
             )
             
-            # Start transaction
-            async with conn.transaction():
-                dataset_repo = PostgresDatasetRepository(conn)
-                commit_repo = PostgresCommitRepository(conn)
-                job_repo = PostgresJobRepository(conn)
-                
-                # Check if dataset with same name already exists
-                existing = await dataset_repo.get_dataset_by_name_and_user(
-                    name=request.name,
-                    user_id=current_user.user_id
-                )
-                if existing:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Dataset with name '{request.name}' already exists"
-                    )
-                
-                # Create the dataset
-                dataset_id = await dataset_repo.create_dataset(
-                    name=request.name,
-                    description=request.description or "",
-                    created_by=current_user.user_id
-                )
-                
-                # Grant admin permission to creator
-                await dataset_repo.grant_permission(
+            # Grant admin permission to creator
+            await dataset_repo.grant_permission(
+                dataset_id=dataset_id,
+                user_id=current_user.user_id,
+                permission_type='admin'
+            )
+            
+            # Add tags if provided
+            if request.tags:
+                await dataset_repo.add_dataset_tags(dataset_id, request.tags)
+            
+            # Create initial empty commit
+            initial_commit_id = await commit_repo.create_commit_and_manifest(
+                dataset_id=dataset_id,
+                parent_commit_id=None,
+                message="Initial commit",
+                author_id=current_user.user_id,
+                manifest=[]  # Empty manifest for initial commit
+            )
+            
+            # Update the default branch ref (it was created with NULL commit_id)
+            # The create_dataset method creates a 'main' ref with NULL commit_id
+            if request.default_branch == "main":
+                # Update existing ref from NULL to the initial commit
+                await commit_repo.update_ref_atomically(
                     dataset_id=dataset_id,
-                    user_id=current_user.user_id,
-                    permission_type='admin'
+                    ref_name=request.default_branch,
+                    expected_commit_id=None,  # Current value is NULL
+                    new_commit_id=initial_commit_id
                 )
-                
-                # Add tags if provided
-                if request.tags:
-                    await dataset_repo.add_dataset_tags(dataset_id, request.tags)
-                
-                # Create initial empty commit
-                initial_commit_id = await commit_repo.create_commit_and_manifest(
+            else:
+                # Create new ref for non-main branches
+                await commit_repo.create_ref(
                     dataset_id=dataset_id,
-                    parent_commit_id=None,
-                    message="Initial commit",
-                    author_id=current_user.user_id,
-                    manifest=[]  # Empty manifest for initial commit
+                    ref_name=request.default_branch,
+                    commit_id=initial_commit_id
                 )
-                
-                # Update the default branch ref (it was created with NULL commit_id)
-                # The create_dataset method creates a 'main' ref with NULL commit_id
-                if request.default_branch == "main":
-                    # Update existing ref from NULL to the initial commit
-                    await commit_repo.update_ref_atomically(
-                        dataset_id=dataset_id,
-                        ref_name=request.default_branch,
-                        expected_commit_id=None,  # Current value is NULL
-                        new_commit_id=initial_commit_id
-                    )
-                else:
-                    # Create new ref for non-main branches
-                    await commit_repo.create_ref(
-                        dataset_id=dataset_id,
-                        ref_name=request.default_branch,
-                        commit_id=initial_commit_id
-                    )
-                
-                # Save uploaded file to temporary location
-                import tempfile
-                import os
-                temp_dir = tempfile.gettempdir()
-                temp_path = os.path.join(temp_dir, f"import_{dataset_id}_{file.filename}")
-                
-                # Read and save file content
-                file_content = await file.read()
-                with open(temp_path, 'wb') as f:
-                    f.write(file_content)
-                
-                # Create import job
-                job_parameters = {
-                    "temp_file_path": temp_path,
-                    "filename": file.filename,
-                    "commit_message": request.commit_message,
-                    "target_ref": request.default_branch
-                }
-                
-                job_id = await job_repo.create_job(
-                    run_type='import',
-                    dataset_id=dataset_id,
-                    user_id=current_user.user_id,
-                    source_commit_id=initial_commit_id,
-                    run_parameters=job_parameters
-                )
-                
-                # Get the tags for response
-                tags = await dataset_repo.get_dataset_tags(dataset_id)
-                
-                # Refresh search index
-                from ..core.infrastructure.postgres.search_repository import PostgresSearchRepository
-                search_repo = PostgresSearchRepository(conn)
-                await search_repo.refresh_search_index()
-                
-                return CreateDatasetWithFileResponse(
-                    dataset_id=dataset_id,
-                    name=request.name,
-                    description=request.description,
-                    tags=tags,
-                    import_job_id=job_id,
-                    status="pending",
-                    message="Dataset created and import job queued successfully"
-                )
-    except Exception as e:
-        import traceback
-        print(f"Error in create_dataset_with_file: {e}")
-        traceback.print_exc()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        )
+            
+            # Save uploaded file to temporary location
+            import tempfile
+            import os
+            temp_dir = tempfile.gettempdir()
+            temp_path = os.path.join(temp_dir, f"import_{dataset_id}_{file.filename}")
+            
+            # Read and save file content
+            file_content = await file.read()
+            with open(temp_path, 'wb') as f:
+                f.write(file_content)
+            
+            # Create import job
+            job_parameters = {
+                "temp_file_path": temp_path,
+                "filename": file.filename,
+                "commit_message": request.commit_message,
+                "target_ref": request.default_branch
+            }
+            
+            job_id = await job_repo.create_job(
+                run_type='import',
+                dataset_id=dataset_id,
+                user_id=current_user.user_id,
+                source_commit_id=initial_commit_id,
+                run_parameters=job_parameters
+            )
+            
+            # Get the tags for response
+            tags = await dataset_repo.get_dataset_tags(dataset_id)
+            
+            # Refresh search index
+            from ..core.infrastructure.postgres.search_repository import PostgresSearchRepository
+            search_repo = PostgresSearchRepository(conn)
+            await search_repo.refresh_search_index()
+            
+            return CreateDatasetWithFileResponse(
+                dataset_id=dataset_id,
+                name=request.name,
+                description=request.description,
+                tags=tags,
+                import_job_id=job_id,
+                status="pending",
+                message="Dataset created and import job queued successfully"
+            )
 
 
 @router.post("/{dataset_id}/permissions", response_model=GrantPermissionResponse)
@@ -257,19 +239,8 @@ async def grant_permission(
     uow = uow_factory.create()
     handler = GrantPermissionHandler(uow, dataset_repo)
     
-    try:
-        # Handler expects granting_user_id parameter
-        return await handler.handle(dataset_id, request, current_user.user_id)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
-    except PermissionError as e:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=str(e)
-        )
+    # Handler expects granting_user_id parameter
+    return await handler.handle(dataset_id, request, current_user.user_id)
 
 
 @router.get("/", response_model=ListDatasetsResponse)
@@ -293,43 +264,22 @@ async def list_datasets(
     
     # Convert to response format with tags and import status
     dataset_summaries = []
-    try:
-        async with pool.acquire() as conn:
-            job_repo = PostgresJobRepository(conn)
-            dataset_repo_new = PostgresDatasetRepository(conn)
-            
-            for dataset in paginated_datasets:
-                tags = await dataset_repo_new.get_dataset_tags(dataset['dataset_id'])
-                
-                # Check for latest import job
-                import_status = None
-                import_job_id = None
-                try:
-                    latest_import_job = await job_repo.get_latest_import_job(dataset['dataset_id'])
-                    if latest_import_job:
-                        import_job_id = str(latest_import_job['job_id'])
-                        import_status = latest_import_job['status']
-                except Exception as e:
-                    # Log error but continue - don't fail the whole request
-                    print(f"Error getting import job for dataset {dataset['dataset_id']}: {e}")
-                
-                dataset_summaries.append(DatasetSummary(
-                    dataset_id=dataset['dataset_id'],
-                    name=dataset['name'],
-                    description=dataset['description'],
-                    created_by=dataset['created_by'],
-                    created_at=dataset['created_at'],
-                    updated_at=dataset['updated_at'],
-                    permission_type=dataset['permission_type'],
-                    tags=tags,
-                    import_status=import_status,
-                    import_job_id=import_job_id
-                ))
-    except Exception as e:
-        # Fallback without import status if there's an error
-        print(f"Error in dataset listing: {e}")
+    async with pool.acquire() as conn:
+        job_repo = PostgresJobRepository(conn)
+        dataset_repo_new = PostgresDatasetRepository(conn)
+        
         for dataset in paginated_datasets:
-            tags = await dataset_repo.get_dataset_tags(dataset['dataset_id'])
+            tags = await dataset_repo_new.get_dataset_tags(dataset['dataset_id'])
+            
+            # Check for latest import job
+            import_status = None
+            import_job_id = None
+            # Get import job but don't fail if it doesn't exist
+            latest_import_job = await job_repo.get_latest_import_job(dataset['dataset_id'])
+            if latest_import_job:
+                import_job_id = str(latest_import_job['job_id'])
+                import_status = latest_import_job['status']
+            
             dataset_summaries.append(DatasetSummary(
                 dataset_id=dataset['dataset_id'],
                 name=dataset['name'],
@@ -339,8 +289,8 @@ async def list_datasets(
                 updated_at=dataset['updated_at'],
                 permission_type=dataset['permission_type'],
                 tags=tags,
-                import_status=None,
-                import_job_id=None
+                import_status=import_status,
+                import_job_id=import_job_id
             ))
     
     return ListDatasetsResponse(
@@ -355,58 +305,64 @@ async def list_datasets(
 async def get_dataset(
     dataset_id: int = Path(..., description="Dataset ID"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    dataset_repo: PostgresDatasetRepository = Depends(get_dataset_repo),
-    pool: DatabasePool = Depends(get_db_pool),
-    _: CurrentUser = Depends(require_dataset_read)
+    pool: DatabasePool = Depends(get_db_pool)
 ) -> DatasetDetailResponse:
     """Get detailed information about a specific dataset."""
     
-    # Get dataset details
-    dataset = await dataset_repo.get_dataset_by_id(dataset_id)
-    if not dataset:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Dataset not found"
+    # Get fresh connection for this request
+    async with pool.acquire() as conn:
+        dataset_repo = PostgresDatasetRepository(conn)
+        
+        # Get dataset details
+        dataset = await dataset_repo.get_dataset_by_id(dataset_id)
+        if not dataset:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Dataset {dataset_id} not found in database")
+            raise resource_not_found("Dataset", dataset_id)
+        
+        # Check permission
+        has_permission = await dataset_repo.check_user_permission(
+            dataset_id=dataset_id,
+            user_id=current_user.user_id,
+            required_permission=PermissionType.READ.value
         )
-    
-    # Get tags
-    tags = await dataset_repo.get_dataset_tags(dataset_id)
-    
-    # Get user's permission type for this dataset
-    user_datasets = await dataset_repo.list_user_datasets(current_user.user_id)
-    permission_type = None
-    for ds in user_datasets:
-        if ds['dataset_id'] == dataset_id:
-            permission_type = ds['permission_type']
-            break
-    
-    # Check for import job status
-    import_status = None
-    import_job_id = None
-    try:
+        if not has_permission:
+            raise permission_denied("Dataset", PermissionType.READ.value)
+        
+        # Get tags
+        tags = await dataset_repo.get_dataset_tags(dataset_id)
+        
+        # Get user's permission type for this dataset
+        user_datasets = await dataset_repo.list_user_datasets(current_user.user_id)
+        permission_type = None
+        for ds in user_datasets:
+            if ds['dataset_id'] == dataset_id:
+                permission_type = ds['permission_type']
+                break
+        
+        # Check for import job status
+        import_status = None
+        import_job_id = None
         from ..core.infrastructure.postgres import PostgresJobRepository
-        async with pool.acquire() as conn:
-            job_repo = PostgresJobRepository(conn)
-            latest_import_job = await job_repo.get_latest_import_job(dataset_id)
-            if latest_import_job:
-                import_job_id = str(latest_import_job['job_id'])
-                import_status = latest_import_job['status']
-    except Exception as e:
-        # Log error but continue
-        print(f"Error getting import job for dataset {dataset_id}: {e}")
-    
-    return DatasetDetailResponse(
-        dataset_id=dataset['dataset_id'],
-        name=dataset['name'],
-        description=dataset['description'],
-        created_by=dataset['created_by'],
-        created_at=dataset['created_at'],
-        updated_at=dataset['updated_at'],
-        tags=tags,
-        permission_type=permission_type,
-        import_status=import_status,
-        import_job_id=import_job_id
-    )
+        job_repo = PostgresJobRepository(conn)
+        latest_import_job = await job_repo.get_latest_import_job(dataset_id)
+        if latest_import_job:
+            import_job_id = str(latest_import_job['job_id'])
+            import_status = latest_import_job['status']
+        
+        return DatasetDetailResponse(
+            dataset_id=dataset['id'],  # Changed from dataset_id to id
+            name=dataset['name'],
+            description=dataset['description'],
+            created_by=dataset['created_by'],
+            created_at=dataset['created_at'],
+            updated_at=dataset['updated_at'],
+            tags=tags,
+            permission_type=permission_type,
+            import_status=import_status,
+            import_job_id=import_job_id
+        )
 
 
 @router.patch("/{dataset_id}", response_model=UpdateDatasetResponse)
@@ -422,10 +378,7 @@ async def update_dataset(
     # Check if dataset exists
     dataset = await dataset_repo.get_dataset_by_id(dataset_id)
     if not dataset:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Dataset not found"
-        )
+        raise resource_not_found("Dataset", dataset_id)
     
     # Update name and description if provided
     if request.name is not None or request.description is not None:
@@ -455,7 +408,9 @@ async def update_dataset(
         dataset_id=dataset_id,
         name=updated_dataset['name'],
         description=updated_dataset['description'],
-        tags=tags
+        metadata={},  # No metadata column in database
+        tags=tags,
+        updated_at=updated_dataset['updated_at']
     )
 
 
@@ -471,10 +426,7 @@ async def delete_dataset(
     # Check if dataset exists
     dataset = await dataset_repo.get_dataset_by_id(dataset_id)
     if not dataset:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Dataset not found"
-        )
+        raise resource_not_found("Dataset", dataset_id)
     
     # Delete the dataset
     await dataset_repo.delete_dataset(dataset_id)
@@ -499,58 +451,50 @@ async def check_dataset_ready(
 ) -> Dict[str, Any]:
     """Check if a dataset is ready for operations (import completed)."""
     
-    try:
-        from ..core.infrastructure.postgres import PostgresJobRepository
-        async with pool.acquire() as conn:
-            job_repo = PostgresJobRepository(conn)
-            
-            # Check for latest import job
-            latest_import_job = await job_repo.get_latest_import_job(dataset_id)
-            
-            if not latest_import_job:
-                # No import job found - dataset might be empty
-                return {
-                    "ready": True,
-                    "status": "no_import",
-                    "message": "No import job found for this dataset"
-                }
-            
-            status = latest_import_job['status']
-            job_id = str(latest_import_job['job_id'])
-            
-            if status == 'completed':
-                return {
-                    "ready": True,
-                    "status": status,
-                    "import_job_id": job_id,
-                    "message": "Dataset is ready for use"
-                }
-            elif status in ['pending', 'processing']:
-                return {
-                    "ready": False,
-                    "status": status,
-                    "import_job_id": job_id,
-                    "message": "Dataset import is still in progress"
-                }
-            elif status == 'failed':
-                return {
-                    "ready": False,
-                    "status": status,
-                    "import_job_id": job_id,
-                    "message": "Dataset import failed",
-                    "error": latest_import_job.get('error_message')
-                }
-            else:
-                return {
-                    "ready": False,
-                    "status": status,
-                    "import_job_id": job_id,
-                    "message": f"Unknown import status: {status}"
-                }
-    except Exception as e:
-        # On error, assume dataset is ready (to not block operations)
-        return {
-            "ready": True,
-            "status": "error",
-            "message": f"Could not check import status: {str(e)}"
-        }
+    from ..core.infrastructure.postgres import PostgresJobRepository
+    async with pool.acquire() as conn:
+        job_repo = PostgresJobRepository(conn)
+        
+        # Check for latest import job
+        latest_import_job = await job_repo.get_latest_import_job(dataset_id)
+        
+        if not latest_import_job:
+            # No import job found - dataset might be empty
+            return {
+                "ready": True,
+                "status": "no_import",
+                "message": "No import job found for this dataset"
+            }
+        
+        status = latest_import_job['status']
+        job_id = str(latest_import_job['job_id'])
+        
+        if status == 'completed':
+            return {
+                "ready": True,
+                "status": status,
+                "import_job_id": job_id,
+                "message": "Dataset is ready for use"
+            }
+        elif status in ['pending', 'processing']:
+            return {
+                "ready": False,
+                "status": status,
+                "import_job_id": job_id,
+                "message": "Dataset import is still in progress"
+            }
+        elif status == 'failed':
+            return {
+                "ready": False,
+                "status": status,
+                "import_job_id": job_id,
+                "message": "Dataset import failed",
+                "error": latest_import_job.get('error_message')
+            }
+        else:
+            return {
+                "ready": False,
+                "status": status,
+                "import_job_id": job_id,
+                "message": f"Unknown import status: {status}"
+            }

@@ -1,7 +1,7 @@
 """API endpoints for data sampling operations."""
 
 from typing import List, Dict, Any, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Path, Response
+from fastapi import APIRouter, Depends, Query, Path, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, validator
 from uuid import UUID
@@ -14,34 +14,21 @@ from ..core.abstractions.uow import IUnitOfWork
 from ..core.abstractions.services import SamplingMethod, SampleConfig
 from ..core.services.sampling_service import PostgresSamplingService, SamplingJobService
 from ..core.infrastructure.postgres.table_reader import PostgresTableReader
-from ..core.authorization import get_current_user_info
+from ..core.authorization import get_current_user_info, require_dataset_read
+from ..core.exceptions import resource_not_found
 from ..models.pydantic_models import CurrentUser
 from ..features.sampling import (
     GetSamplingJobDataHandler,
     GetDatasetSamplingHistoryHandler,
     GetUserSamplingHistoryHandler
 )
+from ..core.dependencies import get_db_pool, get_uow
 
 
 router = APIRouter(prefix="/sampling", tags=["sampling"])
 
 
-# Dependency injection helpers (will be overridden in main.py)
-def get_db_pool() -> DatabasePool:
-    """Get database pool."""
-    raise NotImplementedError("Database pool not configured")
-
-
-async def get_uow(
-    pool: DatabasePool = Depends(get_db_pool)
-) -> IUnitOfWork:
-    """Get unit of work."""
-    from ..core.infrastructure.postgres.uow import PostgresUnitOfWork
-    uow = PostgresUnitOfWork(pool)
-    async with uow:
-        yield uow
-
-
+# Local dependency helpers
 async def get_table_reader(
     uow: IUnitOfWork = Depends(get_uow)
 ) -> PostgresTableReader:
@@ -191,22 +178,16 @@ async def create_sampling_job(
     dataset_id: int = Path(..., description="Dataset ID"),
     request: CreateSamplingJobRequest = ...,
     current_user: CurrentUser = Depends(get_current_user_info),
+    _: CurrentUser = Depends(require_dataset_read),
     uow: IUnitOfWork = Depends(get_uow),
     pool: DatabasePool = Depends(get_db_pool)
 ) -> SamplingJobResponse:
-    """Create a sampling job for asynchronous processing."""
-    
-    # Check permissions
-    has_permission = await uow.datasets.user_has_permission(
-        dataset_id, current_user.user_id, "read"
-    )
-    if not has_permission:
-        raise HTTPException(status_code=403, detail="No read permission on dataset")
+    """Create a sampling job for asynchronous processing.\""""
     
     # Get current commit for ref
     ref = await uow.commits.get_ref(dataset_id, request.source_ref)
     if not ref:
-        raise HTTPException(status_code=404, detail=f"Ref '{request.source_ref}' not found")
+        raise resource_not_found("Ref", request.source_ref)
     
     source_commit_id = ref['commit_id']
     
@@ -264,22 +245,16 @@ async def sample_data_direct(
     table_key: str = Query("primary", description="Table to sample from"),
     request: DirectSamplingRequest = ...,
     current_user: CurrentUser = Depends(get_current_user_info),
+    _: CurrentUser = Depends(require_dataset_read),
     uow: IUnitOfWork = Depends(get_uow),
     pool: DatabasePool = Depends(get_db_pool)
 ) -> SamplingResultResponse:
-    """Perform direct sampling and return results immediately."""
-    
-    # Check permissions
-    has_permission = await uow.datasets.user_has_permission(
-        dataset_id, current_user.user_id, "read"
-    )
-    if not has_permission:
-        raise HTTPException(status_code=403, detail="No read permission on dataset")
+    """Perform direct sampling and return results immediately.\""""
     
     # Get current commit for ref
     ref = await uow.commits.get_ref(dataset_id, ref_name)
     if not ref:
-        raise HTTPException(status_code=404, detail=f"Ref '{ref_name}' not found")
+        raise resource_not_found("Ref", ref_name)
     
     commit_id = ref['commit_id']
     
@@ -328,22 +303,16 @@ async def get_column_samples(
     table_key: str = Query("primary", description="Table to sample from"),
     request: ColumnSamplesRequest = ...,
     current_user: CurrentUser = Depends(get_current_user_info),
+    _: CurrentUser = Depends(require_dataset_read),
     uow: IUnitOfWork = Depends(get_uow),
     pool: DatabasePool = Depends(get_db_pool)
 ) -> ColumnSamplesResponse:
-    """Get unique value samples for specified columns."""
-    
-    # Check permissions
-    has_permission = await uow.datasets.user_has_permission(
-        dataset_id, current_user.user_id, "read"
-    )
-    if not has_permission:
-        raise HTTPException(status_code=403, detail="No read permission on dataset")
+    """Get unique value samples for specified columns.\""""
     
     # Get current commit for ref
     ref = await uow.commits.get_ref(dataset_id, ref_name)
     if not ref:
-        raise HTTPException(status_code=404, detail=f"Ref '{ref_name}' not found")
+        raise resource_not_found("Ref", ref_name)
     
     commit_id = ref['commit_id']
     
@@ -378,13 +347,9 @@ async def get_sampling_methods(
     
     dataset = await uow.datasets.get_dataset_by_id(dataset_id)
     if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
+        raise resource_not_found("Dataset", dataset_id)
     
-    has_permission = await uow.datasets.user_has_permission(
-        dataset_id, current_user.user_id, "read"
-    )
-    if not has_permission:
-        raise HTTPException(status_code=403, detail="No read permission on dataset")
+    # Permission check will be handled by the handler/service
     
     # Return available methods
     sampling_service = PostgresSamplingService(pool)

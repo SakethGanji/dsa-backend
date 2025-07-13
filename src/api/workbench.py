@@ -1,6 +1,6 @@
 """API endpoints for SQL workbench functionality."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from typing import Dict
 
 from ..core.database import DatabasePool
@@ -14,26 +14,12 @@ from ..features.sql_workbench.models.sql_preview import SqlPreviewRequest, SqlPr
 from ..features.sql_workbench.models.sql_transform import SqlTransformRequest, SqlTransformResponse
 from ..features.sql_workbench.handlers.preview_sql import PreviewSqlHandler
 from ..features.sql_workbench.handlers.transform_sql import TransformSqlHandler
+from ..core.dependencies import get_db_pool, get_uow
 
 router = APIRouter(prefix="/workbench", tags=["workbench"])
 
 
-# Dependency injection helpers (will be overridden in main.py)
-def get_db_pool() -> DatabasePool:
-    """Get database pool."""
-    raise NotImplementedError("Database pool not configured")
-
-
-async def get_uow(
-    pool: DatabasePool = Depends(get_db_pool)
-) -> IUnitOfWork:
-    """Get unit of work."""
-    from ..core.infrastructure.postgres.uow import PostgresUnitOfWork
-    uow = PostgresUnitOfWork(pool)
-    async with uow:
-        yield uow
-
-
+# Local dependency helpers
 async def get_workbench_service(
     uow: IUnitOfWork = Depends(get_uow)
 ) -> IWorkbenchService:
@@ -94,19 +80,10 @@ async def preview_sql(
         SqlPreviewResponse with query results and metadata
         
     Raises:
-        HTTPException: 400 for validation errors, 403 for permission errors, 404 for not found
+        400 for validation errors, 403 for permission errors, 404 for not found
     """
-    try:
-        handler = PreviewSqlHandler(uow, workbench_service, table_reader, dataset_repository)
-        return await handler.handle(request, current_user.user_id)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=str(e))
-    except KeyError as e:
-        raise HTTPException(status_code=404, detail=f"Not found: {str(e)}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+    handler = PreviewSqlHandler(uow, workbench_service, table_reader, dataset_repository)
+    return await handler.handle(request, current_user.user_id)
 
 
 @router.post("/sql-transform", response_model=SqlTransformResponse)
@@ -133,25 +110,16 @@ async def transform_sql(
         SqlTransformResponse with job ID for tracking
         
     Raises:
-        HTTPException: 400 for validation errors, 403 for permission errors, 404 for not found
+        400 for validation errors, 403 for permission errors, 404 for not found
     """
-    try:
-        handler = TransformSqlHandler(
-            uow, 
-            workbench_service, 
-            job_repository, 
-            dataset_repository,
-            commit_repository
-        )
-        return await handler.handle(request, current_user.user_id)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except PermissionError as e:
-        raise HTTPException(status_code=403, detail=str(e))
-    except KeyError as e:
-        raise HTTPException(status_code=404, detail=f"Not found: {str(e)}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+    handler = TransformSqlHandler(
+        uow, 
+        workbench_service, 
+        job_repository, 
+        dataset_repository,
+        commit_repository
+    )
+    return await handler.handle(request, current_user.user_id)
 
 
 # TODO: Add query history endpoint

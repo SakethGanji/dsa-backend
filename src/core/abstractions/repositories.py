@@ -44,10 +44,6 @@ class IDatasetRepository(ABC):
     async def check_user_permission(self, dataset_id: int, user_id: int, required_permission: str) -> bool:
         pass
     
-    @abstractmethod
-    async def user_has_permission(self, dataset_id: int, user_id: int, permission_type: str) -> bool:
-        """Check if user has specific permission on dataset"""
-        pass
     
     @abstractmethod
     async def grant_permission(self, dataset_id: int, user_id: int, permission_type: str) -> None:

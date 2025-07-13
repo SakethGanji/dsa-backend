@@ -2,7 +2,7 @@
 
 import json
 from typing import List, Dict, Any, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Path
+from fastapi import APIRouter, Depends, Query, Path
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 from uuid import UUID
@@ -10,27 +10,13 @@ from datetime import datetime
 
 from ..core.database import DatabasePool
 from ..core.abstractions.uow import IUnitOfWork
-from ..core.authorization import get_current_user_info
+from ..core.authorization import get_current_user_info, require_dataset_read
+from ..core.exceptions import resource_not_found
 from ..models.pydantic_models import CurrentUser
+from ..core.dependencies import get_db_pool, get_uow
 
 
 router = APIRouter(prefix="/exploration", tags=["exploration"])
-
-
-# Dependency injection helpers
-def get_db_pool() -> DatabasePool:
-    """Get database pool."""
-    raise NotImplementedError("Database pool not configured")
-
-
-async def get_uow(
-    pool: DatabasePool = Depends(get_db_pool)
-) -> IUnitOfWork:
-    """Get unit of work."""
-    from ..core.infrastructure.postgres.uow import PostgresUnitOfWork
-    uow = PostgresUnitOfWork(pool)
-    async with uow:
-        yield uow
 
 
 # Request/Response Models
@@ -85,22 +71,16 @@ async def create_exploration_job(
     dataset_id: int = Path(..., description="Dataset ID"),
     request: CreateExplorationRequest = ...,
     current_user: CurrentUser = Depends(get_current_user_info),
+    _: CurrentUser = Depends(require_dataset_read),
     uow: IUnitOfWork = Depends(get_uow),
     pool: DatabasePool = Depends(get_db_pool)
 ) -> ExplorationJobResponse:
-    """Create a new exploration/profiling job."""
-    
-    # Check permissions
-    has_permission = await uow.datasets.user_has_permission(
-        dataset_id, current_user.user_id, "read"
-    )
-    if not has_permission:
-        raise HTTPException(status_code=403, detail="No read permission on dataset")
+    """Create a new exploration/profiling job.\""""
     
     # Get current commit for ref
     ref = await uow.commits.get_ref(dataset_id, request.source_ref)
     if not ref:
-        raise HTTPException(status_code=404, detail=f"Ref '{request.source_ref}' not found")
+        raise resource_not_found("Ref", request.source_ref)
     
     source_commit_id = ref['commit_id']
     
@@ -158,17 +138,11 @@ async def get_dataset_exploration_history(
     offset: int = Query(0, ge=0, description="Pagination offset"),
     limit: int = Query(20, ge=1, le=100, description="Items per page"),
     current_user: CurrentUser = Depends(get_current_user_info),
+    _: CurrentUser = Depends(require_dataset_read),
     uow: IUnitOfWork = Depends(get_uow),
     pool: DatabasePool = Depends(get_db_pool)
 ) -> ExplorationHistoryResponse:
-    """Get exploration history for a dataset."""
-    
-    # Check permissions
-    has_permission = await uow.datasets.user_has_permission(
-        dataset_id, current_user.user_id, "read"
-    )
-    if not has_permission:
-        raise HTTPException(status_code=403, detail="No read permission on dataset")
+    """Get exploration history for a dataset.\""""
     
     # Get history using direct query
     async with pool.acquire() as conn:
@@ -240,7 +214,7 @@ async def get_user_exploration_history(
     
     # Check permissions (users can only see their own history unless admin)
     if user_id != current_user.user_id and not current_user.is_admin():
-        raise HTTPException(status_code=403, detail="Cannot view other users' history")
+        raise PermissionError("Cannot view other users' history")
     
     # Get history using direct query
     async with pool.acquire() as conn:
@@ -326,20 +300,15 @@ async def get_exploration_result(
     # Get job details
     job = await uow.jobs.get_job_by_id(job_id)
     if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise resource_not_found("Job", job_id)
     
     if job["run_type"] != "exploration":
-        raise HTTPException(status_code=400, detail="Not an exploration job")
+        raise ValueError("Not an exploration job")
     
     if job["status"] != "completed":
-        raise HTTPException(status_code=400, detail=f"Job is {job['status']}, not completed")
+        raise ValueError(f"Job is {job['status']}, not completed")
     
-    # Check permissions
-    has_permission = await uow.datasets.user_has_permission(
-        job["dataset_id"], current_user.user_id, "read"
-    )
-    if not has_permission:
-        raise HTTPException(status_code=403, detail="No read permission on dataset")
+    # Permission check will be handled by the handler
     
     # Get result from output_summary
     async with pool.acquire() as conn:
@@ -352,7 +321,7 @@ async def get_exploration_result(
         row = await conn.fetchrow(query, job_id)
         
         if not row or not row["output_summary"]:
-            raise HTTPException(status_code=404, detail="No result found for job")
+            raise resource_not_found("Result", job_id)
         
         output_summary = json.loads(row["output_summary"])
         

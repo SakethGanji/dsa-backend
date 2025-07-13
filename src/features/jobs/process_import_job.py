@@ -6,10 +6,20 @@ import pandas as pd
 
 from src.core.abstractions import IUnitOfWork, IJobRepository, ICommitRepository
 from src.core.abstractions.services import IFileProcessingService, IStatisticsService
+from src.features.base_handler import BaseHandler, with_error_handling
+from src.core.decorators import requires_permission
 from uuid import UUID
+from dataclasses import dataclass
 
 
-class ProcessImportJobHandler:
+@dataclass
+class ProcessImportJobCommand:
+    user_id: int  # Must be first for decorator
+    job_id: UUID
+    dataset_id: int  # For permission check
+
+
+class ProcessImportJobHandler(BaseHandler):
     """Handler for processing import jobs in the background worker"""
     
     def __init__(
@@ -20,13 +30,15 @@ class ProcessImportJobHandler:
         parser_factory: IFileProcessingService,
         stats_calculator: IStatisticsService
     ):
-        self._uow = uow
+        super().__init__(uow)
         self._job_repo = job_repo
         self._commit_repo = commit_repo
         self._parser_factory = parser_factory
         self._stats_calculator = stats_calculator
     
-    async def handle(self, job_id: UUID) -> None:
+    @with_error_handling
+    @requires_permission("dataset", "write")
+    async def handle(self, user_id: int, job_id: UUID, dataset_id: int) -> None:
         """
         Process an import job
         
@@ -38,7 +50,7 @@ class ProcessImportJobHandler:
         5. Update job status
         6. Clean up temp file
         """
-        # TODO: Get job details
+        # Get job details
         job = await self._job_repo.get_job_by_id(job_id)
         if not job:
             raise ValueError(f"Job {job_id} not found")
@@ -56,7 +68,7 @@ class ProcessImportJobHandler:
             target_ref = params['target_ref']
             commit_message = params['commit_message']
             
-            # TODO: Optimistic locking check
+            # Optimistic locking check
             current_commit = await self._commit_repo.get_current_commit_for_ref(
                 job['dataset_id'], target_ref
             )
@@ -69,9 +81,8 @@ class ProcessImportJobHandler:
                 temp_file_path, params['filename']
             )
             
-            # TODO: Create commit in transaction
-            await self._uow.begin()
-            try:
+            # Create commit in transaction
+            async with self._create_transaction():
                 # Add unique rows
                 await self._commit_repo.add_rows_if_not_exist(rows_to_store)
                 
@@ -100,8 +111,6 @@ class ProcessImportJobHandler:
                 
                 # Note: Statistics are now stored in table_analysis during import
                 
-                await self._uow.commit()
-                
                 # Update job as completed
                 output_summary = {
                     "new_commit_id": new_commit_id,
@@ -114,10 +123,6 @@ class ProcessImportJobHandler:
                     job_id, 'completed', output_summary=output_summary
                 )
                 
-            except Exception as e:
-                await self._uow.rollback()
-                raise
-                
         except Exception as e:
             # Mark job as failed
             await self._job_repo.update_job_status(
@@ -128,6 +133,16 @@ class ProcessImportJobHandler:
             # Clean up temp file
             if os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
+    
+    async def _create_transaction(self):
+        """Context manager for manual transaction handling in complex operations"""
+        await self._uow.begin()
+        try:
+            yield
+            await self._uow.commit()
+        except Exception:
+            await self._uow.rollback()
+            raise
     
     async def _parse_file(
         self, 

@@ -64,7 +64,7 @@ class GetSamplingJobDataHandler(BaseHandler[Dict[str, Any]], PaginationMixin):
         
         # Check user permissions on the dataset
         dataset_id = job.get('dataset_id')
-        has_permission = await self._uow.datasets.user_has_permission(
+        has_permission = await self._uow.datasets.check_user_permission(
             dataset_id, user_id, "read"
         )
         

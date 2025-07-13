@@ -44,7 +44,7 @@ class GetDatasetSamplingHistoryHandler(BaseHandler[Dict[str, Any]], PaginationMi
         if not dataset:
             raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
         
-        has_permission = await self._uow.datasets.user_has_permission(
+        has_permission = await self._uow.datasets.check_user_permission(
             dataset_id, user_id, "read"
         )
         if not has_permission:

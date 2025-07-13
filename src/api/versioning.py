@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query, File, UploadFile, Form, HTTPException, status, Path
+from fastapi import APIRouter, Depends, Query, File, UploadFile, Form, status, Path
 from typing import List, Dict, Any, Optional
 
 from src.models.pydantic_models import (
@@ -23,7 +23,7 @@ from src.features.versioning.get_dataset_overview import GetDatasetOverviewHandl
 from src.features.refs import ListRefsHandler, CreateBranchHandler, DeleteBranchHandler
 from src.core.database import DatabasePool, UnitOfWorkFactory
 from src.core.authorization import get_current_user_info, PermissionType, require_dataset_read, require_dataset_write
-from src.core.dependencies import get_uow, get_current_user, get_db_pool
+from src.core.dependencies import get_uow, get_db_pool
 from src.core.abstractions import IUnitOfWork
 
 
@@ -43,13 +43,13 @@ async def create_commit(
     dataset_id: int,
     ref_name: str,
     request: CreateCommitRequest,
-    current_user: dict = Depends(get_current_user),
-    uow: IUnitOfWork = Depends(get_uow),
-    _: CurrentUser = Depends(require_dataset_write)
+    current_user: CurrentUser = Depends(get_current_user_info),
+    _: CurrentUser = Depends(require_dataset_write),
+    uow: IUnitOfWork = Depends(get_uow)
 ):
     """Create a new commit with direct data"""
     handler = CreateCommitHandler(uow, uow.commits, uow.datasets)
-    return await handler.handle(dataset_id, ref_name, request, current_user["id"])
+    return await handler.handle(dataset_id, ref_name, request, current_user.user_id)
 
 
 @router.post("/datasets/{dataset_id}/refs/{ref_name}/import", response_model=QueueImportResponse)
@@ -82,27 +82,27 @@ async def get_data_at_ref(
     table_key: str = Query(None, description="Filter by specific table/sheet"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
     limit: int = Query(100, ge=1, le=1000, description="Pagination limit"),
-    current_user: dict = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user_info),
     uow: IUnitOfWork = Depends(get_uow),
     _: CurrentUser = Depends(require_dataset_read)
 ):
     """Get paginated data for a ref"""
     handler = GetDataAtRefHandler(uow, uow.table_reader)
     request = GetDataRequest(table_key=table_key, offset=offset, limit=limit)
-    return await handler.handle(dataset_id, ref_name, request, current_user["id"])
+    return await handler.handle(dataset_id, ref_name, request, current_user.user_id)
 
 
 @router.get("/datasets/{dataset_id}/commits/{commit_id}/schema", response_model=CommitSchemaResponse)
 async def get_commit_schema(
     dataset_id: int,
     commit_id: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user_info),
     uow: IUnitOfWork = Depends(get_uow),
     _: CurrentUser = Depends(require_dataset_read)
 ):
     """Get schema information for a commit"""
     handler = GetCommitSchemaHandler(uow.commits, uow.datasets)
-    return await handler.handle(dataset_id, commit_id, current_user["id"])
+    return await handler.handle(dataset_id, commit_id, current_user.user_id)
 
 
 # Table-specific endpoints for multi-table support
@@ -110,13 +110,13 @@ async def get_commit_schema(
 async def list_tables(
     dataset_id: int,
     ref_name: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user_info),
     uow: IUnitOfWork = Depends(get_uow),
     _: CurrentUser = Depends(require_dataset_read)
 ) -> Dict[str, List[str]]:
     """List all available tables in the dataset at the given ref"""
     handler = ListTablesHandler(uow, uow.table_reader)
-    return await handler.handle(dataset_id, ref_name, current_user["id"])
+    return await handler.handle(dataset_id, ref_name, current_user.user_id)
 
 
 @router.get("/datasets/{dataset_id}/refs/{ref_name}/tables/{table_key}/data")
@@ -126,7 +126,7 @@ async def get_table_data(
     table_key: str,
     offset: int = Query(0, ge=0, description="Pagination offset"),
     limit: int = Query(100, ge=1, le=10000, description="Pagination limit"),
-    current_user: dict = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user_info),
     uow: IUnitOfWork = Depends(get_uow),
     _: CurrentUser = Depends(require_dataset_read)
 ) -> Dict[str, Any]:
@@ -136,7 +136,7 @@ async def get_table_data(
         dataset_id=dataset_id,
         ref_name=ref_name,
         table_key=table_key,
-        user_id=current_user["id"],
+        user_id=current_user.user_id,
         offset=offset,
         limit=limit
     )
@@ -147,7 +147,7 @@ async def get_table_schema(
     dataset_id: int,
     ref_name: str,
     table_key: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user_info),
     uow: IUnitOfWork = Depends(get_uow),
     _: CurrentUser = Depends(require_dataset_read)
 ) -> Dict[str, Any]:
@@ -157,7 +157,7 @@ async def get_table_schema(
         dataset_id=dataset_id,
         ref_name=ref_name,
         table_key=table_key,
-        user_id=current_user["id"]
+        user_id=current_user.user_id
     )
 
 
@@ -166,7 +166,7 @@ async def get_table_analysis(
     dataset_id: int,
     ref_name: str,
     table_key: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user_info),
     uow: IUnitOfWork = Depends(get_uow),
     _: CurrentUser = Depends(require_dataset_read)
 ) -> TableAnalysisResponse:
@@ -176,7 +176,7 @@ async def get_table_analysis(
         dataset_id=dataset_id,
         ref_name=ref_name,
         table_key=table_key,
-        user_id=current_user["id"]
+        user_id=current_user.user_id
     )
 
 
@@ -213,13 +213,7 @@ async def checkout_commit(
     # Checkout commit
     uow = uow_factory.create()
     handler = CheckoutCommitHandler(uow)
-    try:
-        return await handler.handle(dataset_id, commit_id, table_key, offset, limit)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
-        )
+    return await handler.handle(dataset_id, commit_id, table_key, offset, limit)
 
 
 # Branch/Ref management endpoints
@@ -247,18 +241,7 @@ async def create_branch(
     """Create a new branch from an existing ref."""
     uow = uow_factory.create()
     handler = CreateBranchHandler(uow)
-    try:
-        return await handler.handle(dataset_id, request, current_user.user_id)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
-    except PermissionError as e:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=str(e)
-        )
+    return await handler.handle(dataset_id, request, current_user.user_id)
 
 
 @router.delete("/datasets/{dataset_id}/refs/{ref_name}")
@@ -272,24 +255,7 @@ async def delete_branch(
     """Delete a branch/ref."""
     uow = uow_factory.create()
     handler = DeleteBranchHandler(uow)
-    try:
-        return await handler.handle(dataset_id, ref_name, current_user.user_id)
-    except ValueError as e:
-        if "not found" in str(e).lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=str(e)
-            )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(e)
-            )
-    except PermissionError as e:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=str(e)
-        )
+    return await handler.handle(dataset_id, ref_name, current_user.user_id)
 
 
 # Dataset Overview endpoint
@@ -306,15 +272,4 @@ async def get_dataset_overview(
     dropdowns for the columns endpoint.
     """
     handler = GetDatasetOverviewHandler(uow, uow.table_reader)
-    try:
-        return await handler.handle(dataset_id, current_user.user_id)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
-        )
-    except PermissionError as e:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=str(e)
-        )
+    return await handler.handle(dataset_id, current_user.user_id)

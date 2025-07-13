@@ -1,6 +1,6 @@
 """User management API endpoints."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from fastapi.security import OAuth2PasswordRequestForm
 from ..core.database import DatabasePool, UnitOfWorkFactory
 from ..core.infrastructure.postgres import PostgresUserRepository
@@ -11,18 +11,14 @@ from ..models.pydantic_models import (
     LoginRequest, LoginResponse
 )
 from ..core.authorization import require_admin_role
+from ..core.dependencies import get_db_pool
 from typing import Annotated
 
 
 router = APIRouter(prefix="/users", tags=["users"])
 
 
-# Dependency injection helpers
-def get_db_pool() -> DatabasePool:
-    """Get database pool - will be overridden in main.py"""
-    raise NotImplementedError("Database pool not configured")
-
-
+# Local dependency helpers
 async def get_uow_factory(
     pool: DatabasePool = Depends(get_db_pool)
 ) -> UnitOfWorkFactory:
@@ -49,13 +45,7 @@ async def create_user(
     uow = uow_factory.create()
     handler = CreateUserHandler(uow, user_repo)
     
-    try:
-        return await handler.handle(request)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+    return await handler.handle(request)
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -72,14 +62,7 @@ async def login(
     
     handler = LoginUserHandler(user_repo)
     
-    try:
-        return await handler.handle(request)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-            headers={"WWW-Authenticate": "Bearer"}
-        )
+    return await handler.handle(request)
 
 
 @router.post("/token", response_model=LoginResponse)
@@ -103,10 +86,7 @@ async def create_user_public(
         # Check if user already exists
         existing_user = await user_repo.get_by_soeid(request.soeid)
         if existing_user:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"User with SOEID {request.soeid} already exists"
-            )
+            raise ValueError(f"User with SOEID {request.soeid} already exists")
         
         # Hash the password
         from passlib.context import CryptContext

@@ -3,13 +3,14 @@
 import io
 import csv
 from typing import Optional, Dict, Any
-from fastapi import APIRouter, Depends, Query, Path, HTTPException
+from fastapi import APIRouter, Depends, Query, Path
 from fastapi.responses import StreamingResponse
 import openpyxl
 from openpyxl import Workbook
 
 from ..models.pydantic_models import CurrentUser
 from ..core.authorization import get_current_user_info, require_dataset_read
+from ..core.exceptions import resource_not_found
 from ..core.dependencies import get_uow, get_db_pool
 from ..core.abstractions import IUnitOfWork
 from ..core.infrastructure.postgres.table_reader import PostgresTableReader
@@ -19,12 +20,7 @@ from ..core.database import DatabasePool
 router = APIRouter(prefix="/datasets", tags=["downloads"])
 
 
-# Dependency injection helpers (will be overridden in main.py)
-def get_db_pool() -> DatabasePool:
-    """Get database pool."""
-    raise NotImplementedError("Database pool not configured")
-
-
+# Local dependency helpers
 async def get_table_reader(
     uow: IUnitOfWork = Depends(get_uow)
 ) -> PostgresTableReader:
@@ -47,12 +43,12 @@ async def download_dataset(
     # Get dataset info
     dataset = await uow.datasets.get_dataset_by_id(dataset_id)
     if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
+        raise resource_not_found("Dataset", dataset_id)
     
     # Get ref
     ref = await uow.commits.get_ref(dataset_id, ref_name)
     if not ref:
-        raise HTTPException(status_code=404, detail=f"Ref '{ref_name}' not found")
+        raise resource_not_found("Ref", ref_name)
     
     commit_id = ref['commit_id']
     
@@ -76,7 +72,7 @@ async def download_dataset(
     else:
         # CSV format - if multiple tables, export the first one
         if not tables:
-            raise HTTPException(status_code=404, detail="No tables found in dataset")
+            raise ValueError("No tables found in dataset")
         
         return await _export_csv(
             dataset_name=dataset['name'],
@@ -103,12 +99,12 @@ async def download_table(
     # Get dataset info
     dataset = await uow.datasets.get_dataset_by_id(dataset_id)
     if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
+        raise resource_not_found("Dataset", dataset_id)
     
     # Get ref
     ref = await uow.commits.get_ref(dataset_id, ref_name)
     if not ref:
-        raise HTTPException(status_code=404, detail=f"Ref '{ref_name}' not found")
+        raise resource_not_found("Ref", ref_name)
     
     commit_id = ref['commit_id']
     

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query, HTTPException, status
+from fastapi import APIRouter, Depends, Query, status
 from uuid import UUID
 from typing import Optional, List
 
@@ -8,6 +8,7 @@ from src.models.pydantic_models import (
 from src.features.jobs.get_jobs import GetJobsHandler
 from src.features.jobs.get_job_by_id import GetJobByIdHandler
 from src.core.authorization import get_current_user_info
+from src.core.exceptions import resource_not_found
 from src.core.dependencies import get_uow
 from src.core.abstractions import IUnitOfWork
 from src.models.pydantic_models import CurrentUser
@@ -92,10 +93,9 @@ async def get_job_by_id(
     )
     
     if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job not found"
-        )
+        raise resource_not_found("Job", job_id)
+    
+    # Permission check is now handled by the handler using decorators
     
     return JobDetail(
         id=job["id"],

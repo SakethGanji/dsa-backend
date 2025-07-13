@@ -1,6 +1,6 @@
 """API routes for search functionality."""
 
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query
 from typing import Optional, List
 from datetime import datetime
 
@@ -15,17 +15,13 @@ from ..features.search.models import (
 )
 from ..models.pydantic_models import CurrentUser
 from ..core.abstractions.uow import IUnitOfWork
+from ..core.dependencies import get_db_pool
 
 
 router = APIRouter(prefix="/datasets/search", tags=["search"])
 
 
-# Dependency injection helpers (will be overridden in main.py)
-def get_db_pool() -> DatabasePool:
-    """Get database pool."""
-    raise NotImplementedError("Database pool not configured")
-
-
+# Local dependency helpers
 async def get_uow_factory(
     pool: DatabasePool = Depends(get_db_pool)
 ) -> UnitOfWorkFactory:
@@ -123,11 +119,11 @@ async def search_datasets(
     # Validate sort_by parameter
     valid_sort_by = ['relevance', 'name', 'created_at', 'updated_at']
     if sort_by not in valid_sort_by:
-        raise HTTPException(400, f"Invalid sort_by. Must be one of: {', '.join(valid_sort_by)}")
+        raise ValueError(f"Invalid sort_by. Must be one of: {', '.join(valid_sort_by)}")
     
     # Validate sort_order parameter
     if sort_order not in ['asc', 'desc']:
-        raise HTTPException(400, "Invalid sort_order. Must be 'asc' or 'desc'")
+        raise ValueError("Invalid sort_order. Must be 'asc' or 'desc'")
     
     # Default facet fields if not specified
     if facet_fields is None:
@@ -137,7 +133,7 @@ async def search_datasets(
     valid_facet_fields = ['tags', 'created_by']
     for field in facet_fields:
         if field not in valid_facet_fields:
-            raise HTTPException(400, f"Invalid facet field: {field}. Must be one of: {', '.join(valid_facet_fields)}")
+            raise ValueError(f"Invalid facet field: {field}. Must be one of: {', '.join(valid_facet_fields)}")
     
     # Create UnitOfWork and handler
     async with pool.acquire() as conn:

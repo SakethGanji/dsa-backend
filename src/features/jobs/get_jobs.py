@@ -83,6 +83,24 @@ class GetJobsHandler:
             query += f" AND ar.run_type = ${param_count}"
             params.append(run_type)
         
+        # Add permission filter if current_user_id is provided
+        # Only show jobs for datasets the user has permission to read
+        # In POC mode, all users can see all jobs, but we'll add the structure
+        # for when POC mode is disabled
+        if current_user_id is not None and False:  # Disabled for POC mode
+            param_count += 1
+            query += f"""
+                AND (
+                    ar.dataset_id IS NULL  -- Jobs without datasets
+                    OR EXISTS (
+                        SELECT 1 FROM dsa_auth.dataset_permissions dp
+                        WHERE dp.dataset_id = ar.dataset_id
+                        AND dp.user_id = ${param_count}
+                    )
+                )
+            """
+            params.append(current_user_id)
+        
         # Add ordering
         query += " ORDER BY ar.created_at DESC"
         
@@ -106,26 +124,26 @@ class GetJobsHandler:
         """
         
         count_params = []
-        param_count = 0
+        count_param_num = 0
         
         if user_id is not None:
-            param_count += 1
-            count_query += f" AND ar.user_id = ${param_count}"
+            count_param_num += 1
+            count_query += f" AND ar.user_id = ${count_param_num}"
             count_params.append(user_id)
             
         if dataset_id is not None:
-            param_count += 1
-            count_query += f" AND ar.dataset_id = ${param_count}"
+            count_param_num += 1
+            count_query += f" AND ar.dataset_id = ${count_param_num}"
             count_params.append(dataset_id)
             
         if status is not None:
-            param_count += 1
-            count_query += f" AND ar.status = ${param_count}"
+            count_param_num += 1
+            count_query += f" AND ar.status = ${count_param_num}"
             count_params.append(status)
             
         if run_type is not None:
-            param_count += 1
-            count_query += f" AND ar.run_type = ${param_count}"
+            count_param_num += 1
+            count_query += f" AND ar.run_type = ${count_param_num}"
             count_params.append(run_type)
         
         total_row = await conn.fetchrow(count_query, *count_params)

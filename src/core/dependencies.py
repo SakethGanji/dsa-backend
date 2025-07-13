@@ -8,6 +8,7 @@ from .database import DatabasePool
 from .abstractions import IUnitOfWork
 from .infrastructure.postgres import PostgresUnitOfWork
 from .infrastructure.services import FileParserFactory, DefaultStatisticsCalculator
+from .events import EventBus, get_event_bus
 
 # OAuth2 scheme for token authentication
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
@@ -16,6 +17,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 _db_pool: Optional[DatabasePool] = None
 _parser_factory: Optional[FileParserFactory] = None
 _stats_calculator: Optional[DefaultStatisticsCalculator] = None
+_event_bus: Optional[EventBus] = None
 
 
 def set_database_pool(pool: DatabasePool) -> None:
@@ -112,3 +114,17 @@ async def require_admin(
             detail="Admin access required"
         )
     return current_user
+
+
+def set_event_bus(event_bus: EventBus) -> None:
+    """Set the global event bus instance."""
+    global _event_bus
+    _event_bus = event_bus
+
+
+async def get_event_bus_dependency() -> EventBus:
+    """Get event bus dependency."""
+    if _event_bus is None:
+        # Return the default global event bus
+        return get_event_bus()
+    return _event_bus

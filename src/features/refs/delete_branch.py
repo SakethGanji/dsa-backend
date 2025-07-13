@@ -3,7 +3,7 @@
 from typing import Dict
 from src.core.abstractions import IUnitOfWork
 from src.models.pydantic_models import PermissionType
-from src.features.base_handler import BaseHandler, with_error_handling
+from src.features.base_handler import BaseHandler, with_error_handling, with_transaction
 
 
 class DeleteBranchHandler(BaseHandler[Dict[str, str]]):
@@ -12,6 +12,7 @@ class DeleteBranchHandler(BaseHandler[Dict[str, str]]):
     def __init__(self, uow: IUnitOfWork):
         super().__init__(uow)
     
+    @with_transaction
     @with_error_handling
     async def handle(
         self, 

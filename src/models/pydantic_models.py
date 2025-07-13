@@ -237,8 +237,21 @@ class UpdateDatasetResponse(BaseModel):
     dataset_id: int
     name: str
     description: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
     tags: List[str] = []
-    message: str = "Dataset updated successfully"
+    updated_at: datetime
+
+
+class DatasetListItem(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    tags: List[str] = []
+    created_at: datetime
+    updated_at: datetime
+    created_by: int
+    permission_level: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 
 # Dataset delete models

@@ -1,8 +1,19 @@
-from ...core.services.interfaces import IUnitOfWork, IDatasetRepository
+from ...core.abstractions import IUnitOfWork, IDatasetRepository
 from ...models.pydantic_models import GrantPermissionRequest, GrantPermissionResponse
+from ...features.base_handler import BaseHandler, with_transaction
+from ...core.decorators import requires_permission
+from dataclasses import dataclass
 
 
-class GrantPermissionHandler:
+@dataclass
+class GrantPermissionCommand:
+    user_id: int  # Must be first for decorator - this is the granting user
+    dataset_id: int
+    target_user_id: int
+    permission_type: str
+
+
+class GrantPermissionHandler(BaseHandler):
     """Handler for granting permissions on datasets"""
     
     def __init__(
@@ -10,48 +21,42 @@ class GrantPermissionHandler:
         uow: IUnitOfWork,
         dataset_repo: IDatasetRepository
     ):
-        self._uow = uow
+        super().__init__(uow)
         self._dataset_repo = dataset_repo
     
+    @with_transaction
+    @requires_permission("datasets", "admin")
     async def handle(
         self,
-        dataset_id: int,
-        request: GrantPermissionRequest,
-        granting_user_id: int
+        command: GrantPermissionCommand
     ) -> GrantPermissionResponse:
         """
         Grant permission to a user on a dataset
         
         Steps:
-        1. Verify granting user has admin permission (handled by middleware)
+        1. Verify granting user has admin permission (handled by decorator)
         2. Grant requested permission to target user
         """
-        # Permission check handled by authorization middleware
+        # Transaction and permission check handled by decorators
         
-        # TODO: Validate permission type
+        # Validate permission type
         valid_permissions = ['read', 'write', 'admin']
-        if request.permission_type not in valid_permissions:
+        if command.permission_type not in valid_permissions:
             raise ValueError(f"Invalid permission type. Must be one of: {valid_permissions}")
         
-        await self._uow.begin()
-        try:
-            # Grant permission
-            await self._dataset_repo.grant_permission(
-                dataset_id=dataset_id,
-                user_id=request.user_id,
-                permission_type=request.permission_type
-            )
-            
-            await self._uow.commit()
-            
-            # Refresh search index to reflect permission changes
+        # Grant permission
+        await self._dataset_repo.grant_permission(
+            dataset_id=command.dataset_id,
+            user_id=command.target_user_id,
+            permission_type=command.permission_type
+        )
+        
+        # Refresh search index to reflect permission changes
+        if hasattr(self._uow, 'search_repository'):
             await self._uow.search_repository.refresh_search_index()
-            
-            return GrantPermissionResponse(
-                dataset_id=dataset_id,
-                user_id=request.user_id,
-                permission_type=request.permission_type
-            )
-        except Exception:
-            await self._uow.rollback()
-            raise
+        
+        return GrantPermissionResponse(
+            dataset_id=command.dataset_id,
+            user_id=command.target_user_id,
+            permission_type=command.permission_type
+        )

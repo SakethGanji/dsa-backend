@@ -93,7 +93,7 @@ class PreviewSqlHandler(BaseHandler[SqlPreviewResponse]):
                     raise KeyError(f"Dataset {source.dataset_id} not found")
                 
                 # Check read permission
-                has_permission = await self._dataset_repository.user_has_permission(
+                has_permission = await self._dataset_repository.check_user_permission(
                     dataset_id=source.dataset_id,
                     user_id=user_id,
                     permission_type='read'

@@ -6,6 +6,7 @@ from .auth import get_current_user
 from .abstractions import IDatasetRepository
 from ..models.pydantic_models import CurrentUser, PermissionType
 from .database import DatabasePool
+from .exceptions import PermissionDeniedError, permission_denied, unauthorized
 
 
 # Dependency injection helper
@@ -90,6 +91,42 @@ class PermissionChecker:
 require_dataset_read = PermissionChecker(PermissionType.READ)
 require_dataset_write = PermissionChecker(PermissionType.WRITE)
 require_dataset_admin = PermissionChecker(PermissionType.ADMIN)
+
+
+class GenericPermissionChecker:
+    """Generic permission checker for any resource type."""
+    
+    def __init__(self, resource_type: str, permission_level: str):
+        self.resource_type = resource_type
+        self.permission_level = permission_level
+    
+    async def __call__(
+        self,
+        resource_id: int,
+        current_user: CurrentUser = Depends(get_current_user_info),
+        db_pool: DatabasePool = Depends(get_db_pool)
+    ) -> CurrentUser:
+        """Check if user has required permission on resource."""
+        # POC MODE: Allow all users to access all resources
+        # TODO: Remove this bypass when moving to production
+        return current_user
+        
+        # TODO: Implement generic permission checking
+        # This will be implemented when we have a generic permission system
+        # For now, use specific checkers like require_dataset_read
+
+
+# Job permission checkers
+require_job_read = GenericPermissionChecker("job", "read")
+require_job_write = GenericPermissionChecker("job", "write")
+
+# File permission checkers  
+require_file_access = GenericPermissionChecker("file", "read")
+
+# Generic permission checker factory
+def require_permission(resource_type: str, permission_level: str):
+    """Create a permission checker for any resource type and permission level."""
+    return GenericPermissionChecker(resource_type, permission_level)
 
 
 def require_admin_role(
