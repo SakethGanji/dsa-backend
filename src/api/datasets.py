@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, status, Path, UploadFile, File, Form
 from typing import Annotated, AsyncGenerator, Dict, Any
 from ..core.database import DatabasePool, UnitOfWorkFactory
-from ..core.infrastructure.postgres import PostgresDatasetRepository
+from ..infrastructure.postgres import PostgresDatasetRepository
 from ..features.datasets.grant_permission import GrantPermissionHandler
 from ..models.pydantic_models import (
     CreateDatasetRequest, CreateDatasetResponse,
@@ -81,7 +81,7 @@ async def create_dataset(
         tags = await dataset_repo.get_dataset_tags(dataset_id)
         
         # Refresh search index to include new dataset
-        from ..core.infrastructure.postgres.search_repository import PostgresSearchRepository
+        from ..infrastructure.postgres.search_repository import PostgresSearchRepository
         search_repo = PostgresSearchRepository(conn)
         await search_repo.refresh_search_index()
         
@@ -120,7 +120,7 @@ async def create_dataset_with_file(
     
     # Implement the logic directly without handlers to avoid connection issues
     async with pool.acquire() as conn:
-        from ..core.infrastructure.postgres import (
+        from ..infrastructure.postgres import (
             PostgresDatasetRepository, 
             PostgresCommitRepository,
             PostgresJobRepository
@@ -220,7 +220,7 @@ async def create_dataset_with_file(
             tags = await dataset_repo.get_dataset_tags(dataset_id)
             
             # Refresh search index
-            from ..core.infrastructure.postgres.search_repository import PostgresSearchRepository
+            from ..infrastructure.postgres.search_repository import PostgresSearchRepository
             search_repo = PostgresSearchRepository(conn)
             await search_repo.refresh_search_index()
             
@@ -269,7 +269,7 @@ async def list_datasets(
     paginated_datasets = all_datasets[offset:offset + limit]
     
     # Get job repository to check import status
-    from ..core.infrastructure.postgres import PostgresJobRepository
+    from ..infrastructure.postgres import PostgresJobRepository
     
     # Convert to response format with tags and import status
     dataset_summaries = []
@@ -353,7 +353,7 @@ async def get_dataset(
         # Check for import job status
         import_status = None
         import_job_id = None
-        from ..core.infrastructure.postgres import PostgresJobRepository
+        from ..infrastructure.postgres import PostgresJobRepository
         job_repo = PostgresJobRepository(conn)
         latest_import_job = await job_repo.get_latest_import_job(dataset_id)
         if latest_import_job:
@@ -409,7 +409,7 @@ async def update_dataset(
     tags = await dataset_repo.get_dataset_tags(dataset_id)
     
     # Refresh search index to reflect updates
-    from ..core.infrastructure.postgres.search_repository import PostgresSearchRepository
+    from ..infrastructure.postgres.search_repository import PostgresSearchRepository
     search_repo = PostgresSearchRepository(dataset_repo._conn)
     await search_repo.refresh_search_index()
     
@@ -441,7 +441,7 @@ async def delete_dataset(
     await dataset_repo.delete_dataset(dataset_id)
     
     # Refresh search index to remove deleted dataset
-    from ..core.infrastructure.postgres.search_repository import PostgresSearchRepository
+    from ..infrastructure.postgres.search_repository import PostgresSearchRepository
     search_repo = PostgresSearchRepository(dataset_repo._conn)
     await search_repo.refresh_search_index()
     
@@ -461,7 +461,7 @@ async def check_dataset_ready(
 ) -> Dict[str, Any]:
     """Check if a dataset is ready for operations (import completed)."""
     
-    from ..core.infrastructure.postgres import PostgresJobRepository
+    from ..infrastructure.postgres import PostgresJobRepository
     async with pool.acquire() as conn:
         job_repo = PostgresJobRepository(conn)
         

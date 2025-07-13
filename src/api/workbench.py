@@ -32,7 +32,7 @@ async def get_table_reader(
     uow: IUnitOfWork = Depends(get_uow)
 ) -> ITableReader:
     """Get table reader."""
-    from ..core.infrastructure.postgres.table_reader import PostgresTableReader
+    from ..infrastructure.postgres.table_reader import PostgresTableReader
     return PostgresTableReader(uow.connection)
 
 

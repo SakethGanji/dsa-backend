@@ -137,7 +137,7 @@ async def search_datasets(
     
     # Create UnitOfWork and handler
     async with pool.acquire() as conn:
-        from ..core.infrastructure.postgres.uow import PostgresUnitOfWork
+        from ..infrastructure.postgres.uow import PostgresUnitOfWork
         uow = PostgresUnitOfWork(pool)
         handler = SearchDatasetsHandler(uow)
         
@@ -189,7 +189,7 @@ async def suggest(
     """
     # Create UnitOfWork and handler
     async with pool.acquire() as conn:
-        from ..core.infrastructure.postgres.uow import PostgresUnitOfWork
+        from ..infrastructure.postgres.uow import PostgresUnitOfWork
         uow = PostgresUnitOfWork(pool)
         handler = SuggestHandler(uow)
         

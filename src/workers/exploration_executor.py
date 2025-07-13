@@ -9,7 +9,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 from ..core.database import DatabasePool
-from ..core.infrastructure.postgres.table_reader import PostgresTableReader
+from ..infrastructure.postgres.table_reader import PostgresTableReader
 from .job_worker import JobExecutor
 from src.core.domain_exceptions import EntityNotFoundException
 
@@ -48,7 +48,7 @@ class ExplorationExecutor(JobExecutor):
         try:
             # Read data using existing infrastructure
             async with db_pool.acquire() as conn:
-                from ..core.infrastructure.postgres.uow import PostgresUnitOfWork
+                from ..infrastructure.postgres.uow import PostgresUnitOfWork
                 async with PostgresUnitOfWork(db_pool) as uow:
                     table_reader = PostgresTableReader(uow.connection)
                     # Get table data as list of dicts

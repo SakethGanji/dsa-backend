@@ -14,7 +14,7 @@ import tempfile
 from src.workers.job_worker import JobExecutor
 from src.core.database import DatabasePool
 from src.core.config import get_settings
-from src.core.infrastructure.services import FileParserFactory
+from src.infrastructure.services import FileParserFactory
 from src.core.services.table_analyzer import TableAnalyzer
 
 

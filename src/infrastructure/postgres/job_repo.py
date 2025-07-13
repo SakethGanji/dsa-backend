@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 import json
 from datetime import datetime
 from asyncpg import Connection
-from ...abstractions.repositories import IJobRepository
+from src.core.abstractions.repositories import IJobRepository
 
 
 class PostgresJobRepository(IJobRepository):

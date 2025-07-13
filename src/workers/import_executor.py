@@ -9,7 +9,7 @@ from datetime import datetime
 
 from src.workers.job_worker import JobExecutor
 from src.core.database import DatabasePool
-from src.core.infrastructure.services import FileParserFactory
+from src.infrastructure.services import FileParserFactory
 from src.core.services.table_analyzer import TableAnalyzer
 
 
@@ -83,7 +83,7 @@ class ImportJobExecutor(JobExecutor):
                     await self.table_analyzer.analyze_imported_tables(conn, commit_id, rows)
             
             # Refresh search index after successful import
-            from src.core.infrastructure.postgres.search_repository import PostgresSearchRepository
+            from src.infrastructure.postgres.search_repository import PostgresSearchRepository
             async with db_pool.acquire() as conn:
                 search_repo = PostgresSearchRepository(conn)
                 await search_repo.refresh_search_index()

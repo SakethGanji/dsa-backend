@@ -4,7 +4,7 @@ from typing import Optional, Dict, Any, List, Tuple, Set
 import json
 import hashlib
 from asyncpg import Connection
-from ...abstractions.repositories import ICommitRepository
+from src.core.abstractions.repositories import ICommitRepository
 
 
 class PostgresCommitRepository(ICommitRepository):

@@ -3,7 +3,7 @@
 from typing import Optional
 from asyncpg import Connection
 
-from ...abstractions import IUnitOfWork
+from src.core.abstractions import IUnitOfWork
 from .user_repo import PostgresUserRepository
 from .dataset_repo import PostgresDatasetRepository
 from .versioning_repo import PostgresCommitRepository

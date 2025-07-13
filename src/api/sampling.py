@@ -13,7 +13,7 @@ from ..core.database import DatabasePool, UnitOfWorkFactory
 from ..core.abstractions.uow import IUnitOfWork
 from ..core.abstractions.services import SamplingMethod, SampleConfig
 from ..core.services.sampling_service import PostgresSamplingService, SamplingJobService
-from ..core.infrastructure.postgres.table_reader import PostgresTableReader
+from ..infrastructure.postgres.table_reader import PostgresTableReader
 from ..core.authorization import get_current_user_info, require_dataset_read
 from ..core.exceptions import resource_not_found
 from ..core.domain_exceptions import ValidationException

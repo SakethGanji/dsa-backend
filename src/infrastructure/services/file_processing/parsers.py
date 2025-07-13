@@ -4,7 +4,7 @@ import os
 from typing import List
 import pandas as pd
 
-from ....abstractions.services import IFileParser, ParsedData, TableData
+from src.core.abstractions.services import IFileParser, ParsedData, TableData
 
 
 class CSVParser(IFileParser):
