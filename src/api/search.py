@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from typing import Optional, List
 from datetime import datetime
 
-from ..core.database import DatabasePool, UnitOfWorkFactory
+from ..infrastructure.postgres.database import DatabasePool, UnitOfWorkFactory
 from ..core.authorization import get_current_user_info
 from ..features.search.handlers import SearchDatasetsHandler, SuggestHandler
 from ..features.search.models import (
@@ -15,7 +15,7 @@ from ..features.search.models import (
 )
 from ..models.pydantic_models import CurrentUser
 from ..core.abstractions.uow import IUnitOfWork
-from ..core.dependencies import get_db_pool
+from .dependencies import get_db_pool
 
 
 router = APIRouter(prefix="/datasets/search", tags=["search"])

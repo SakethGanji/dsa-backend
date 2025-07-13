@@ -7,9 +7,9 @@ from contextlib import asynccontextmanager
 import logging
 import asyncio
 
-from .core.config import get_settings
-from .core.database import DatabasePool
-from .core.dependencies import (
+from .infrastructure.config import get_settings
+from .infrastructure.postgres.database import DatabasePool
+from .api.dependencies import (
     set_database_pool,
     set_parser_factory,
     set_stats_calculator
@@ -33,6 +33,12 @@ from .workers.sql_transform_executor import SqlTransformExecutor
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Global references for health check
+app_state = {
+    "db_pool": None,
+    "worker_task": None
+}
+
 # Global database pool
 db_pool: DatabasePool = None
 worker_task = None
@@ -52,21 +58,23 @@ async def lifespan(app: FastAPI):
     await db_pool.initialize()
     logger.info("Database pool initialized")
     
+    # Store in app_state for health check
+    app_state["db_pool"] = db_pool
+    
     # Initialize global dependencies
     set_database_pool(db_pool)
     set_parser_factory(FileParserFactory())
     set_stats_calculator(DefaultStatisticsCalculator())
     
     # Initialize and start job worker
-    executors = {
-        'import': ImportJobExecutor(db_pool),
-        'sampling': SamplingJobExecutor(db_pool),
-        'exploration': ExplorationExecutor(db_pool),
-        'sql_transform': SqlTransformExecutor(db_pool)
-    }
+    worker = JobWorker(db_pool)
+    worker.register_executor('import', ImportJobExecutor())
+    worker.register_executor('sampling', SamplingJobExecutor())
+    worker.register_executor('exploration', ExplorationExecutor(db_pool))
+    worker.register_executor('sql_transform', SqlTransformExecutor())
     
-    worker = JobWorker(db_pool, executors)
     worker_task = asyncio.create_task(worker.start())
+    app_state["worker_task"] = worker_task
     logger.info("Job worker started")
     
     yield
@@ -87,6 +95,10 @@ async def lifespan(app: FastAPI):
     # Close database pool
     if db_pool:
         await db_pool.close()
+    
+    # Clear app state
+    app_state["db_pool"] = None
+    app_state["worker_task"] = None
     
     logger.info("Shutdown complete")
 
@@ -132,9 +144,12 @@ async def root():
 @app.get("/health")
 async def health():
     """Health check endpoint."""
+    db_pool = app_state.get("db_pool")
+    worker_task = app_state.get("worker_task")
+    
     return {
         "status": "healthy",
-        "database": "connected" if db_pool and not db_pool._closed else "disconnected",
+        "database": "connected" if db_pool and db_pool._pool is not None else "disconnected",
         "worker": "running" if worker_task and not worker_task.done() else "stopped"
     }
 

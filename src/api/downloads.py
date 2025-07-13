@@ -11,10 +11,10 @@ from openpyxl import Workbook
 from ..models.pydantic_models import CurrentUser
 from ..core.authorization import get_current_user_info, require_dataset_read
 from ..core.exceptions import resource_not_found
-from ..core.dependencies import get_uow, get_db_pool
+from .dependencies import get_uow, get_db_pool
 from ..core.abstractions import IUnitOfWork
 from ..infrastructure.postgres.table_reader import PostgresTableReader
-from ..core.database import DatabasePool
+from ..infrastructure.postgres.database import DatabasePool
 
 
 router = APIRouter(prefix="/datasets", tags=["downloads"])

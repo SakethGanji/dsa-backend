@@ -8,7 +8,7 @@ from typing import Dict, Any, List
 from datetime import datetime
 
 from src.workers.job_worker import JobExecutor
-from src.core.database import DatabasePool
+from src.infrastructure.postgres.database import DatabasePool
 from src.infrastructure.services import FileParserFactory
 from src.core.services.table_analyzer import TableAnalyzer
 

@@ -1,14 +1,14 @@
-"""Dependency injection configuration for the application."""
+"""Dependency injection configuration for the FastAPI application."""
 
 from typing import AsyncGenerator, Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 
-from .database import DatabasePool
-from .abstractions import IUnitOfWork
-from .infrastructure.postgres import PostgresUnitOfWork
-from .infrastructure.services import FileParserFactory, DefaultStatisticsCalculator
-from .events import EventBus, get_event_bus
+from ..infrastructure.postgres.database import DatabasePool
+from ..core.abstractions import IUnitOfWork
+from ..infrastructure.postgres.uow import PostgresUnitOfWork
+from ..infrastructure.services import FileParserFactory, DefaultStatisticsCalculator
+from ..core.events import EventBus, get_event_bus
 
 # OAuth2 scheme for token authentication
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")

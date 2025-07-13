@@ -9,7 +9,7 @@ from uuid import uuid4
 import asyncpg
 
 from .job_worker import JobExecutor
-from ..core.database import DatabasePool
+from ..infrastructure.postgres.database import DatabasePool
 
 
 class SqlTransformExecutor(JobExecutor):

@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Optional, AsyncGenerator
 import json
 import re
 from asyncpg import Connection
-from ...services.interfaces import ITableReader
+from src.core.abstractions.repositories import ITableReader
 
 
 class PostgresTableReader(ITableReader):

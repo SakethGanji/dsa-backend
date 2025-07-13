@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, status
 from fastapi.security import OAuth2PasswordRequestForm
-from ..core.database import DatabasePool, UnitOfWorkFactory
+from ..infrastructure.postgres.database import DatabasePool, UnitOfWorkFactory
 from ..infrastructure.postgres import PostgresUserRepository
 from ..features.users.create_user import CreateUserHandler
 from ..features.users.login_user import LoginUserHandler
@@ -11,7 +11,7 @@ from ..models.pydantic_models import (
     LoginRequest, LoginResponse
 )
 from ..core.authorization import require_admin_role
-from ..core.dependencies import get_db_pool
+from .dependencies import get_db_pool
 from ..core.domain_exceptions import ConflictException
 from typing import Annotated
 

@@ -7,8 +7,8 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 from abc import ABC, abstractmethod
 
-from src.core.database import DatabasePool
-from src.core.config import get_settings
+from src.infrastructure.postgres.database import DatabasePool
+from src.infrastructure.config import get_settings
 
 logger = logging.getLogger(__name__)
 

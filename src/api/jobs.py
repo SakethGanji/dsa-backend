@@ -9,7 +9,7 @@ from src.features.jobs.get_jobs import GetJobsHandler
 from src.features.jobs.get_job_by_id import GetJobByIdHandler
 from src.core.authorization import get_current_user_info
 from src.core.exceptions import resource_not_found
-from src.core.dependencies import get_uow
+from src.api.dependencies import get_uow
 from src.core.abstractions import IUnitOfWork
 from src.models.pydantic_models import CurrentUser
 

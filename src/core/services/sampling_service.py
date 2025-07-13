@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from ..abstractions.services import ISamplingService, SamplingMethod, SampleConfig, SampleResult
 from ..abstractions.repositories import ITableReader
-from ..database import DatabasePool
+from ...infrastructure.postgres.database import DatabasePool
 from ...workers.sampling_executor import SamplingJobExecutor
 
 logger = logging.getLogger(__name__)

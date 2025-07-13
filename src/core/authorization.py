@@ -5,14 +5,13 @@ from fastapi import Depends, HTTPException, status
 from .auth import get_current_user
 from .abstractions import IDatasetRepository
 from ..models.pydantic_models import CurrentUser, PermissionType
-from .database import DatabasePool
+from ..infrastructure.postgres.database import DatabasePool
 from .exceptions import PermissionDeniedError, permission_denied, unauthorized
 
 
-# Dependency injection helper
-def get_db_pool() -> DatabasePool:
-    """Get database pool - will be overridden."""
-    raise NotImplementedError("Database pool not configured")
+# Import get_db_pool from api.dependencies
+# This will be injected by FastAPI's dependency system
+from ..api.dependencies import get_db_pool
 
 
 async def get_current_user_info(
@@ -27,7 +26,7 @@ async def get_current_user_info(
         )
     
     # Get user_id from database based on soeid
-    from .infrastructure.postgres import PostgresUserRepository
+    from ..infrastructure.postgres import PostgresUserRepository
     async with db_pool.acquire() as conn:
         user_repo = PostgresUserRepository(conn)
         user = await user_repo.get_by_soeid(token_data["soeid"])

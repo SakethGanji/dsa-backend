@@ -4,7 +4,7 @@ from typing import Dict, Any, List, Set, Optional
 from collections import defaultdict
 import json
 import logging
-from src.core.database import DatabasePool
+from src.infrastructure.postgres.database import DatabasePool
 
 logger = logging.getLogger(__name__)
 

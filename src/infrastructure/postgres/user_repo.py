@@ -2,7 +2,7 @@
 
 from typing import Optional, Dict, Any, List
 from asyncpg import Connection
-from ...services.interfaces import IUserRepository
+from src.core.abstractions.repositories import IUserRepository
 from .base_repository import BasePostgresRepository
 
 

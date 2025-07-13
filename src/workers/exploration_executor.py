@@ -8,7 +8,7 @@ from ydata_profiling import ProfileReport
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
-from ..core.database import DatabasePool
+from ..infrastructure.postgres.database import DatabasePool
 from ..infrastructure.postgres.table_reader import PostgresTableReader
 from .job_worker import JobExecutor
 from src.core.domain_exceptions import EntityNotFoundException

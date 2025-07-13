@@ -8,8 +8,8 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.core.config import get_settings
-from src.core.database import DatabasePool
+from src.infrastructure.config import get_settings
+from src.infrastructure.postgres.database import DatabasePool
 from src.workers.job_worker import JobWorker
 from src.workers.import_executor import ImportJobExecutor
 from src.workers.sampling_executor import SamplingJobExecutor

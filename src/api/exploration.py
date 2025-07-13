@@ -8,13 +8,13 @@ from pydantic import BaseModel, Field
 from uuid import UUID
 from datetime import datetime
 
-from ..core.database import DatabasePool
+from ..infrastructure.postgres.database import DatabasePool
 from ..core.abstractions.uow import IUnitOfWork
 from ..core.authorization import get_current_user_info, require_dataset_read
 from ..core.exceptions import resource_not_found
 from ..core.domain_exceptions import ValidationException, BusinessRuleViolation
 from ..models.pydantic_models import CurrentUser
-from ..core.dependencies import get_db_pool, get_uow
+from .dependencies import get_db_pool, get_uow
 
 
 router = APIRouter(prefix="/exploration", tags=["exploration"])

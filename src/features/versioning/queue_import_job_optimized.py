@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 from src.core.abstractions import IUnitOfWork, IJobRepository, IDatasetRepository
-from src.core.config import get_settings
+from src.infrastructure.config import get_settings
 from src.models.pydantic_models import QueueImportRequest, QueueImportResponse
 from src.features.base_handler import BaseHandler, with_error_handling, with_transaction
 from src.core.decorators import requires_permission

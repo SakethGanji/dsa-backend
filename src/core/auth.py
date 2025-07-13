@@ -5,7 +5,7 @@ from typing import Optional, Dict, Any
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from .config import get_settings
+from ..infrastructure.config import get_settings
 
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/users/login")

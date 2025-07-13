@@ -8,7 +8,7 @@ from uuid import UUID
 from abc import ABC, abstractmethod
 
 from asyncpg import Connection
-from src.core.database import DatabasePool
+from src.infrastructure.postgres.database import DatabasePool
 from .job_worker import JobExecutor
 
 logger = logging.getLogger(__name__)

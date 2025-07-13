@@ -5,8 +5,8 @@ from contextlib import asynccontextmanager
 from typing import Optional, AsyncContextManager
 import asyncpg
 from asyncpg import Pool, Connection
-from .abstractions import IUnitOfWork
-from .infrastructure.postgres import PostgresUnitOfWork
+from src.core.abstractions import IUnitOfWork
+from .uow import PostgresUnitOfWork
 
 
 class DatabasePool:

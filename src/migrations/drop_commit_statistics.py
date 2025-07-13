@@ -2,7 +2,7 @@
 
 import asyncio
 import asyncpg
-from src.core.config import get_settings
+from src.infrastructure.config import get_settings
 
 async def run_migration():
     """Drop the deprecated commit_statistics table."""

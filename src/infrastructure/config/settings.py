@@ -1,12 +1,13 @@
-"""Application configuration using Pydantic settings."""
+"""Application configuration implementation using Pydantic settings."""
 
 from functools import lru_cache
-from typing import Optional
+from typing import Optional, List
 from pydantic_settings import BaseSettings
+from src.core.abstractions.config import ISettings
 
 
 class Settings(BaseSettings):
-    """Application settings."""
+    """Concrete implementation of application settings."""
     
     # App settings
     app_name: str = "DSA Platform"
@@ -25,7 +26,7 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 7
     
     # CORS
-    cors_origins: list[str] = ["*"]
+    cors_origins: List[str] = ["*"]
     
     # File storage
     upload_dir: str = "/tmp/dsa_uploads"

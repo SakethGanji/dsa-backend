@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, status, Path, UploadFile, File, Form
 from typing import Annotated, AsyncGenerator, Dict, Any
-from ..core.database import DatabasePool, UnitOfWorkFactory
+from ..infrastructure.postgres.database import DatabasePool, UnitOfWorkFactory
 from ..infrastructure.postgres import PostgresDatasetRepository
 from ..features.datasets.grant_permission import GrantPermissionHandler
 from ..models.pydantic_models import (
@@ -22,7 +22,7 @@ from ..core.authorization import (
 )
 from ..core.exceptions import resource_not_found
 from ..core.domain_exceptions import ConflictException
-from ..core.dependencies import get_db_pool
+from .dependencies import get_db_pool
 
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])

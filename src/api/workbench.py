@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends
 from typing import Dict
 
-from ..core.database import DatabasePool
+from ..infrastructure.postgres.database import DatabasePool
 from ..core.abstractions.uow import IUnitOfWork
 from ..core.abstractions.services import IWorkbenchService
 from ..core.abstractions.repositories import ITableReader, IDatasetRepository, IJobRepository, ICommitRepository
@@ -14,7 +14,7 @@ from ..features.sql_workbench.models.sql_preview import SqlPreviewRequest, SqlPr
 from ..features.sql_workbench.models.sql_transform import SqlTransformRequest, SqlTransformResponse
 from ..features.sql_workbench.handlers.preview_sql import PreviewSqlHandler
 from ..features.sql_workbench.handlers.transform_sql import TransformSqlHandler
-from ..core.dependencies import get_db_pool, get_uow
+from .dependencies import get_db_pool, get_uow
 
 router = APIRouter(prefix="/workbench", tags=["workbench"])
 

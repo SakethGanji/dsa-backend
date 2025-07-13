@@ -9,7 +9,7 @@ from datetime import datetime
 import io
 import csv
 
-from ..core.database import DatabasePool, UnitOfWorkFactory
+from ..infrastructure.postgres.database import DatabasePool, UnitOfWorkFactory
 from ..core.abstractions.uow import IUnitOfWork
 from ..core.abstractions.services import SamplingMethod, SampleConfig
 from ..core.services.sampling_service import PostgresSamplingService, SamplingJobService
@@ -23,7 +23,7 @@ from ..features.sampling import (
     GetDatasetSamplingHistoryHandler,
     GetUserSamplingHistoryHandler
 )
-from ..core.dependencies import get_db_pool, get_uow
+from .dependencies import get_db_pool, get_uow
 
 
 router = APIRouter(prefix="/sampling", tags=["sampling"])

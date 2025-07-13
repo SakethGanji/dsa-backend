@@ -21,9 +21,9 @@ from src.features.versioning.get_commit_history import GetCommitHistoryHandler
 from src.features.versioning.checkout_commit import CheckoutCommitHandler
 from src.features.versioning.get_dataset_overview import GetDatasetOverviewHandler
 from src.features.refs import ListRefsHandler, CreateBranchHandler, DeleteBranchHandler
-from src.core.database import DatabasePool, UnitOfWorkFactory
+from src.infrastructure.postgres.database import DatabasePool, UnitOfWorkFactory
 from src.core.authorization import get_current_user_info, PermissionType, require_dataset_read, require_dataset_write
-from src.core.dependencies import get_uow, get_db_pool
+from src.api.dependencies import get_uow, get_db_pool
 from src.core.abstractions import IUnitOfWork
 
 
