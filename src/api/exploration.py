@@ -76,61 +76,37 @@ async def create_exploration_job(
     uow: IUnitOfWork = Depends(get_uow),
     pool: DatabasePool = Depends(get_db_pool)
 ) -> ExplorationJobResponse:
-    """Create a new exploration/profiling job.\""""
+    """Create a new exploration/profiling job."""
+    from ..features.exploration.handlers.create_exploration_job import (
+        CreateExplorationJobHandler, 
+        CreateExplorationJobCommand,
+        ProfileConfig as HandlerProfileConfig
+    )
     
-    # Get current commit for ref
-    ref = await uow.commits.get_ref(dataset_id, request.source_ref)
-    if not ref:
-        raise resource_not_found("Ref", request.source_ref)
-    
-    source_commit_id = ref['commit_id']
-    
-    # Convert profile config to dict
+    # Convert profile config if provided
     profile_config = None
     if request.profile_config:
-        profile_config = {
-            "minimal": request.profile_config.minimal,
-            "samples": {
-                "head": request.profile_config.samples_head,
-                "tail": request.profile_config.samples_tail
-            },
-            "missing_diagrams": {
-                "bar": request.profile_config.missing_diagrams,
-                "matrix": request.profile_config.missing_diagrams
-            },
-            "correlations": {
-                "pearson": {
-                    "calculate": True,
-                    "threshold": request.profile_config.correlation_threshold
-                }
-            }
-        }
-        
-        if request.profile_config.n_obs:
-            profile_config["n_obs"] = request.profile_config.n_obs
+        profile_config = HandlerProfileConfig(
+            minimal=request.profile_config.minimal,
+            samples_head=request.profile_config.samples_head,
+            samples_tail=request.profile_config.samples_tail,
+            missing_diagrams=request.profile_config.missing_diagrams,
+            correlation_threshold=request.profile_config.correlation_threshold,
+            n_obs=request.profile_config.n_obs
+        )
     
-    # Create exploration job using existing job infrastructure
-    job_params = {
-        "table_key": request.table_key,
-        "profile_config": profile_config or {},
-        "output_format": "html"
-    }
-    
-    job_id = await uow.jobs.create_job(
-        run_type="exploration",
-        dataset_id=dataset_id,
+    # Create command
+    command = CreateExplorationJobCommand(
         user_id=current_user.user_id,
-        source_commit_id=source_commit_id,
-        run_parameters=job_params
+        dataset_id=dataset_id,
+        source_ref=request.source_ref,
+        table_key=request.table_key,
+        profile_config=profile_config
     )
     
-    await uow.commit()
-    
-    return ExplorationJobResponse(
-        job_id=str(job_id),
-        status="pending",
-        message="Exploration job created successfully"
-    )
+    # Create handler and execute
+    handler = CreateExplorationJobHandler(uow)
+    return await handler.handle(command)
 
 
 @router.get("/datasets/{dataset_id}/history", response_model=ExplorationHistoryResponse)
@@ -143,62 +119,43 @@ async def get_dataset_exploration_history(
     uow: IUnitOfWork = Depends(get_uow),
     pool: DatabasePool = Depends(get_db_pool)
 ) -> ExplorationHistoryResponse:
-    """Get exploration history for a dataset.\""""
+    """Get exploration history for a dataset."""
+    from ..features.exploration.handlers.get_exploration_history import (
+        GetExplorationHistoryHandler,
+        GetExplorationHistoryCommand
+    )
     
-    # Get history using direct query
-    async with pool.acquire() as conn:
-        query = """
-            SELECT 
-                ar.id as job_id,
-                ar.dataset_id,
-                ar.user_id,
-                ar.status,
-                ar.created_at,
-                ar.completed_at as updated_at,
-                ar.run_parameters,
-                ar.output_summary,
-                d.name as dataset_name,
-                u.soeid as username
-            FROM dsa_jobs.analysis_runs ar
-            JOIN dsa_core.datasets d ON ar.dataset_id = d.id
-            JOIN dsa_auth.users u ON ar.user_id = u.id
-            WHERE ar.run_type = 'exploration' AND ar.dataset_id = $1
-            ORDER BY ar.created_at DESC
-            OFFSET $2 LIMIT $3
-        """
-        
-        rows = await conn.fetch(query, dataset_id, offset, limit)
-        
-        items = [
-            ExplorationHistoryItem(
-                job_id=str(row["job_id"]),
-                dataset_id=row["dataset_id"],
-                dataset_name=row["dataset_name"],
-                user_id=row["user_id"],
-                username=row["username"],
-                status=row["status"],
-                created_at=row["created_at"].isoformat(),
-                updated_at=row["updated_at"].isoformat() if row["updated_at"] else None,
-                run_parameters=json.loads(row["run_parameters"]) if isinstance(row["run_parameters"], str) else row["run_parameters"] or {},
-                has_result=bool(row["output_summary"])
-            )
-            for row in rows
-        ]
-    
-    # Get total count
-    async with pool.acquire() as conn:
-        count_query = """
-            SELECT COUNT(*) 
-            FROM dsa_jobs.analysis_runs 
-            WHERE run_type = 'exploration' AND dataset_id = $1
-        """
-        total = await conn.fetchval(count_query, dataset_id)
-    
-    return ExplorationHistoryResponse(
-        items=items,
-        total=total,
+    # Create command
+    command = GetExplorationHistoryCommand(
+        dataset_id=dataset_id,
         offset=offset,
         limit=limit
+    )
+    
+    # Create handler and execute
+    handler = GetExplorationHistoryHandler(pool)
+    result = await handler.handle(command)
+    
+    # Convert handler response to API response
+    return ExplorationHistoryResponse(
+        items=[
+            ExplorationHistoryItem(
+                job_id=item.job_id,
+                dataset_id=item.dataset_id,
+                dataset_name=item.dataset_name,
+                user_id=item.user_id,
+                username=item.username,
+                status=item.status,
+                created_at=item.created_at,
+                updated_at=item.updated_at,
+                run_parameters=item.run_parameters,
+                has_result=item.has_result
+            )
+            for item in result.items
+        ],
+        total=result.total,
+        offset=result.offset,
+        limit=result.limit
     )
 
 
@@ -212,78 +169,48 @@ async def get_user_exploration_history(
     pool: DatabasePool = Depends(get_db_pool)
 ) -> ExplorationHistoryResponse:
     """Get exploration history for a user."""
+    from ..features.exploration.handlers.get_exploration_history import (
+        GetExplorationHistoryHandler,
+        GetExplorationHistoryCommand
+    )
     
     # Check permissions (users can only see their own history unless admin)
     if user_id != current_user.user_id and not current_user.is_admin():
         raise PermissionError("Cannot view other users' history")
     
-    # Get history using direct query
-    async with pool.acquire() as conn:
-        query = """
-            SELECT 
-                ar.id as job_id,
-                ar.dataset_id,
-                ar.user_id,
-                ar.status,
-                ar.created_at,
-                ar.completed_at as updated_at,
-                ar.run_parameters,
-                ar.output_summary,
-                d.name as dataset_name,
-                u.soeid as username
-            FROM dsa_jobs.analysis_runs ar
-            JOIN dsa_core.datasets d ON ar.dataset_id = d.id
-            JOIN dsa_auth.users u ON ar.user_id = u.id
-            WHERE ar.run_type = 'exploration' AND ar.user_id = $1
-        """
-        
-        params = [user_id]
-        
-        if dataset_id:
-            query += " AND ar.dataset_id = $2"
-            params.append(dataset_id)
-            
-        query += f" ORDER BY ar.created_at DESC OFFSET ${len(params) + 1} LIMIT ${len(params) + 2}"
-        params.extend([offset, limit])
-        
-        rows = await conn.fetch(query, *params)
-        
-        items = [
-            ExplorationHistoryItem(
-                job_id=str(row["job_id"]),
-                dataset_id=row["dataset_id"],
-                dataset_name=row["dataset_name"],
-                user_id=row["user_id"],
-                username=row["username"],
-                status=row["status"],
-                created_at=row["created_at"].isoformat(),
-                updated_at=row["updated_at"].isoformat() if row["updated_at"] else None,
-                run_parameters=json.loads(row["run_parameters"]) if isinstance(row["run_parameters"], str) else row["run_parameters"] or {},
-                has_result=bool(row["output_summary"])
-            )
-            for row in rows
-        ]
-    
-    # Get total count
-    async with pool.acquire() as conn:
-        count_query = """
-            SELECT COUNT(*) 
-            FROM dsa_jobs.analysis_runs 
-            WHERE run_type = 'exploration' AND user_id = $1
-        """
-        params = [user_id]
-        
-        if dataset_id:
-            count_query += " AND dataset_id = $2"
-            params.append(dataset_id)
-        
-        total = await conn.fetchval(count_query, *params)
-    
-    return ExplorationHistoryResponse(
-        items=items,
-        total=total,
+    # Create command
+    command = GetExplorationHistoryCommand(
+        user_id=user_id,
+        dataset_id=dataset_id,
+        requesting_user_id=current_user.user_id,
         offset=offset,
         limit=limit
+    )
+    
+    # Create handler and execute
+    handler = GetExplorationHistoryHandler(pool)
+    result = await handler.handle(command)
+    
+    # Convert handler response to API response
+    return ExplorationHistoryResponse(
+        items=[
+            ExplorationHistoryItem(
+                job_id=item.job_id,
+                dataset_id=item.dataset_id,
+                dataset_name=item.dataset_name,
+                user_id=item.user_id,
+                username=item.username,
+                status=item.status,
+                created_at=item.created_at,
+                updated_at=item.updated_at,
+                run_parameters=item.run_parameters,
+                has_result=item.has_result
+            )
+            for item in result.items
+        ],
+        total=result.total,
+        offset=result.offset,
+        limit=result.limit
     )
 
 
@@ -297,39 +224,24 @@ async def get_exploration_result(
     pool: DatabasePool = Depends(get_db_pool)
 ):
     """Get the result of a completed exploration job."""
+    from ..features.exploration.handlers.get_exploration_result import (
+        GetExplorationResultHandler,
+        GetExplorationResultCommand
+    )
     
-    # Get job details
-    job = await uow.jobs.get_job_by_id(job_id)
-    if not job:
-        raise resource_not_found("Job", job_id)
+    # Create command
+    command = GetExplorationResultCommand(
+        user_id=current_user.user_id,
+        job_id=job_id,
+        format=format
+    )
     
-    if job["run_type"] != "exploration":
-        raise ValidationException("Not an exploration job", field="run_type")
+    # Create handler and execute
+    handler = GetExplorationResultHandler(uow, pool)
+    result = await handler.handle(command)
     
-    if job["status"] != "completed":
-        raise BusinessRuleViolation(f"Job is {job['status']}, not completed", rule="job_must_be_completed")
-    
-    # Permission check will be handled by the handler
-    
-    # Get result from output_summary
-    async with pool.acquire() as conn:
-        query = """
-            SELECT output_summary
-            FROM dsa_jobs.analysis_runs
-            WHERE id = $1 AND run_type = 'exploration' AND status = 'completed'
-        """
-        
-        row = await conn.fetchrow(query, job_id)
-        
-        if not row or not row["output_summary"]:
-            raise resource_not_found("Result", job_id)
-        
-        output_summary = json.loads(row["output_summary"])
-        
-        # Return appropriate response based on format
-        if format == "html":
-            return HTMLResponse(content=output_summary.get("profile_html", ""))
-        elif format == "json":
-            return JSONResponse(content=json.loads(output_summary.get("profile_json", "{}")))
-        else:  # info
-            return JSONResponse(content=output_summary.get("dataset_info", {}))
+    # Return appropriate response based on format
+    if format == "html":
+        return HTMLResponse(content=result["content"])
+    else:  # json or info
+        return JSONResponse(content=result["content"])

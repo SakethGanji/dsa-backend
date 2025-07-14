@@ -3,9 +3,8 @@
 from typing import List, Tuple, Optional
 from dataclasses import dataclass
 from src.core.abstractions import IUnitOfWork, IDatasetRepository
-from src.api.models import DatasetListItem
+from src.api.models import DatasetSummary
 from ...base_handler import BaseHandler
-from src.core.common.pagination import PaginationMixin
 
 
 @dataclass
@@ -19,7 +18,7 @@ class ListDatasetsCommand:
     sort_order: Optional[str] = "desc"
 
 
-class ListDatasetsHandler(BaseHandler, PaginationMixin):
+class ListDatasetsHandler(BaseHandler):
     """Handler for listing datasets accessible to a user."""
     
     def __init__(
@@ -33,7 +32,7 @@ class ListDatasetsHandler(BaseHandler, PaginationMixin):
     async def handle(
         self, 
         command: ListDatasetsCommand
-    ) -> Tuple[List[DatasetListItem], int]:
+    ) -> Tuple[List[DatasetSummary], int]:
         """
         List datasets that the user has access to.
         
@@ -41,65 +40,33 @@ class ListDatasetsHandler(BaseHandler, PaginationMixin):
             Tuple of (datasets, total_count)
         """
         # Validate pagination
-        offset, limit = self.validate_pagination(command.offset, command.limit)
+        offset = max(0, command.offset)
+        limit = min(max(1, command.limit), 1000)  # Cap at 1000
         
-        # Get user info to check if admin
-        user = None
-        if hasattr(self._uow, 'users'):
-            user = await self._uow.users.get_by_id(command.user_id)
+        # Get all datasets for the user
+        all_datasets = await self._dataset_repo.list_user_datasets(command.user_id)
         
-        is_admin = user and user.get('role_name') == 'admin'
-        
-        # Get datasets based on user permissions
-        if is_admin:
-            # Admins can see all datasets
-            datasets, total = await self._dataset_repo.list_all_datasets(
-                offset=offset,
-                limit=limit,
-                search=command.search,
-                tags=command.tags,
-                sort_by=command.sort_by,
-                sort_order=command.sort_order
-            )
-        else:
-            # Regular users see only datasets they have permission for
-            datasets, total = await self._dataset_repo.list_datasets_for_user(
-                user_id=command.user_id,
-                offset=offset,
-                limit=limit,
-                search=command.search,
-                tags=command.tags,
-                sort_by=command.sort_by,
-                sort_order=command.sort_order
-            )
+        # Apply pagination
+        total = len(all_datasets)
+        datasets = all_datasets[offset:offset + limit]
         
         # Convert to response models
         dataset_items = []
         for dataset in datasets:
             # Get tags for each dataset
-            tags = await self._dataset_repo.get_dataset_tags(dataset['id'])
+            tags = await self._dataset_repo.get_dataset_tags(dataset['dataset_id'])
             
-            # Get user's permission level
-            permission_level = None
-            if not is_admin:
-                permission = await self._dataset_repo.get_user_permission(
-                    dataset_id=dataset['id'],
-                    user_id=command.user_id
-                )
-                permission_level = permission.get('permission_type') if permission else None
-            else:
-                permission_level = 'admin'
-            
-            dataset_items.append(DatasetListItem(
-                id=dataset['id'],
+            dataset_items.append(DatasetSummary(
+                dataset_id=dataset['dataset_id'],
                 name=dataset['name'],
                 description=dataset['description'],
                 tags=tags,
                 created_at=dataset['created_at'],
                 updated_at=dataset['updated_at'],
                 created_by=dataset['created_by'],
-                permission_level=permission_level,
-                metadata=dataset.get('metadata', {})
+                permission_type=dataset['permission_type'],
+                import_status=None,
+                import_job_id=None
             ))
         
         return dataset_items, total

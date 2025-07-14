@@ -1,7 +1,6 @@
 from src.core.abstractions import IUnitOfWork, IDatasetRepository, ICommitRepository
 from src.api.models import CreateDatasetRequest, CreateDatasetResponse
 from ...base_handler import BaseHandler, with_transaction
-from src.core.decorators import requires_permission
 from src.core.events import EventBus, DatasetCreatedEvent, get_event_bus
 from dataclasses import dataclass
 
@@ -31,7 +30,6 @@ class CreateDatasetHandler(BaseHandler):
         self._event_bus = event_bus or get_event_bus()
     
     @with_transaction
-    @requires_permission("datasets", "write")
     async def handle(
         self,
         command: CreateDatasetCommand
@@ -75,12 +73,23 @@ class CreateDatasetHandler(BaseHandler):
             manifest=[]  # Empty manifest for initial commit
         )
         
-        # Create default branch ref
-        await self._commit_repo.create_ref(
-            dataset_id=dataset_id,
-            ref_name=command.default_branch,
-            commit_id=initial_commit_id
-        )
+        # Update the default branch ref
+        # The dataset creation creates a 'main' ref with NULL commit_id
+        if command.default_branch == "main":
+            # Update existing ref from NULL to the initial commit
+            await self._commit_repo.update_ref_atomically(
+                dataset_id=dataset_id,
+                ref_name=command.default_branch,
+                expected_commit_id=None,  # Current value is NULL
+                new_commit_id=initial_commit_id
+            )
+        else:
+            # Create new ref for non-main branches
+            await self._commit_repo.create_ref(
+                dataset_id=dataset_id,
+                ref_name=command.default_branch,
+                commit_id=initial_commit_id
+            )
         
         # Publish domain event
         await self._event_bus.publish(DatasetCreatedEvent(

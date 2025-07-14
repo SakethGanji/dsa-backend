@@ -39,47 +39,28 @@ async def download_dataset(
     _: CurrentUser = Depends(require_dataset_read)
 ):
     """Download entire dataset in specified format."""
+    from ..features.downloads.handlers.download_dataset import DownloadDatasetHandler, DownloadDatasetCommand
     
-    # Get dataset info
-    dataset = await uow.datasets.get_dataset_by_id(dataset_id)
-    if not dataset:
-        raise resource_not_found("Dataset", dataset_id)
+    # Create command
+    command = DownloadDatasetCommand(
+        user_id=current_user.user_id,
+        dataset_id=dataset_id,
+        ref_name=ref_name,
+        format=format
+    )
     
-    # Get ref
-    ref = await uow.commits.get_ref(dataset_id, ref_name)
-    if not ref:
-        raise resource_not_found("Ref", ref_name)
+    # Create handler and execute
+    handler = DownloadDatasetHandler(uow, table_reader)
+    result = await handler.handle(command)
     
-    commit_id = ref['commit_id']
-    
-    # Get all tables
-    tables = await table_reader.get_table_keys(commit_id)
-    
-    if format == "excel":
-        return await _export_excel(
-            dataset_name=dataset['name'],
-            commit_id=commit_id,
-            tables=tables,
-            table_reader=table_reader
-        )
-    elif format == "json":
-        return await _export_json(
-            dataset_name=dataset['name'],
-            commit_id=commit_id,
-            tables=tables,
-            table_reader=table_reader
-        )
-    else:
-        # CSV format - if multiple tables, export the first one
-        if not tables:
-            raise ValueError("No tables found in dataset")
-        
-        return await _export_csv(
-            dataset_name=dataset['name'],
-            commit_id=commit_id,
-            table_key=tables[0],
-            table_reader=table_reader
-        )
+    # Return streaming response
+    return StreamingResponse(
+        io.BytesIO(result["content"]),
+        media_type=result["content_type"],
+        headers={
+            "Content-Disposition": f'attachment; filename="{result["filename"]}"'
+        }
+    )
 
 
 @router.get("/{dataset_id}/refs/{ref_name}/tables/{table_key}/download")
@@ -95,246 +76,31 @@ async def download_table(
     _: CurrentUser = Depends(require_dataset_read)
 ):
     """Download a specific table in specified format."""
-    
-    # Get dataset info
-    dataset = await uow.datasets.get_dataset_by_id(dataset_id)
-    if not dataset:
-        raise resource_not_found("Dataset", dataset_id)
-    
-    # Get ref
-    ref = await uow.commits.get_ref(dataset_id, ref_name)
-    if not ref:
-        raise resource_not_found("Ref", ref_name)
-    
-    commit_id = ref['commit_id']
+    from ..features.downloads.handlers.download_table import DownloadTableHandler, DownloadTableCommand
     
     # Parse columns
-    column_list = columns.split(",") if columns else None
+    column_list = [col.strip() for col in columns.split(",")] if columns else None
     
-    if format == "json":
-        return await _export_table_json(
-            dataset_name=dataset['name'],
-            commit_id=commit_id,
-            table_key=table_key,
-            table_reader=table_reader,
-            columns=column_list
-        )
-    else:  # Default to CSV
-        return await _export_csv(
-            dataset_name=dataset['name'],
-            commit_id=commit_id,
-            table_key=table_key,
-            table_reader=table_reader,
-            columns=column_list
-        )
-
-
-async def _export_csv(
-    dataset_name: str,
-    commit_id: str,
-    table_key: str,
-    table_reader: PostgresTableReader,
-    columns: Optional[list] = None
-) -> StreamingResponse:
-    """Export table data as CSV."""
-    output = io.StringIO()
+    # Create command
+    command = DownloadTableCommand(
+        user_id=current_user.user_id,
+        dataset_id=dataset_id,
+        ref_name=ref_name,
+        table_key=table_key,
+        format=format,
+        columns=column_list
+    )
     
-    # Get all data in batches
-    all_data = []
-    offset = 0
-    batch_size = 1000
-    
-    while True:
-        result = await table_reader.get_table_data(
-            commit_id=commit_id,
-            table_key=table_key,
-            offset=offset,
-            limit=batch_size
-        )
-        
-        # Filter columns if specified
-        if columns and result:
-            filtered_result = []
-            for row in result:
-                filtered_row = {k: v for k, v in row.items() if k in columns or k == '_logical_row_id'}
-                filtered_result.append(filtered_row)
-            result = filtered_result
-        
-        all_data.extend(result)
-        offset += batch_size
-        
-        if len(result) < batch_size:
-            break
-    
-    # Write CSV
-    if all_data:
-        writer = csv.DictWriter(output, fieldnames=all_data[0].keys())
-        writer.writeheader()
-        writer.writerows(all_data)
+    # Create handler and execute
+    handler = DownloadTableHandler(uow, table_reader)
+    result = await handler.handle(command)
     
     # Return streaming response
-    output.seek(0)
-    filename = f"{dataset_name}_{table_key}_{commit_id[:8]}.csv"
-    
     return StreamingResponse(
-        io.BytesIO(output.getvalue().encode()),
-        media_type="text/csv",
+        io.BytesIO(result["content"]),
+        media_type=result["content_type"],
         headers={
-            "Content-Disposition": f"attachment; filename={filename}"
+            "Content-Disposition": f'attachment; filename="{result["filename"]}"'
         }
     )
 
-
-async def _export_excel(
-    dataset_name: str,
-    commit_id: str,
-    tables: list,
-    table_reader: PostgresTableReader
-) -> StreamingResponse:
-    """Export all tables as Excel file with multiple sheets."""
-    wb = Workbook()
-    
-    # Remove default sheet
-    if 'Sheet' in wb.sheetnames:
-        wb.remove(wb['Sheet'])
-    
-    for table_key in tables:
-        # Create sheet for each table
-        ws = wb.create_sheet(title=table_key[:31])  # Excel sheet name limit
-        
-        # Get all data for this table
-        all_data = []
-        offset = 0
-        batch_size = 1000
-        
-        while True:
-            result = await table_reader.get_table_data(
-                commit_id=commit_id,
-                table_key=table_key,
-                offset=offset,
-                limit=batch_size
-            )
-            
-            all_data.extend(result)
-            offset += batch_size
-            
-            if len(result) < batch_size:
-                break
-        
-        # Write data to sheet
-        if all_data:
-            # Write headers
-            headers = list(all_data[0].keys())
-            ws.append(headers)
-            
-            # Write rows
-            for row in all_data:
-                ws.append([row.get(h) for h in headers])
-    
-    # Save to bytes buffer
-    output = io.BytesIO()
-    wb.save(output)
-    output.seek(0)
-    
-    filename = f"{dataset_name}_{commit_id[:8]}.xlsx"
-    
-    return StreamingResponse(
-        output,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={
-            "Content-Disposition": f"attachment; filename={filename}"
-        }
-    )
-
-
-async def _export_json(
-    dataset_name: str,
-    commit_id: str,
-    tables: list,
-    table_reader: PostgresTableReader
-) -> Dict[str, Any]:
-    """Export all tables as JSON."""
-    result = {
-        "dataset_name": dataset_name,
-        "commit_id": commit_id,
-        "tables": {}
-    }
-    
-    for table_key in tables:
-        # Get all data for this table
-        all_data = []
-        offset = 0
-        batch_size = 1000
-        
-        while True:
-            table_result = await table_reader.get_table_data(
-                commit_id=commit_id,
-                table_key=table_key,
-                offset=offset,
-                limit=batch_size
-            )
-            
-            all_data.extend(table_result)
-            offset += batch_size
-            
-            if len(table_result) < batch_size:
-                break
-        
-        # Get schema
-        schema = await table_reader.get_table_schema(commit_id, table_key)
-        
-        result["tables"][table_key] = {
-            "schema": schema,
-            "row_count": len(all_data),
-            "data": all_data
-        }
-    
-    return result
-
-
-async def _export_table_json(
-    dataset_name: str,
-    commit_id: str,
-    table_key: str,
-    table_reader: PostgresTableReader,
-    columns: Optional[list] = None
-) -> Dict[str, Any]:
-    """Export single table as JSON."""
-    # Get all data
-    all_data = []
-    offset = 0
-    batch_size = 1000
-    
-    while True:
-        result = await table_reader.get_table_data(
-            commit_id=commit_id,
-            table_key=table_key,
-            offset=offset,
-            limit=batch_size
-        )
-        
-        # Filter columns if specified
-        if columns and result:
-            filtered_result = []
-            for row in result:
-                filtered_row = {k: v for k, v in row.items() if k in columns or k == '_logical_row_id'}
-                filtered_result.append(filtered_row)
-            result = filtered_result
-        
-        all_data.extend(result)
-        offset += batch_size
-        
-        if len(result) < batch_size:
-            break
-    
-    # Get schema
-    schema = await table_reader.get_table_schema(commit_id, table_key)
-    
-    return {
-        "dataset_name": dataset_name,
-        "commit_id": commit_id,
-        "table_key": table_key,
-        "schema": schema,
-        "row_count": len(all_data),
-        "data": all_data
-    }

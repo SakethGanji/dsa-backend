@@ -6,7 +6,7 @@ from src.core.abstractions import IUnitOfWork, IDatasetRepository
 from src.api.models import UpdateDatasetResponse
 from src.features.base_update_handler import BaseUpdateHandler
 from src.core.decorators import requires_permission
-from src.core.domain_exceptions import EntityNotFoundException, ErrorMessages
+from src.core.domain_exceptions import EntityNotFoundException, ErrorMessages, ValidationException
 from src.api.factories import ResponseFactory
 
 

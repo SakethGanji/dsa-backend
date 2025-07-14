@@ -180,32 +180,13 @@ async def create_sampling_job(
     request: CreateSamplingJobRequest = ...,
     current_user: CurrentUser = Depends(get_current_user_info),
     _: CurrentUser = Depends(require_dataset_read),
-    uow: IUnitOfWork = Depends(get_uow),
-    pool: DatabasePool = Depends(get_db_pool)
+    uow: IUnitOfWork = Depends(get_uow)
 ) -> SamplingJobResponse:
-    """Create a sampling job for asynchronous processing.\""""
+    """Create a sampling job for asynchronous processing."""
+    from ..features.sampling.handlers.create_sampling_job import CreateSamplingJobHandler, CreateSamplingJobCommand
     
-    # Get current commit for ref
-    ref = await uow.commits.get_ref(dataset_id, request.source_ref)
-    if not ref:
-        raise resource_not_found("Ref", request.source_ref)
-    
-    source_commit_id = ref['commit_id']
-    
-    # Build job parameters
-    job_params = {
-        'source_commit_id': source_commit_id,
-        'dataset_id': dataset_id,
-        'table_key': request.table_key,
-        'create_output_commit': request.create_output_commit,
-        'commit_message': request.commit_message or f"Sampled data from {request.source_ref}",
-        'user_id': current_user.user_id,
-        'rounds': [],
-        'export_residual': request.export_residual,
-        'residual_output_name': request.residual_output_name
-    }
-    
-    # Convert rounds to executor format
+    # Convert rounds to handler format
+    rounds = []
     for round_config in request.rounds:
         round_params = {
             'method': round_config.method,
@@ -221,22 +202,24 @@ async def create_sampling_job(
         if round_config.selection:
             round_params['parameters']['selection'] = round_config.selection.dict()
         
-        job_params['rounds'].append(round_params)
+        rounds.append(round_params)
     
-    # Create job
-    job_service = SamplingJobManager(uow)
-    job_id = await job_service.create_sampling_job(
-        dataset_id=dataset_id,
-        source_commit_id=source_commit_id,
+    # Create command
+    command = CreateSamplingJobCommand(
         user_id=current_user.user_id,
-        sampling_config=job_params
+        dataset_id=dataset_id,
+        source_ref=request.source_ref,
+        table_key=request.table_key,
+        create_output_commit=request.create_output_commit,
+        commit_message=request.commit_message or f"Sampled data from {request.source_ref}",
+        rounds=rounds,
+        export_residual=request.export_residual,
+        residual_output_name=request.residual_output_name
     )
     
-    return SamplingJobResponse(
-        job_id=job_id,
-        status="pending",
-        message=f"Sampling job created with {len(request.rounds)} rounds"
-    )
+    # Create handler and execute
+    handler = CreateSamplingJobHandler(uow)
+    return await handler.handle(command)
 
 
 @router.post("/datasets/{dataset_id}/sample", response_model=SamplingResultResponse)
@@ -247,54 +230,31 @@ async def sample_data_direct(
     request: DirectSamplingRequest = ...,
     current_user: CurrentUser = Depends(get_current_user_info),
     _: CurrentUser = Depends(require_dataset_read),
-    uow: IUnitOfWork = Depends(get_uow),
-    pool: DatabasePool = Depends(get_db_pool)
+    uow: IUnitOfWork = Depends(get_uow)
 ) -> SamplingResultResponse:
-    """Perform direct sampling and return results immediately.\""""
+    """Perform direct sampling and return results immediately."""
+    from ..features.sampling.handlers.sample_data_direct import SampleDataDirectHandler, DirectSamplingCommand
     
-    # Get current commit for ref
-    ref = await uow.commits.get_ref(dataset_id, ref_name)
-    if not ref:
-        raise resource_not_found("Ref", ref_name)
-    
-    commit_id = ref['commit_id']
-    
-    # Create sampling config
-    config = SampleConfig(
+    # Create command
+    command = DirectSamplingCommand(
+        user_id=current_user.user_id,
+        dataset_id=dataset_id,
+        ref_name=ref_name,
+        table_key=table_key,
         method=request.method,
         sample_size=request.sample_size,
         random_seed=request.random_seed,
         stratify_columns=request.stratify_columns,
         proportional=request.proportional,
         cluster_column=request.cluster_column,
-        num_clusters=request.num_clusters
+        num_clusters=request.num_clusters,
+        offset=request.offset,
+        limit=request.limit
     )
     
-    # Perform sampling
-    table_reader = uow.table_reader
-    sampling_service = SamplingService(uow)
-    
-    result = await sampling_service.sample(
-        table_reader, commit_id, table_key, config
-    )
-    
-    # Apply pagination to results
-    paginated_data = result.sampled_data[request.offset:request.offset + request.limit]
-    
-    return SamplingResultResponse(
-        method=result.method_used.value,
-        sample_size=result.sample_size,
-        data=paginated_data,
-        metadata={
-            **result.metadata,
-            'total_sampled': result.sample_size,
-            'offset': request.offset,
-            'limit': request.limit,
-            'returned': len(paginated_data)
-        },
-        strata_counts=result.strata_counts,
-        selected_clusters=result.selected_clusters
-    )
+    # Create handler and execute
+    handler = SampleDataDirectHandler(uow)
+    return await handler.handle(command)
 
 
 @router.post("/datasets/{dataset_id}/column-samples", response_model=ColumnSamplesResponse)
@@ -305,110 +265,46 @@ async def get_column_samples(
     request: ColumnSamplesRequest = ...,
     current_user: CurrentUser = Depends(get_current_user_info),
     _: CurrentUser = Depends(require_dataset_read),
-    uow: IUnitOfWork = Depends(get_uow),
-    pool: DatabasePool = Depends(get_db_pool)
+    uow: IUnitOfWork = Depends(get_uow)
 ) -> ColumnSamplesResponse:
-    """Get unique value samples for specified columns.\""""
+    """Get unique value samples for specified columns."""
+    from ..features.sampling.handlers.get_column_samples import GetColumnSamplesHandler, GetColumnSamplesCommand
     
-    # Get current commit for ref
-    ref = await uow.commits.get_ref(dataset_id, ref_name)
-    if not ref:
-        raise resource_not_found("Ref", ref_name)
-    
-    commit_id = ref['commit_id']
-    
-    # Get column samples
-    table_reader = PostgresTableReader(uow.connection)
-    samples = await table_reader.get_column_samples(
-        commit_id, table_key, request.columns, request.samples_per_column
+    # Create command
+    command = GetColumnSamplesCommand(
+        user_id=current_user.user_id,
+        dataset_id=dataset_id,
+        ref_name=ref_name,
+        table_key=table_key,
+        columns=request.columns,
+        samples_per_column=request.samples_per_column
     )
     
-    return ColumnSamplesResponse(
-        samples=samples,
-        metadata={
-            'dataset_id': dataset_id,
-            'ref_name': ref_name,
-            'table_key': table_key,
-            'commit_id': commit_id,
-            'columns_requested': len(request.columns),
-            'samples_per_column': request.samples_per_column
-        }
-    )
+    # Create handler and execute
+    handler = GetColumnSamplesHandler(uow)
+    return await handler.handle(command)
 
 
 @router.get("/datasets/{dataset_id}/sampling-methods")
 async def get_sampling_methods(
     dataset_id: int = Path(..., description="Dataset ID"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow: IUnitOfWork = Depends(get_uow),
-    pool: DatabasePool = Depends(get_db_pool)
+    uow: IUnitOfWork = Depends(get_uow)
 ) -> Dict[str, Any]:
     """Get available sampling methods and their parameters."""
-    # Check dataset exists and user has access
+    from ..features.sampling.handlers.get_sampling_methods import GetSamplingMethodsHandler, GetSamplingMethodsCommand
     
-    dataset = await uow.datasets.get_dataset_by_id(dataset_id)
-    if not dataset:
-        raise resource_not_found("Dataset", dataset_id)
+    # Create command
+    command = GetSamplingMethodsCommand(
+        user_id=current_user.user_id,
+        dataset_id=dataset_id
+    )
     
-    # Permission check will be handled by the handler/service
-    
-    # Return available methods
-    sampling_service = SamplingService(uow)
-    methods = sampling_service.list_available_methods()
-    
-    return {
-        "methods": [
-            {
-                "name": method.value,
-                "description": get_method_description(method),
-                "parameters": get_method_parameters(method)
-            }
-            for method in methods
-        ],
-        "supported_operators": [
-            ">", ">=", "<", "<=", "=", "!=", "in", "not_in", 
-            "like", "ilike", "is_null", "is_not_null"
-        ]
-    }
+    # Create handler and execute
+    handler = GetSamplingMethodsHandler(uow)
+    return await handler.handle(command)
 
 
-def get_method_description(method: SamplingMethod) -> str:
-    """Get description for sampling method."""
-    descriptions = {
-        SamplingMethod.RANDOM: "Simple random sampling with optional seed for reproducibility",
-        SamplingMethod.STRATIFIED: "Stratified sampling ensuring representation from all strata",
-        SamplingMethod.SYSTEMATIC: "Systematic sampling with fixed intervals",
-        SamplingMethod.CLUSTER: "Cluster sampling selecting entire groups",
-        SamplingMethod.MULTI_ROUND: "Multiple sampling rounds with exclusion"
-    }
-    return descriptions.get(method, "")
-
-
-def get_method_parameters(method: SamplingMethod) -> List[Dict[str, Any]]:
-    """Get required and optional parameters for each method."""
-    base_params = [
-        {"name": "sample_size", "type": "integer", "required": True, "description": "Number of samples"},
-        {"name": "seed", "type": "integer", "required": False, "description": "Random seed"}
-    ]
-    
-    method_specific = {
-        SamplingMethod.STRATIFIED: [
-            {"name": "strata_columns", "type": "array", "required": True, "description": "Columns to stratify by"},
-            {"name": "min_per_stratum", "type": "integer", "required": False, "description": "Minimum samples per stratum"},
-            {"name": "proportional", "type": "boolean", "required": False, "description": "Use proportional allocation"}
-        ],
-        SamplingMethod.CLUSTER: [
-            {"name": "cluster_column", "type": "string", "required": True, "description": "Column defining clusters"},
-            {"name": "num_clusters", "type": "integer", "required": True, "description": "Number of clusters to select"},
-            {"name": "samples_per_cluster", "type": "integer", "required": False, "description": "Samples per cluster"}
-        ],
-        SamplingMethod.SYSTEMATIC: [
-            {"name": "interval", "type": "integer", "required": True, "description": "Sampling interval"},
-            {"name": "start", "type": "integer", "required": False, "description": "Starting position"}
-        ]
-    }
-    
-    return base_params + method_specific.get(method, [])
 
 
 # New endpoints for sampling job data and history

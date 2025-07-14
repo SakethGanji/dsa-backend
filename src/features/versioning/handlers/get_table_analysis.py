@@ -118,14 +118,22 @@ class GetTableAnalysisHandler(BaseHandler[TableAnalysisResponse]):
             if analysis_result:
                 # Use pre-computed analysis
                 analysis = json.loads(analysis_result[0]['analysis'])
+                # Get sample data
+                sample_data = await self._table_reader.get_table_data(
+                    commit_id=commit_id,
+                    table_key=table_key,
+                    offset=0,
+                    limit=10  # Just get 10 rows for sample
+                )
                 return TableAnalysisResponse(
                     table_key=table_key,
-                    columns=analysis.get('columns', []),
-                    column_types=analysis.get('column_types', {}),
-                    total_rows=analysis.get('total_rows', 0),
+                    sheet_name=table_key,  # Use table_key as sheet_name
+                    column_stats=analysis.get('statistics', {}),
+                    sample_data=sample_data,
+                    row_count=analysis.get('total_rows', 0),
                     null_counts=analysis.get('null_counts', {}),
-                    sample_values=analysis.get('sample_values', {}),
-                    statistics=analysis.get('statistics')
+                    unique_counts=analysis.get('unique_counts', {}),
+                    data_types=analysis.get('column_types', {})
                 )
             
             # Fallback to computing analysis on-the-fly if not pre-computed
@@ -209,12 +217,33 @@ class GetTableAnalysisHandler(BaseHandler[TableAnalysisResponse]):
                     if k not in ['null_counts', 'row_count']
                 }
             
+            # Get unique counts
+            unique_counts = {}
+            for col in columns:
+                unique_counts[col] = len(sample_values_dict.get(col, []))
+            
+            # Convert sample data to list format
+            sample_data_list = sample_data[:10] if sample_data else []
+            
+            # Build column stats from available statistics
+            column_stats = {}
+            if stats:
+                # Try to extract per-column statistics if available
+                for col in columns:
+                    col_stat = {}
+                    if 'column_stats' in stats and col in stats['column_stats']:
+                        col_stat = stats['column_stats'][col]
+                    elif col in stats:
+                        col_stat = stats[col]
+                    column_stats[col] = col_stat
+            
             return TableAnalysisResponse(
                 table_key=table_key,
-                columns=columns,
-                column_types=column_types,
-                total_rows=total_rows,
+                sheet_name=table_key,  # Use table_key as sheet_name
+                column_stats=column_stats,
+                sample_data=sample_data_list,
+                row_count=total_rows,
                 null_counts=null_counts,
-                sample_values=sample_values_dict,
-                statistics=additional_stats
+                unique_counts=unique_counts,
+                data_types=column_types
             )

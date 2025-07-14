@@ -81,50 +81,28 @@ async def create_user_public(
     pool: DatabasePool = Depends(get_db_pool)
 ) -> CreateUserResponse:
     """Create a new user (PUBLIC - for testing only, remove in production)."""
-    async with pool.acquire() as conn:
-        user_repo = PostgresUserRepository(conn)
-        
-        # Check if user already exists
-        existing_user = await user_repo.get_by_soeid(request.soeid)
-        if existing_user:
-            raise ConflictException(
-                f"User with SOEID {request.soeid} already exists",
-                conflicting_field="soeid",
-                existing_value=request.soeid
-            )
-        
-        # Hash the password
-        from passlib.context import CryptContext
-        pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-        password_hash = pwd_context.hash(request.password)
-        
-        # Ensure role exists (default to admin role for testing)
-        role_id = request.role_id
-        if not role_id:
-            # Get or create admin role
-            role = await conn.fetchrow("""
-                INSERT INTO dsa_auth.roles (role_name, description) 
-                VALUES ('admin', 'Administrator role')
-                ON CONFLICT (role_name) DO UPDATE SET role_name = EXCLUDED.role_name
-                RETURNING id
-            """)
-            role_id = role['id']
-        
-        # Create user
-        user_id = await user_repo.create_user(
-            soeid=request.soeid,
-            password_hash=password_hash,
-            role_id=role_id
-        )
-        
-        # Get the created user details
-        user = await user_repo.get_by_id(user_id)
-        
-        return CreateUserResponse(
-            user_id=user['id'],
-            soeid=user['soeid'],
-            role_id=user['role_id'],
-            role_name=user.get('role_name'),
-            is_active=user.get('is_active', True),
-            created_at=user['created_at']
-        )
+    from ..features.users.handlers.create_user_public import (
+        CreateUserPublicHandler, 
+        CreateUserPublicCommand
+    )
+    
+    # Create command
+    command = CreateUserPublicCommand(
+        soeid=request.soeid,
+        password=request.password,
+        role_id=request.role_id
+    )
+    
+    # Create handler and execute
+    handler = CreateUserPublicHandler(pool)
+    result = await handler.handle(command)
+    
+    # Convert handler response to API response
+    return CreateUserResponse(
+        user_id=result.user_id,
+        soeid=result.soeid,
+        role_id=result.role_id,
+        role_name=result.role_name,
+        is_active=result.is_active,
+        created_at=result.created_at
+    )

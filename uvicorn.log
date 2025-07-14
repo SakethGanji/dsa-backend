@@ -1112,3 +1112,730 @@ INFO:     127.0.0.1:40350 - "GET /api/sampling/datasets/109/history?limit=5 HTTP
 INFO:     127.0.0.1:56032 - "POST /api/users/token HTTP/1.1" 200 OK
 INFO:     127.0.0.1:56032 - "OPTIONS /api/datasets/search/?fuzzy=true&limit=12&sort_by=relevance&sort_order=desc&include_facets=true HTTP/1.1" 200 OK
 INFO:     127.0.0.1:56032 - "GET /api/datasets/search/?fuzzy=true&limit=12&sort_by=relevance&sort_order=desc&include_facets=true HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43408 - "OPTIONS /api/datasets/91/overview HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43408 - "OPTIONS /api/datasets/91/ready HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43408 - "GET /api/datasets/91/ready HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43408 - "GET /api/datasets/91/ready HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43408 - "GET /api/datasets/91/ready HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43418 - "GET /api/datasets/91/overview HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43422 - "OPTIONS /api/datasets/91/refs/main/tables/Electric_Vehicle_Population_Data/analysis HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43432 - "OPTIONS /api/datasets/91/refs/main/tables/Electric_Vehicle_Population_Data/preview HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43432 - "GET /api/datasets/91/refs/main/tables/Electric_Vehicle_Population_Data/preview HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:43418 - "OPTIONS /api/exploration/datasets/91/history?limit=50 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43418 - "GET /api/exploration/datasets/91/history?limit=50 HTTP/1.1" 200 OK
+WARNING:src.features.base_handler:Validation error in GetTableAnalysisHandler: 6 validation errors for TableAnalysisResponse
+sheet_name
+  Field required [type=missing, input_value={'table_key': 'Electric_V...']}, 'statistics': None}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.11/v/missing
+column_stats
+  Field required [type=missing, input_value={'table_key': 'Electric_V...']}, 'statistics': None}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.11/v/missing
+sample_data
+  Field required [type=missing, input_value={'table_key': 'Electric_V...']}, 'statistics': None}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.11/v/missing
+row_count
+  Field required [type=missing, input_value={'table_key': 'Electric_V...']}, 'statistics': None}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.11/v/missing
+unique_counts
+  Field required [type=missing, input_value={'table_key': 'Electric_V...']}, 'statistics': None}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.11/v/missing
+data_types
+  Field required [type=missing, input_value={'table_key': 'Electric_V...']}, 'statistics': None}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.11/v/missing
+INFO:     127.0.0.1:43422 - "GET /api/datasets/91/refs/main/tables/Electric_Vehicle_Population_Data/analysis HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:43422 - "GET /api/datasets/91/refs/main/tables/Electric_Vehicle_Population_Data/preview HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:43418 - "GET /api/datasets/search/?fuzzy=true&limit=12&sort_by=relevance&sort_order=desc&include_facets=true HTTP/1.1" 200 OK
+WARNING:src.features.base_handler:Validation error in GetTableAnalysisHandler: 6 validation errors for TableAnalysisResponse
+sheet_name
+  Field required [type=missing, input_value={'table_key': 'Electric_V...']}, 'statistics': None}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.11/v/missing
+column_stats
+  Field required [type=missing, input_value={'table_key': 'Electric_V...']}, 'statistics': None}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.11/v/missing
+sample_data
+  Field required [type=missing, input_value={'table_key': 'Electric_V...']}, 'statistics': None}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.11/v/missing
+row_count
+  Field required [type=missing, input_value={'table_key': 'Electric_V...']}, 'statistics': None}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.11/v/missing
+unique_counts
+  Field required [type=missing, input_value={'table_key': 'Electric_V...']}, 'statistics': None}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.11/v/missing
+data_types
+  Field required [type=missing, input_value={'table_key': 'Electric_V...']}, 'statistics': None}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.11/v/missing
+INFO:     127.0.0.1:43422 - "GET /api/datasets/91/refs/main/tables/Electric_Vehicle_Population_Data/analysis HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:48672 - "OPTIONS /api/datasets/105/overview HTTP/1.1" 200 OK
+INFO:     127.0.0.1:48672 - "GET /api/datasets/105/overview HTTP/1.1" 200 OK
+INFO:     127.0.0.1:48672 - "OPTIONS /api/datasets/104/overview HTTP/1.1" 200 OK
+INFO:     127.0.0.1:48672 - "GET /api/datasets/104/overview HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53066 - "GET /api/datasets/91/refs/main/tables/Electric_Vehicle_Population_Data/preview HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:53070 - "GET /api/datasets/91/ready HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53070 - "GET /api/datasets/91/ready HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53070 - "GET /api/datasets/91/ready HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53070 - "GET /api/datasets/91/ready HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53072 - "OPTIONS /api/sampling/datasets/91/history?limit=10&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53070 - "GET /api/datasets/91/ready HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53070 - "GET /api/sampling/datasets/91/history?limit=10&offset=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53070 - "GET /api/datasets/91/ready HTTP/1.1" 200 OK
+WARNING:src.features.base_handler:Validation error in GetTableAnalysisHandler: 6 validation errors for TableAnalysisResponse
+sheet_name
+  Field required [type=missing, input_value={'table_key': 'Electric_V...']}, 'statistics': None}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.11/v/missing
+column_stats
+  Field required [type=missing, input_value={'table_key': 'Electric_V...']}, 'statistics': None}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.11/v/missing
+sample_data
+  Field required [type=missing, input_value={'table_key': 'Electric_V...']}, 'statistics': None}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.11/v/missing
+row_count
+  Field required [type=missing, input_value={'table_key': 'Electric_V...']}, 'statistics': None}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.11/v/missing
+unique_counts
+  Field required [type=missing, input_value={'table_key': 'Electric_V...']}, 'statistics': None}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.11/v/missing
+data_types
+  Field required [type=missing, input_value={'table_key': 'Electric_V...']}, 'statistics': None}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.11/v/missing
+INFO:     127.0.0.1:48672 - "GET /api/datasets/91/refs/main/tables/Electric_Vehicle_Population_Data/analysis HTTP/1.1" 400 Bad Request
+WARNING:src.features.base_handler:Validation error in GetTableAnalysisHandler: 6 validation errors for TableAnalysisResponse
+sheet_name
+  Field required [type=missing, input_value={'table_key': 'Electric_V...']}, 'statistics': None}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.11/v/missing
+column_stats
+  Field required [type=missing, input_value={'table_key': 'Electric_V...']}, 'statistics': None}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.11/v/missing
+sample_data
+  Field required [type=missing, input_value={'table_key': 'Electric_V...']}, 'statistics': None}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.11/v/missing
+row_count
+  Field required [type=missing, input_value={'table_key': 'Electric_V...']}, 'statistics': None}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.11/v/missing
+unique_counts
+  Field required [type=missing, input_value={'table_key': 'Electric_V...']}, 'statistics': None}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.11/v/missing
+data_types
+  Field required [type=missing, input_value={'table_key': 'Electric_V...']}, 'statistics': None}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.11/v/missing
+INFO:     127.0.0.1:53066 - "GET /api/datasets/91/refs/main/tables/Electric_Vehicle_Population_Data/analysis HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:58884 - "OPTIONS /api/datasets/109/overview HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58884 - "GET /api/datasets/109/overview HTTP/1.1" 200 OK
+WARNING:  WatchFiles detected changes in 'src/api/datasets.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.main:Shutting down DSA Platform...
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Shutdown complete
+INFO:     Application shutdown complete.
+INFO:     Finished server process [37840]
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+INFO:src.api.error_handlers:Error handlers registered successfully
+INFO:     Started server process [39870]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.workers.job_worker:Registered executor for job type: sampling
+INFO:src.workers.job_worker:Registered executor for job type: exploration
+INFO:src.workers.job_worker:Registered executor for job type: sql_transform
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/api/datasets.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.main:Shutting down DSA Platform...
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Shutdown complete
+INFO:     Application shutdown complete.
+INFO:     Finished server process [39870]
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+INFO:src.api.error_handlers:Error handlers registered successfully
+INFO:     Started server process [39998]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.workers.job_worker:Registered executor for job type: sampling
+INFO:src.workers.job_worker:Registered executor for job type: exploration
+INFO:src.workers.job_worker:Registered executor for job type: sql_transform
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/api/datasets.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.main:Shutting down DSA Platform...
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Shutdown complete
+INFO:     Application shutdown complete.
+INFO:     Finished server process [39998]
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+INFO:src.api.error_handlers:Error handlers registered successfully
+INFO:     Started server process [40085]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.workers.job_worker:Registered executor for job type: sampling
+INFO:src.workers.job_worker:Registered executor for job type: exploration
+INFO:src.workers.job_worker:Registered executor for job type: sql_transform
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/api/datasets.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.main:Shutting down DSA Platform...
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Shutdown complete
+INFO:     Application shutdown complete.
+INFO:     Finished server process [40085]
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+INFO:src.api.error_handlers:Error handlers registered successfully
+INFO:     Started server process [40181]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.workers.job_worker:Registered executor for job type: sampling
+INFO:src.workers.job_worker:Registered executor for job type: exploration
+INFO:src.workers.job_worker:Registered executor for job type: sql_transform
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/features/datasets/handlers/get_dataset.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.main:Shutting down DSA Platform...
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Shutdown complete
+INFO:     Application shutdown complete.
+INFO:     Finished server process [40181]
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+INFO:src.api.error_handlers:Error handlers registered successfully
+INFO:     Started server process [40281]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.workers.job_worker:Registered executor for job type: sampling
+INFO:src.workers.job_worker:Registered executor for job type: exploration
+INFO:src.workers.job_worker:Registered executor for job type: sql_transform
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/api/datasets.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.main:Shutting down DSA Platform...
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Shutdown complete
+INFO:     Application shutdown complete.
+INFO:     Finished server process [40281]
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+INFO:src.api.error_handlers:Error handlers registered successfully
+INFO:     Started server process [40376]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.workers.job_worker:Registered executor for job type: sampling
+INFO:src.workers.job_worker:Registered executor for job type: exploration
+INFO:src.workers.job_worker:Registered executor for job type: sql_transform
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/api/datasets.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.main:Shutting down DSA Platform...
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Shutdown complete
+INFO:     Application shutdown complete.
+INFO:     Finished server process [40376]
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+INFO:src.api.error_handlers:Error handlers registered successfully
+INFO:     Started server process [40475]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.workers.job_worker:Registered executor for job type: sampling
+INFO:src.workers.job_worker:Registered executor for job type: exploration
+INFO:src.workers.job_worker:Registered executor for job type: sql_transform
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/features/datasets/handlers/check_dataset_ready.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.main:Shutting down DSA Platform...
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Shutdown complete
+INFO:     Application shutdown complete.
+INFO:     Finished server process [40475]
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+INFO:src.api.error_handlers:Error handlers registered successfully
+INFO:     Started server process [40570]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.workers.job_worker:Registered executor for job type: sampling
+INFO:src.workers.job_worker:Registered executor for job type: exploration
+INFO:src.workers.job_worker:Registered executor for job type: sql_transform
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/api/datasets.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.main:Shutting down DSA Platform...
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Shutdown complete
+INFO:     Application shutdown complete.
+INFO:     Finished server process [40570]
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+INFO:src.api.error_handlers:Error handlers registered successfully
+INFO:     Started server process [40658]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.workers.job_worker:Registered executor for job type: sampling
+INFO:src.workers.job_worker:Registered executor for job type: exploration
+INFO:src.workers.job_worker:Registered executor for job type: sql_transform
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/features/sampling/handlers/create_sampling_job.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.main:Shutting down DSA Platform...
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Shutdown complete
+INFO:     Application shutdown complete.
+INFO:     Finished server process [40658]
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+INFO:src.api.error_handlers:Error handlers registered successfully
+INFO:     Started server process [40738]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.workers.job_worker:Registered executor for job type: sampling
+INFO:src.workers.job_worker:Registered executor for job type: exploration
+INFO:src.workers.job_worker:Registered executor for job type: sql_transform
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/features/sampling/handlers/sample_data_direct.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.main:Shutting down DSA Platform...
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Shutdown complete
+INFO:     Application shutdown complete.
+INFO:     Finished server process [40738]
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+INFO:src.api.error_handlers:Error handlers registered successfully
+INFO:     Started server process [40809]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.workers.job_worker:Registered executor for job type: sampling
+INFO:src.workers.job_worker:Registered executor for job type: exploration
+INFO:src.workers.job_worker:Registered executor for job type: sql_transform
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/features/sampling/handlers/get_column_samples.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.main:Shutting down DSA Platform...
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Shutdown complete
+INFO:     Application shutdown complete.
+INFO:     Finished server process [40809]
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+INFO:src.api.error_handlers:Error handlers registered successfully
+INFO:     Started server process [40940]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.workers.job_worker:Registered executor for job type: sampling
+INFO:src.workers.job_worker:Registered executor for job type: exploration
+INFO:src.workers.job_worker:Registered executor for job type: sql_transform
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/features/sampling/handlers/get_sampling_methods.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.main:Shutting down DSA Platform...
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Shutdown complete
+INFO:     Application shutdown complete.
+INFO:     Finished server process [40940]
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+INFO:src.api.error_handlers:Error handlers registered successfully
+INFO:     Started server process [41029]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.workers.job_worker:Registered executor for job type: sampling
+INFO:src.workers.job_worker:Registered executor for job type: exploration
+INFO:src.workers.job_worker:Registered executor for job type: sql_transform
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'src/api/sampling.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.main:Shutting down DSA Platform...
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Shutdown complete
+INFO:     Application shutdown complete.
+INFO:     Finished server process [41029]
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+Process SpawnProcess-34:
+Traceback (most recent call last):
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 314, in _bootstrap
+    self.run()
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/_subprocess.py", line 80, in subprocess_started
+    target(sockets=sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 66, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "/usr/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 70, in serve
+    await self._serve(sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 77, in _serve
+    config.load()
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/config.py", line 435, in load
+    self.loaded_app = import_from_string(self.app)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "/usr/lib/python3.10/importlib/__init__.py", line 126, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "<frozen importlib._bootstrap>", line 1050, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1027, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1006, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 688, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 883, in exec_module
+  File "<frozen importlib._bootstrap>", line 241, in _call_with_frames_removed
+  File "/home/saketh/Projects/dsa/src/main.py", line 23, in <module>
+    from .api import users, datasets, versioning, jobs, search, sampling, exploration, workbench, downloads
+  File "/home/saketh/Projects/dsa/src/api/sampling.py", line 253
+    """Perform direct sampling and return results immediately.\""""
+       ^^^^^^^
+SyntaxError: invalid syntax
+WARNING:  WatchFiles detected changes in 'src/api/sampling.py'. Reloading...
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+Process SpawnProcess-35:
+Traceback (most recent call last):
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 314, in _bootstrap
+    self.run()
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/_subprocess.py", line 80, in subprocess_started
+    target(sockets=sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 66, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "/usr/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 70, in serve
+    await self._serve(sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 77, in _serve
+    config.load()
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/config.py", line 435, in load
+    self.loaded_app = import_from_string(self.app)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "/usr/lib/python3.10/importlib/__init__.py", line 126, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "<frozen importlib._bootstrap>", line 1050, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1027, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1006, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 688, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 883, in exec_module
+  File "<frozen importlib._bootstrap>", line 241, in _call_with_frames_removed
+  File "/home/saketh/Projects/dsa/src/main.py", line 23, in <module>
+    from .api import users, datasets, versioning, jobs, search, sampling, exploration, workbench, downloads
+  File "/home/saketh/Projects/dsa/src/api/sampling.py", line 253
+    """Perform direct sampling and return results immediately.\"""
+       ^^^^^^^
+SyntaxError: invalid syntax
+WARNING:  WatchFiles detected changes in 'src/api/sampling.py'. Reloading...
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+Process SpawnProcess-36:
+Traceback (most recent call last):
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 314, in _bootstrap
+    self.run()
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/_subprocess.py", line 80, in subprocess_started
+    target(sockets=sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 66, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "/usr/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 70, in serve
+    await self._serve(sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 77, in _serve
+    config.load()
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/config.py", line 435, in load
+    self.loaded_app = import_from_string(self.app)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "/usr/lib/python3.10/importlib/__init__.py", line 126, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "<frozen importlib._bootstrap>", line 1050, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1027, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1006, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 688, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 883, in exec_module
+  File "<frozen importlib._bootstrap>", line 241, in _call_with_frames_removed
+  File "/home/saketh/Projects/dsa/src/main.py", line 23, in <module>
+    from .api import users, datasets, versioning, jobs, search, sampling, exploration, workbench, downloads
+  File "/home/saketh/Projects/dsa/src/api/sampling.py", line 253
+    """Perform direct sampling and return results immediately.\"""
+       ^^^^^^^
+SyntaxError: invalid syntax
+WARNING:  WatchFiles detected changes in 'src/api/sampling.py'. Reloading...
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+Process SpawnProcess-37:
+Traceback (most recent call last):
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 314, in _bootstrap
+    self.run()
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/_subprocess.py", line 80, in subprocess_started
+    target(sockets=sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 66, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "/usr/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 70, in serve
+    await self._serve(sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 77, in _serve
+    config.load()
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/config.py", line 435, in load
+    self.loaded_app = import_from_string(self.app)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "/usr/lib/python3.10/importlib/__init__.py", line 126, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "<frozen importlib._bootstrap>", line 1050, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1027, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1006, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 688, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 883, in exec_module
+  File "<frozen importlib._bootstrap>", line 241, in _call_with_frames_removed
+  File "/home/saketh/Projects/dsa/src/main.py", line 23, in <module>
+    from .api import users, datasets, versioning, jobs, search, sampling, exploration, workbench, downloads
+  File "/home/saketh/Projects/dsa/src/api/sampling.py", line 236
+    """Perform direct sampling and return results immediately.\"""
+       ^^^^^^^
+SyntaxError: invalid syntax
+WARNING:  WatchFiles detected changes in 'src/api/sampling.py'. Reloading...
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+Process SpawnProcess-38:
+Traceback (most recent call last):
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 314, in _bootstrap
+    self.run()
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/_subprocess.py", line 80, in subprocess_started
+    target(sockets=sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 66, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "/usr/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 70, in serve
+    await self._serve(sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 77, in _serve
+    config.load()
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/config.py", line 435, in load
+    self.loaded_app = import_from_string(self.app)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "/usr/lib/python3.10/importlib/__init__.py", line 126, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "<frozen importlib._bootstrap>", line 1050, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1027, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1006, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 688, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 883, in exec_module
+  File "<frozen importlib._bootstrap>", line 241, in _call_with_frames_removed
+  File "/home/saketh/Projects/dsa/src/main.py", line 23, in <module>
+    from .api import users, datasets, versioning, jobs, search, sampling, exploration, workbench, downloads
+  File "/home/saketh/Projects/dsa/src/api/sampling.py", line 235
+    """Perform direct sampling and return results immediately.\"""
+       ^^^^^^^
+SyntaxError: invalid syntax
+WARNING:  WatchFiles detected changes in 'src/api/sampling.py'. Reloading...
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+Process SpawnProcess-39:
+Traceback (most recent call last):
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 314, in _bootstrap
+    self.run()
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/_subprocess.py", line 80, in subprocess_started
+    target(sockets=sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 66, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "/usr/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 70, in serve
+    await self._serve(sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 77, in _serve
+    config.load()
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/config.py", line 435, in load
+    self.loaded_app = import_from_string(self.app)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "/usr/lib/python3.10/importlib/__init__.py", line 126, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "<frozen importlib._bootstrap>", line 1050, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1027, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1006, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 688, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 883, in exec_module
+  File "<frozen importlib._bootstrap>", line 241, in _call_with_frames_removed
+  File "/home/saketh/Projects/dsa/src/main.py", line 23, in <module>
+    from .api import users, datasets, versioning, jobs, search, sampling, exploration, workbench, downloads
+  File "/home/saketh/Projects/dsa/src/api/sampling.py", line 235
+    """Perform direct sampling and return results immediately.\"""
+       ^^^^^^^
+SyntaxError: invalid syntax
+WARNING:  WatchFiles detected changes in 'src/api/sampling.py'. Reloading...
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+Process SpawnProcess-40:
+Traceback (most recent call last):
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 314, in _bootstrap
+    self.run()
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/_subprocess.py", line 80, in subprocess_started
+    target(sockets=sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 66, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "/usr/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 70, in serve
+    await self._serve(sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 77, in _serve
+    config.load()
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/config.py", line 435, in load
+    self.loaded_app = import_from_string(self.app)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "/usr/lib/python3.10/importlib/__init__.py", line 126, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "<frozen importlib._bootstrap>", line 1050, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1027, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1006, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 688, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 883, in exec_module
+  File "<frozen importlib._bootstrap>", line 241, in _call_with_frames_removed
+  File "/home/saketh/Projects/dsa/src/main.py", line 23, in <module>
+    from .api import users, datasets, versioning, jobs, search, sampling, exploration, workbench, downloads
+  File "/home/saketh/Projects/dsa/src/api/sampling.py", line 235
+    """Perform direct sampling and return results immediately.\"""
+       ^^^^^^^
+SyntaxError: invalid syntax
+WARNING:  WatchFiles detected changes in 'src/api/sampling.py'. Reloading...
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+Process SpawnProcess-41:
+Traceback (most recent call last):
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 314, in _bootstrap
+    self.run()
+  File "/usr/lib/python3.10/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/_subprocess.py", line 80, in subprocess_started
+    target(sockets=sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 66, in run
+    return asyncio.run(self.serve(sockets=sockets))
+  File "/usr/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 70, in serve
+    await self._serve(sockets)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/server.py", line 77, in _serve
+    config.load()
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/config.py", line 435, in load
+    self.loaded_app = import_from_string(self.app)
+  File "/home/saketh/.local/lib/python3.10/site-packages/uvicorn/importer.py", line 19, in import_from_string
+    module = importlib.import_module(module_str)
+  File "/usr/lib/python3.10/importlib/__init__.py", line 126, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+  File "<frozen importlib._bootstrap>", line 1050, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1027, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1006, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 688, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 883, in exec_module
+  File "<frozen importlib._bootstrap>", line 241, in _call_with_frames_removed
+  File "/home/saketh/Projects/dsa/src/main.py", line 23, in <module>
+    from .api import users, datasets, versioning, jobs, search, sampling, exploration, workbench, downloads
+  File "/home/saketh/Projects/dsa/src/api/sampling.py", line 235
+    """Perform direct sampling and return results immediately.\"""
+       ^^^^^^^
+SyntaxError: invalid syntax
+INFO:     Stopping reloader process [33962]
