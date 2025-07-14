@@ -97,7 +97,7 @@ class PreviewSqlHandler(BaseHandler[SqlPreviewResponse]):
                 has_permission = await self._dataset_repository.check_user_permission(
                     dataset_id=source.dataset_id,
                     user_id=user_id,
-                    permission_type='read'
+                    required_permission='read'
                 )
                 if not has_permission:
                     raise ForbiddenException()
@@ -226,13 +226,16 @@ class PreviewSqlHandler(BaseHandler[SqlPreviewResponse]):
         
         commit_id = commit_row['commit_id']
         
-        # Create view using commit data
-        # This is simplified - in production would use table reader
+        # Create view using commit data filtered by table_key
+        # This filters rows to only include those from the specified table
         # Note: Parameters can't be used in CREATE VIEW, so we use string formatting
-        # Extract and parse the nested data field - it's stored as a JSON string
+        # We need to escape single quotes in table_key for SQL safety
+        escaped_table_key = source.table_key.replace("'", "''")
+        
         view_sql = f"""
             CREATE TEMPORARY VIEW {view_name} AS
             SELECT 
+                cr.logical_row_id,
                 CASE 
                     WHEN jsonb_typeof(r.data->'data') = 'string' THEN (r.data->>'data')::jsonb
                     ELSE r.data->'data'
@@ -240,6 +243,8 @@ class PreviewSqlHandler(BaseHandler[SqlPreviewResponse]):
             FROM dsa_core.commit_rows cr
             JOIN dsa_core.rows r ON cr.row_hash = r.row_hash
             WHERE cr.commit_id = '{commit_id}'
+            AND (cr.logical_row_id LIKE '{escaped_table_key}:%' 
+                 OR cr.logical_row_id LIKE '{escaped_table_key}\\_%')
             LIMIT {limit}
         """
         await conn.execute(view_sql)

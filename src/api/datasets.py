@@ -104,7 +104,8 @@ async def create_dataset_with_file(
         handler = CreateDatasetWithFileHandler(
             uow=uow,
             dataset_repo=uow.datasets,
-            commit_repo=uow.commits
+            commit_repo=uow.commits,
+            job_repo=uow.jobs
         )
         
         # Execute handler

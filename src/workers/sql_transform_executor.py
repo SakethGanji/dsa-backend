@@ -132,8 +132,11 @@ class SqlTransformExecutor(JobExecutor):
             # Create unique view name
             view_name = f"sql_transform_{source['alias']}_{job_id.replace('-', '_')}"
             
-            # Create view with data from the commit
+            # Create view with data from the commit filtered by table_key
             # Extract and parse the nested data field - it's stored as a JSON string
+            # Escape single quotes in table_key for SQL safety
+            escaped_table_key = source['table_key'].replace("'", "''")
+            
             await conn.execute(f"""
                 CREATE TEMPORARY VIEW {view_name} AS
                 SELECT 
@@ -145,6 +148,8 @@ class SqlTransformExecutor(JobExecutor):
                 FROM dsa_core.commit_rows cr
                 JOIN dsa_core.rows r ON cr.row_hash = r.row_hash
                 WHERE cr.commit_id = '{commit_id}'
+                AND (cr.logical_row_id LIKE '{escaped_table_key}:%' 
+                     OR cr.logical_row_id LIKE '{escaped_table_key}\\_%')
             """)
             
             view_names.append((source['alias'], view_name))
@@ -239,15 +244,22 @@ class SqlTransformExecutor(JobExecutor):
                 row_hash, row_json
             )
             
-            # Link row to commit
-            logical_row_id = row_dict.get('logical_row_id', row_dict.get('id', str(uuid4())))
+            # Link row to commit with proper logical_row_id format
+            # If the row already has a logical_row_id (from source data), preserve it
+            # Otherwise, create new one with table_key prefix
+            if 'logical_row_id' in row_dict and row_dict['logical_row_id']:
+                logical_row_id = row_dict['logical_row_id']
+            else:
+                # Create new logical_row_id with table_key:index format
+                logical_row_id = f"{table_key}:{idx}"
+            
             await conn.execute(
                 """
                 INSERT INTO dsa_core.commit_rows (
                     commit_id, logical_row_id, row_hash
                 ) VALUES ($1, $2, $3)
                 """,
-                commit_id, str(logical_row_id), row_hash
+                commit_id, logical_row_id, row_hash
             )
         
         return commit_id

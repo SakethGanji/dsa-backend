@@ -78,10 +78,13 @@ class CreateCommitHandler(BaseHandler[CreateCommitResponse]):
         # Refresh search index to update dataset's updated_at timestamp
         await self._uow.search_repository.refresh_search_index()
         
+        # Get the commit details to include created_at
+        commit_details = await self._commit_repo.get_commit_by_id(new_commit_id)
+        
         return CreateCommitResponse(
             commit_id=new_commit_id,
-            dataset_id=dataset_id,
-            message=request.message
+            message=request.message,
+            created_at=commit_details['created_at'] if commit_details else None
         )
     
     def _prepare_data(self, data: List[Dict[str, Any]]) -> Tuple[Set[Tuple[str, str]], List[Tuple[str, str]], Dict[str, Any]]:

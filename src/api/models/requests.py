@@ -61,8 +61,7 @@ class LoginRequest(BaseModel):
 
 class QueueImportRequest(BaseModel):
     """Request to queue an import job."""
-    dataset_id: int
-    file_path: str  # Path to uploaded file in temp storage
+    commit_message: str = Field(..., min_length=1, max_length=500)
 
 
 class CancelJobRequest(BaseModel):
@@ -79,6 +78,7 @@ class CreateCommitRequest(BaseModel):
     dataset_id: int
     message: str = Field(..., min_length=1, max_length=500)
     parent_commit_id: Optional[str] = None
+    data: List[Dict[str, Any]] = Field(..., description="List of data rows to include in the commit")
 
 
 class CreateBranchRequest(BaseModel):

@@ -194,6 +194,34 @@ class SamplingJobExecutor(JobExecutor):
             SELECT logical_row_id, row_hash, row_data_json
             FROM cluster_sample
             WHERE rn <= $4
+        """,
+        
+        'stratified_disproportional_fixed': """
+            -- Disproportional Stratified Sampling (Fixed-N per stratum)
+            WITH all_data AS (
+                SELECT
+                    m.logical_row_id,
+                    m.row_hash,
+                    r.data as row_data_json,
+                    -- Use ROW_NUMBER() to rank rows randomly within each stratum
+                    ROW_NUMBER() OVER (
+                        PARTITION BY {strata_grouping_sql}
+                        ORDER BY md5(m.logical_row_id || $4::text) -- Seeded random order
+                    ) as rn
+                FROM dsa_core.commit_rows m
+                JOIN dsa_core.rows r ON m.row_hash = r.row_hash
+                WHERE m.commit_id = $1 AND m.logical_row_id LIKE ($2 || ':%')
+                AND NOT EXISTS (
+                    SELECT 1 FROM temp_sampling_exclusions e
+                    WHERE e.row_id = m.logical_row_id
+                )
+            )
+            SELECT
+                logical_row_id,
+                row_hash,
+                row_data_json
+            FROM all_data
+            WHERE rn <= $3 -- Select the top N rows from each stratum
         """
     }
     
@@ -510,9 +538,19 @@ class SamplingJobExecutor(JobExecutor):
             )
             
         elif method == 'stratified':
-            query, query_params = await self._build_stratified_sampling(
-                source_commit_id, table_key, params
-            )
+            # Check for the key parameter to decide which type of stratified sampling to run
+            if 'samples_per_stratum' in params:
+                # User wants a fixed number of samples from each stratum (Disproportional)
+                logger.info("Using Disproportional Stratified Sampling (fixed-N per stratum)")
+                query, query_params = await self._build_disproportional_stratified_query(
+                    source_commit_id, table_key, params
+                )
+            else:
+                # Default to existing Proportional sampling
+                logger.info("Using Proportional Stratified Sampling")
+                query, query_params = await self._build_stratified_sampling(
+                    source_commit_id, table_key, params
+                )
             
         elif method == 'systematic':
             query = self.SAMPLING_QUERIES['systematic']
@@ -717,6 +755,40 @@ class SamplingJobExecutor(JobExecutor):
         
         return query, query_params
     
+    async def _build_disproportional_stratified_query(
+        self,
+        source_commit_id: str,
+        table_key: str,
+        params: Dict[str, Any]
+    ) -> Tuple[str, List[Any]]:
+        """Builds a disproportional stratified sampling query (fixed-N per stratum)."""
+        # Validate required parameters
+        if 'strata_columns' not in params or not params['strata_columns']:
+            raise ValueError("Disproportional stratified sampling requires 'strata_columns'")
+        if 'samples_per_stratum' not in params:
+            raise ValueError("Disproportional stratified sampling requires 'samples_per_stratum'")
+
+        validated_cols = [self._validate_column_name(col) for col in params['strata_columns']]
+        
+        # SQL expression to extract data from JSON for each stratum column
+        # Need to handle nested data structure (data->data->column or data->column)
+        data_expr = self._get_data_extract_sql()
+        strata_grouping_sql = ', '.join([f"({data_expr}->>'{col}')" for col in validated_cols])
+        
+        # Get the template and format it with the dynamic column expressions
+        query_template = self.SAMPLING_QUERIES['stratified_disproportional_fixed']
+        query = query_template.format(strata_grouping_sql=strata_grouping_sql)
+        
+        # Prepare the query parameters for asyncpg
+        query_params = [
+            source_commit_id,
+            table_key,
+            params['samples_per_stratum'],
+            str(params.get('seed', 'default_seed')) # Use a default seed if not provided
+        ]
+        
+        return query, query_params
+    
     async def _get_valid_columns(self, conn: Connection, commit_id: str, table_key: str) -> Set[str]:
         """Get valid column names from schema."""
         schema_json = await conn.fetchval("""
@@ -876,7 +948,6 @@ class SamplingJobExecutor(JobExecutor):
         # Get count
         count = await conn.fetchval(f"SELECT COUNT(*) FROM {residual_table}")
         
-        # In production, you might export this to a file or create a separate commit
         # For now, we'll just log the count
         logger.info(f"Residual data '{output_name}': {count} rows not sampled")
         

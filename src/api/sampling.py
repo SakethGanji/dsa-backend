@@ -93,8 +93,19 @@ class SamplingRoundConfig(BaseModel):
                 raise ValidationException("Stratified sampling requires 'strata_columns' parameter", field="parameters.strata_columns")
             if not isinstance(v['strata_columns'], list) or not v['strata_columns']:
                 raise ValidationException("strata_columns must be a non-empty list", field="parameters.strata_columns")
-            if 'sample_size' not in v:
-                raise ValidationException("Stratified sampling requires 'sample_size' parameter", field="parameters.sample_size")
+            
+            # Check if it's disproportional (fixed-N) or proportional sampling
+            if 'samples_per_stratum' in v:
+                # Disproportional sampling - fixed number per stratum
+                if not isinstance(v['samples_per_stratum'], int) or v['samples_per_stratum'] <= 0:
+                    raise ValidationException("samples_per_stratum must be a positive integer", field="parameters.samples_per_stratum")
+                # Ensure sample_size is not also provided (they're mutually exclusive)
+                if 'sample_size' in v:
+                    raise ValidationException("Cannot specify both 'sample_size' and 'samples_per_stratum'. Use 'samples_per_stratum' for disproportional sampling or 'sample_size' for proportional sampling", field="parameters")
+            else:
+                # Proportional sampling - requires sample_size
+                if 'sample_size' not in v:
+                    raise ValidationException("Stratified sampling requires either 'sample_size' (proportional) or 'samples_per_stratum' (disproportional) parameter", field="parameters.sample_size")
                 
         # Validate systematic sampling parameters
         elif method == 'systematic':
@@ -133,6 +144,7 @@ class DirectSamplingRequest(BaseModel):
     # Method-specific parameters
     stratify_columns: Optional[List[str]] = Field(None, description="Columns for stratification")
     proportional: bool = Field(True, description="Use proportional allocation")
+    samples_per_stratum: Optional[int] = Field(None, description="Fixed samples per stratum (disproportional sampling)")
     cluster_column: Optional[str] = Field(None, description="Column for clustering")
     num_clusters: Optional[int] = Field(None, description="Number of clusters to select")
     

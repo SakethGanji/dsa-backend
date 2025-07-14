@@ -257,6 +257,7 @@ class TableAnalysisResponse(BaseModel):
     null_counts: Dict[str, int]
     unique_counts: Dict[str, int]
     data_types: Dict[str, str]
+    columns: List[Dict[str, str]]  # List of {"name": "col_name", "type": "col_type"}
 
 
 # ============================================

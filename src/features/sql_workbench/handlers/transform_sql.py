@@ -126,7 +126,7 @@ class TransformSqlHandler(BaseHandler[SqlTransformResponse]):
             has_read = await self._dataset_repository.check_user_permission(
                 dataset_id=source.dataset_id,
                 user_id=user_id,
-                permission_type='read'
+                required_permission='read'
             )
             if not has_read:
                 raise ForbiddenException()
@@ -135,7 +135,7 @@ class TransformSqlHandler(BaseHandler[SqlTransformResponse]):
         has_write = await self._dataset_repository.check_user_permission(
             dataset_id=request.target.dataset_id,
             user_id=user_id,
-            permission_type='write'
+            required_permission='write'
         )
         if not has_write:
             raise ForbiddenException()

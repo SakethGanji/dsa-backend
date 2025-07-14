@@ -125,6 +125,10 @@ class GetTableAnalysisHandler(BaseHandler[TableAnalysisResponse]):
                     offset=0,
                     limit=10  # Just get 10 rows for sample
                 )
+                # Extract columns list from analysis
+                column_types = analysis.get('column_types', {})
+                columns_list = [{"name": name, "type": dtype} for name, dtype in column_types.items()]
+                
                 return TableAnalysisResponse(
                     table_key=table_key,
                     sheet_name=table_key,  # Use table_key as sheet_name
@@ -133,7 +137,8 @@ class GetTableAnalysisHandler(BaseHandler[TableAnalysisResponse]):
                     row_count=analysis.get('total_rows', 0),
                     null_counts=analysis.get('null_counts', {}),
                     unique_counts=analysis.get('unique_counts', {}),
-                    data_types=analysis.get('column_types', {})
+                    data_types=analysis.get('column_types', {}),
+                    columns=columns_list
                 )
             
             # Fallback to computing analysis on-the-fly if not pre-computed
@@ -237,6 +242,9 @@ class GetTableAnalysisHandler(BaseHandler[TableAnalysisResponse]):
                         col_stat = stats[col]
                     column_stats[col] = col_stat
             
+            # Extract columns list
+            columns_list = [{"name": name, "type": dtype} for name, dtype in column_types.items()]
+            
             return TableAnalysisResponse(
                 table_key=table_key,
                 sheet_name=table_key,  # Use table_key as sheet_name
@@ -245,5 +253,6 @@ class GetTableAnalysisHandler(BaseHandler[TableAnalysisResponse]):
                 row_count=total_rows,
                 null_counts=null_counts,
                 unique_counts=unique_counts,
-                data_types=column_types
+                data_types=column_types,
+                columns=columns_list
             )

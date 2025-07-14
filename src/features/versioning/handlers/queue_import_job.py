@@ -83,5 +83,9 @@ class QueueImportJobHandler(BaseHandler[QueueImportResponse]):
             run_parameters=job_parameters
         )
         
-        return QueueImportResponse(job_id=job_id)
+        return QueueImportResponse(
+            job_id=str(job_id),
+            status="pending",
+            message="Import job queued successfully"
+        )
         # TODO: Add cleanup of temp file on failure via context manager
