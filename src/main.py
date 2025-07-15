@@ -24,7 +24,7 @@ from .api import users, datasets, versioning, jobs, search, sampling, exploratio
 
 # Import workers
 from .workers.job_worker import JobWorker
-from .workers.import_executor import ImportJobExecutor
+from .workers.import_executor_optimized import ImportJobExecutor
 from .workers.sampling_executor import SamplingJobExecutor
 from .workers.exploration_executor import ExplorationExecutor
 from .workers.sql_transform_executor import SqlTransformExecutor

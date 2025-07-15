@@ -66,12 +66,15 @@ class QueueImportJobHandler(BaseHandler[QueueImportResponse]):
             dataset_id, ref_name
         )
         
-        # TODO: Create job record
+        # Create job record
         job_parameters = {
             "temp_file_path": temp_path,
             "filename": filename,
             "commit_message": request.commit_message,
-            "target_ref": ref_name
+            "target_ref": ref_name,
+            "dataset_id": dataset_id,
+            "user_id": user_id,
+            "file_size": os.path.getsize(temp_path)
         }
         
         # Transaction management handled by @with_transaction decorator

@@ -80,29 +80,22 @@ class CreateDatasetWithFileHandler(BaseHandler[CreateDatasetWithFileResponse]):
             manifest=[]  # Empty manifest for initial commit
         )
         
-        # Update ref to point to initial commit
-        # For initial dataset, we might need to create the ref first
-        # Try to get current commit for ref
-        current_commit = await self._commit_repo.get_current_commit_for_ref(
-            dataset_id=dataset_id,
-            ref_name=request.default_branch
-        )
-        
-        if current_commit is None:
-            # Need to create the ref - check if there's a create_ref method
-            # For now, we'll just try update_ref_atomically with empty string
+        # Update the default branch ref
+        # The dataset creation creates a 'main' ref with NULL commit_id
+        if request.default_branch == "main":
+            # Update existing ref from NULL to the initial commit
             await self._commit_repo.update_ref_atomically(
                 dataset_id=dataset_id,
                 ref_name=request.default_branch,
-                new_commit_id=initial_commit_id,
-                expected_commit_id=""  # Empty string for initial creation
+                expected_commit_id=None,  # Current value is NULL
+                new_commit_id=initial_commit_id
             )
         else:
-            await self._commit_repo.update_ref_atomically(
+            # Create new ref for non-main branches
+            await self._commit_repo.create_ref(
                 dataset_id=dataset_id,
                 ref_name=request.default_branch,
-                new_commit_id=initial_commit_id,
-                expected_commit_id=current_commit
+                commit_id=initial_commit_id
             )
         
         # Now queue the import job
@@ -125,11 +118,12 @@ class CreateDatasetWithFileHandler(BaseHandler[CreateDatasetWithFileResponse]):
                 source_commit_id=initial_commit_id,
                 run_parameters={
                     'dataset_id': dataset_id,
-                    'ref_name': request.default_branch,
-                    'file_path': file_path,
-                    'original_filename': filename,
+                    'target_ref': request.default_branch,
+                    'temp_file_path': file_path,
+                    'filename': filename,
                     'commit_message': request.commit_message,
-                    'user_id': user_id
+                    'user_id': user_id,
+                    'file_size': os.path.getsize(file_path)
                 }
             )
         

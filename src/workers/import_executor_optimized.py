@@ -15,7 +15,7 @@ from src.workers.job_worker import JobExecutor
 from src.infrastructure.postgres.database import DatabasePool
 from src.infrastructure.config import get_settings
 from src.infrastructure.services import FileParserFactory
-from src.core.services.table_analyzer import TableAnalysisService
+# from src.core.services.table_analyzer import TableAnalysisService
 
 
 class ImportJobExecutor(JobExecutor):
@@ -33,6 +33,7 @@ class ImportJobExecutor(JobExecutor):
         import logging
         logger = logging.getLogger(__name__)
         
+        print(f"[IMPORT DEBUG] Starting job {job_id}")
         logger.info(f"Import job {job_id} - Starting optimized import")
         
         # Handle case where parameters come as string
@@ -100,6 +101,17 @@ class ImportJobExecutor(JobExecutor):
             }
             
         except Exception as e:
+            # Mark job as failed
+            import traceback
+            logger.error(f"Import job {job_id} failed: {str(e)}")
+            logger.error(f"Full traceback:\n{traceback.format_exc()}")
+            async with db_pool.acquire() as conn:
+                await conn.execute("""
+                    UPDATE dsa_jobs.analysis_runs 
+                    SET status = 'failed', error_message = $2
+                    WHERE id = $1
+                """, UUID(job_id), str(e))
+            
             # Clean up temp file on error
             if os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
@@ -136,9 +148,9 @@ class ImportJobExecutor(JobExecutor):
                     all_row_mappings.extend(mappings)
                     row_count += len(batch)
                     
-                    # Update progress
-                    bytes_processed = f.tell()
-                    progress_pct = (bytes_processed / file_size * 100) if file_size > 0 else 0
+                    # Update progress based on rows processed
+                    # Can't use f.tell() with csv.DictReader
+                    progress_pct = (row_count / 100000 * 100) if row_count < 100000 else 100
                     await self._update_job_progress(
                         job_id,
                         {
@@ -166,11 +178,12 @@ class ImportJobExecutor(JobExecutor):
         
         # Analyze tables and store comprehensive analysis
         # Initialize table analyzer with UoW
-        from src.infrastructure.postgres.unit_of_work import UnitOfWork
-        async with db_pool.acquire() as conn:
-            uow = UnitOfWork(conn)
-            self.table_analyzer = TableAnalysisService(uow)
-            await self.table_analyzer.analyze_committed_tables(commit_id)
+        # TODO: Fix table analysis for large files
+        # from src.infrastructure.postgres.unit_of_work import UnitOfWork
+        # async with db_pool.acquire() as conn:
+        #     uow = UnitOfWork(conn)
+        #     self.table_analyzer = TableAnalysisService(uow)
+        #     await self.table_analyzer.analyze_committed_tables(commit_id)
         
         return commit_id
     
@@ -254,11 +267,12 @@ class ImportJobExecutor(JobExecutor):
         
         # Analyze tables and store comprehensive analysis
         # Initialize table analyzer with UoW
-        from src.infrastructure.postgres.unit_of_work import UnitOfWork
-        async with db_pool.acquire() as conn:
-            uow = UnitOfWork(conn)
-            self.table_analyzer = TableAnalysisService(uow)
-            await self.table_analyzer.analyze_committed_tables(commit_id)
+        # TODO: Fix table analysis for large files
+        # from src.infrastructure.postgres.unit_of_work import UnitOfWork
+        # async with db_pool.acquire() as conn:
+        #     uow = UnitOfWork(conn)
+        #     self.table_analyzer = TableAnalysisService(uow)
+        #     await self.table_analyzer.analyze_committed_tables(commit_id)
         
         return commit_id
     
@@ -269,8 +283,9 @@ class ImportJobExecutor(JobExecutor):
         """Process a batch of rows using COPY for maximum performance."""
         row_mappings = []
         
-        # Create temporary table name
-        temp_table = f"temp_import_{commit_id[:8]}_{start_row_idx}"
+        # Create temporary table name - use simple counter
+        import random
+        temp_table = f"temp_import_{random.randint(1000, 9999)}"
         
         async with db_pool.acquire() as conn:
             async with conn.transaction():
@@ -313,7 +328,7 @@ class ImportJobExecutor(JobExecutor):
                 # Insert only new rows into dsa_core.rows
                 await conn.execute(f"""
                     INSERT INTO dsa_core.rows (row_hash, data)
-                    SELECT DISTINCT t.row_hash, t.data
+                    SELECT DISTINCT t.row_hash, t.data::jsonb
                     FROM {temp_table} t
                     LEFT JOIN dsa_core.rows r ON t.row_hash = r.row_hash
                     WHERE r.row_hash IS NULL
@@ -330,7 +345,9 @@ class ImportJobExecutor(JobExecutor):
     ) -> str:
         """Create a new commit."""
         import uuid
-        commit_id = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}"
+        # Generate a 64-character commit ID by padding with zeros
+        timestamp_uuid = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex}"
+        commit_id = timestamp_uuid[:64].ljust(64, '0')
         
         async with db_pool.acquire() as conn:
             await conn.execute("""
