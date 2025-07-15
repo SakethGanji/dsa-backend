@@ -27,6 +27,9 @@ pandas
 openpyxl
 duckdb
 ydata-profiling
+aiocsv
+pyarrow
+aiofiles
 
 # Dev tools (optional)
 # black
