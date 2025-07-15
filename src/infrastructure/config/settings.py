@@ -14,13 +14,26 @@ class Settings(BaseSettings):
     version: str = "2.0.0"
     debug: bool = True
     
-    # Database
-    database_url: str = "postgresql://postgres:postgres@localhost:5432/postgres"
+    # Database pool settings
     db_pool_min_size: int = 10
     db_pool_max_size: int = 20
     
+    # PostgreSQL settings (required)
+    POSTGRESQL_HOST: str
+    POSTGRESQL_PORT: int = 5432
+    POSTGRESQL_USER: str
+    POSTGRESQL_PASSWORD: str
+    POSTGRESQL_DATABASE: str
+    
+    # PostgreSQL secret management (optional)
+    POSTGRESQL_PASSWORD_SECRET_NAME: Optional[str] = None
+    
+    # Secret management
+    VAULT_DATA_PATH: str = "/var/vault-data"
+    NGC_CSIID: Optional[str] = "179492"
+    
     # Security
-    secret_key: str = "your-secret-key-here-change-in-production"
+    secret_key: str = "your-secret-key"
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7

@@ -4,12 +4,14 @@ import asyncio
 import logging
 import sys
 from pathlib import Path
+from urllib.parse import quote_plus, urlparse, urlunparse
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.infrastructure.config import get_settings
 from src.infrastructure.postgres.database import DatabasePool
+from src.infrastructure.external.password_manager import get_password_manager
 from src.workers.job_worker import JobWorker
 from src.workers.import_executor_optimized import ImportJobExecutor
 from src.workers.sampling_executor import SamplingJobExecutor
@@ -26,8 +28,30 @@ async def main():
     """Main function to run the worker."""
     settings = get_settings()
     
-    # Initialize database pool
-    db_pool = DatabasePool(settings.database_url)
+    # Initialize database pool with dynamic password if configured
+    dsn = settings.database_url
+    if settings.POSTGRESQL_PASSWORD_SECRET_NAME:
+        try:
+            password_manager = get_password_manager()
+            password = password_manager.postgresql_fetch()
+            if password:
+                # Parse and rebuild DSN with new password
+                parsed = urlparse(dsn)
+                netloc = f"{parsed.username}:{quote_plus(password)}@{parsed.hostname}:{parsed.port}"
+                dsn = urlunparse((
+                    parsed.scheme,
+                    netloc,
+                    parsed.path,
+                    parsed.params,
+                    parsed.query,
+                    parsed.fragment
+                ))
+                logger.info("Using dynamic password from secret manager")
+        except Exception as e:
+            logger.error(f"Failed to fetch dynamic password: {e}")
+            logger.info("Falling back to environment variable password")
+    
+    db_pool = DatabasePool(dsn)
     await db_pool.initialize()
     logger.info("Database pool initialized")
     

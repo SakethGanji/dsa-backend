@@ -6,9 +6,11 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import logging
 import asyncio
+from urllib.parse import quote_plus, urlparse, urlunparse
 
 from .infrastructure.config import get_settings
 from .infrastructure.postgres.database import DatabasePool
+from .infrastructure.external.password_manager import get_password_manager
 from .api.dependencies import (
     set_database_pool,
     set_parser_factory,
@@ -53,8 +55,25 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     logger.info("Starting DSA Platform...")
     
-    # Initialize database pool
-    db_pool = DatabasePool(settings.database_url)
+    # Build DSN from individual PostgreSQL components
+    password = settings.POSTGRESQL_PASSWORD
+    
+    # Override password with NGC secret if configured
+    if settings.POSTGRESQL_PASSWORD_SECRET_NAME and settings.POSTGRESQL_PASSWORD_SECRET_NAME.lower() != "none":
+        try:
+            password_manager = get_password_manager()
+            password = password_manager.postgresql_fetch()
+            if password:
+                logger.info("Using dynamic password from secret manager")
+        except Exception as e:
+            logger.error(f"Failed to fetch dynamic password: {e}")
+            logger.info("Falling back to environment variable password")
+            password = settings.POSTGRESQL_PASSWORD
+    
+    # Build the final DSN with the resolved password
+    dsn = f"postgresql://{settings.POSTGRESQL_USER}:{quote_plus(password)}@{settings.POSTGRESQL_HOST}:{settings.POSTGRESQL_PORT}/{settings.POSTGRESQL_DATABASE}"
+    
+    db_pool = DatabasePool(dsn)
     await db_pool.initialize()
     logger.info("Database pool initialized")
     
