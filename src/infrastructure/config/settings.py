@@ -28,10 +28,7 @@ class Settings(BaseSettings):
     # PostgreSQL secret management (optional)
     POSTGRESQL_PASSWORD_SECRET_NAME: Optional[str] = None
     
-    # Secret management
-    VAULT_DATA_PATH: str = "/var/vault-data"
-    NGC_CSIID: Optional[str] = "179492"
-    
+
     # Security
     secret_key: str = "your-secret-key"
     algorithm: str = "HS256"
