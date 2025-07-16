@@ -20,6 +20,7 @@ from src.features.versioning.handlers.queue_import_job import QueueImportJobHand
 from src.features.versioning.handlers.get_commit_history import GetCommitHistoryHandler
 from src.features.versioning.handlers.checkout_commit import CheckoutCommitHandler
 from src.features.versioning.handlers.get_dataset_overview import GetDatasetOverviewHandler
+from src.features.versioning.handlers.get_dataset_overview_optimized import GetDatasetOverviewOptimizedHandler
 from src.features.refs.handlers import ListRefsHandler, CreateBranchHandler, DeleteBranchHandler
 from src.infrastructure.postgres.database import DatabasePool, UnitOfWorkFactory
 from src.core.authorization import get_current_user_info, PermissionType, require_dataset_read, require_dataset_write
@@ -276,5 +277,6 @@ async def get_dataset_overview(
     This endpoint provides everything the UI needs to populate ref_name and table_key
     dropdowns for the columns endpoint.
     """
-    handler = GetDatasetOverviewHandler(uow, uow.table_reader)
+    # Use optimized handler that does bulk fetching
+    handler = GetDatasetOverviewOptimizedHandler(uow)
     return await handler.handle(dataset_id, current_user.user_id)
