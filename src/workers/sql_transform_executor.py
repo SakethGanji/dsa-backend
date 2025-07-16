@@ -154,7 +154,7 @@ class SqlTransformExecutor(JobExecutor):
                 CREATE TEMPORARY VIEW {view_name} AS
                 SELECT 
                     cr.logical_row_id,
-                    r.data
+                    r.data->'data' as data
                 FROM dsa_core.commit_rows cr
                 JOIN dsa_core.rows r ON cr.row_hash = r.row_hash
                 WHERE cr.commit_id = '{commit_id}'
@@ -177,7 +177,7 @@ class SqlTransformExecutor(JobExecutor):
             # Replace common patterns
             patterns = [
                 (f" {alias} ", f" {view_name} "),  # Standalone alias
-                (f" {alias}.", f" {view_name}.data->'data'."),   # Alias with dot - access nested data field
+                (f" {alias}.", f" {view_name}."),   # Alias with dot - no need for nested access
                 (f"FROM {alias}", f"FROM {view_name}"),  # FROM clause
                 (f"JOIN {alias}", f"JOIN {view_name}"),  # JOIN clause
                 (f"({alias})", f"({view_name})"),  # In parentheses
@@ -186,9 +186,9 @@ class SqlTransformExecutor(JobExecutor):
             for pattern, replacement in patterns:
                 modified_sql = modified_sql.replace(pattern, replacement)
             
-            # Handle SELECT * case - select the inner data field
+            # Handle SELECT * case - data is already the inner data field
             if f"SELECT * FROM {view_name}" in modified_sql or f"SELECT *\nFROM {view_name}" in modified_sql:
-                modified_sql = modified_sql.replace("SELECT *", "SELECT data->'data' as data")
+                modified_sql = modified_sql.replace("SELECT *", "SELECT data")
         
         return modified_sql
     
