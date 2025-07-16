@@ -12,6 +12,7 @@ class SqlTransformTarget(BaseModel):
     ref: str = Field(..., description="Git ref to update (e.g., 'main')")
     table_key: str = Field(..., description="Table key to update or create")
     message: str = Field(..., description="Commit message for the transformation")
+    output_branch_name: Optional[str] = Field(None, description="Name for the output branch (defaults to commit ID)")
     create_new_dataset: bool = Field(False, description="Whether to create a new dataset")
     new_dataset_name: Optional[str] = Field(None, description="Name for new dataset if creating")
     new_dataset_description: Optional[str] = Field(None, description="Description for new dataset")
@@ -54,6 +55,7 @@ class SqlTransformRequest(BaseModel):
                     "ref": "main",
                     "table_key": "customers_enriched",
                     "message": "Added age in months column",
+                    "output_branch_name": "transform-2024-01-15",
                     "create_new_dataset": False
                 },
                 "dry_run": False

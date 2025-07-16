@@ -3,13 +3,13 @@
 from typing import Optional
 from ....core.abstractions.uow import IUnitOfWork
 from ....core.abstractions.repositories import ITableReader
-from ....api.models.responses import CheckoutResponse
+from ....api.models.responses import GetDataResponse
 from ...base_handler import BaseHandler, with_error_handling
 from ....core.common.pagination import PaginationMixin
 from ....core.domain_exceptions import EntityNotFoundException
 
 
-class CheckoutCommitHandler(BaseHandler[CheckoutResponse], PaginationMixin):
+class CheckoutCommitHandler(BaseHandler[GetDataResponse], PaginationMixin):
     """Handler for retrieving data at a specific commit."""
     
     def __init__(self, uow: IUnitOfWork):
@@ -18,7 +18,7 @@ class CheckoutCommitHandler(BaseHandler[CheckoutResponse], PaginationMixin):
     @with_error_handling
     async def handle(self, dataset_id: int, commit_id: str, 
                     table_key: Optional[str] = None,
-                    offset: int = 0, limit: int = 100) -> CheckoutResponse:
+                    offset: int = 0, limit: int = 100) -> GetDataResponse:
         """Get data as it existed at a specific commit."""
         # Validate pagination parameters
         offset, limit = self.validate_pagination(offset, limit)
@@ -67,11 +67,12 @@ class CheckoutCommitHandler(BaseHandler[CheckoutResponse], PaginationMixin):
                 row_data['_logical_row_id'] = row.get('_logical_row_id', '')
                 data.append(row_data)
             
-            return CheckoutResponse(
+            return GetDataResponse(
+                dataset_id=dataset_id,
+                ref_name="",  # Not available in this context
                 commit_id=commit_id,
-                data=data,
+                rows=data,
                 total_rows=total_rows,
                 offset=offset,
-                limit=limit,
-                has_more=offset + len(data) < total_rows
+                limit=limit
             )

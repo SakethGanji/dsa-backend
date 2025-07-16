@@ -198,7 +198,7 @@ async def get_commit_history(
     return await handler.handle(dataset_id, ref_name, offset, limit)
 
 
-@router.get("/datasets/{dataset_id}/commits/{commit_id}/data", response_model=CheckoutResponse)
+@router.get("/datasets/{dataset_id}/commits/{commit_id}/data", response_model=GetDataResponse)
 async def checkout_commit(
     dataset_id: int = Path(..., description="Dataset ID"),
     commit_id: str = Path(..., description="Commit ID to checkout"),
@@ -208,7 +208,7 @@ async def checkout_commit(
     current_user: CurrentUser = Depends(get_current_user_info),
     uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
     _: CurrentUser = Depends(require_dataset_read)
-) -> CheckoutResponse:
+) -> GetDataResponse:
     """Get the data as it existed at a specific commit."""
     # Checkout commit
     uow = uow_factory.create()

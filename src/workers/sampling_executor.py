@@ -472,19 +472,28 @@ class SamplingJobExecutor(JobExecutor):
                     )
                     logger.info(f"Exported {residual_count} residual rows")
                 
-                # Create output commit if requested
-                output_commit_id = None
-                if parameters.get('create_output_commit', True):
-                    output_commit_id = await self._create_output_commit(
-                        conn,
-                        parameters['dataset_id'],
-                        parameters['source_commit_id'].strip(),  # Remove any trailing spaces
-                        parameters.get('user_id'),
-                        parameters.get('commit_message', f'Sampled {total_sampled} rows'),
-                        round_results
-                    )
-                    
-                    logger.info(f"Created output commit: {output_commit_id}")
+                # Create output commit (always)
+                output_commit_id = await self._create_output_commit(
+                    conn,
+                    parameters['dataset_id'],
+                    parameters['source_commit_id'].strip(),  # Remove any trailing spaces
+                    parameters.get('user_id'),
+                    parameters.get('commit_message', f'Sampled {total_sampled} rows'),
+                    round_results
+                )
+                
+                logger.info(f"Created output commit: {output_commit_id}")
+                
+                # Create branch for the output commit
+                # Use provided branch name or default to commit ID
+                output_branch_name = parameters.get('output_branch_name') or output_commit_id
+                await self._create_output_branch(
+                    conn,
+                    parameters['dataset_id'],
+                    output_branch_name,
+                    output_commit_id
+                )
+                logger.info(f"Created output branch: {output_branch_name}")
                 
                 # Clean up temporary tables
                 for round_idx in range(len(round_results)):
@@ -501,6 +510,7 @@ class SamplingJobExecutor(JobExecutor):
             'total_sampled': total_sampled,
             'residual_count': residual_count,
             'output_commit_id': output_commit_id,
+            'output_branch_name': parameters.get('output_branch_name') or output_commit_id,
             'round_results': round_results,
             'execution_time_seconds': (end_time - start_time).total_seconds(),
             'parameters_used': parameters
@@ -952,6 +962,15 @@ class SamplingJobExecutor(JobExecutor):
         logger.info(f"Residual data '{output_name}': {count} rows not sampled")
         
         return count
+
+
+    async def _create_output_branch(self, conn: Connection, dataset_id: int, branch_name: str, commit_id: str) -> None:
+        """Create a new branch pointing to the output commit."""
+        await conn.execute("""
+            INSERT INTO dsa_core.refs (dataset_id, name, commit_id)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (dataset_id, name) DO UPDATE SET commit_id = EXCLUDED.commit_id
+        """, dataset_id, branch_name, commit_id)
 
 
 # Needed import for datetime

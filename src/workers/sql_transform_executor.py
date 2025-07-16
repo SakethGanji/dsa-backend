@@ -45,6 +45,7 @@ class SqlTransformExecutor(JobExecutor):
         try:
             start_time = time.time()
             rows_processed = 0
+            output_branch_name = None
             
             async with db_pool.acquire() as conn:
                 # Start transaction
@@ -84,6 +85,17 @@ class SqlTransformExecutor(JobExecutor):
                         target['ref']
                     )
                     
+                    # Create branch for the output commit
+                    # Use provided branch name or default to commit ID
+                    output_branch_name = target.get('output_branch_name') or new_commit_id
+                    await self._create_output_branch(
+                        conn,
+                        dataset_id,
+                        output_branch_name,
+                        new_commit_id
+                    )
+                    logger.info(f"Created output branch: {output_branch_name}")
+                    
                     # Clean up temporary views
                     for _, view_name in view_names:
                         await conn.execute(f"DROP VIEW IF EXISTS {view_name}")
@@ -93,6 +105,7 @@ class SqlTransformExecutor(JobExecutor):
             return {
                 "rows_processed": rows_processed,
                 "new_commit_id": new_commit_id,
+                "output_branch_name": output_branch_name,
                 "execution_time_ms": execution_time_ms,
                 "target_ref": target['ref'],
                 "table_key": target['table_key']
@@ -141,10 +154,7 @@ class SqlTransformExecutor(JobExecutor):
                 CREATE TEMPORARY VIEW {view_name} AS
                 SELECT 
                     cr.logical_row_id,
-                    CASE 
-                        WHEN jsonb_typeof(r.data->'data') = 'string' THEN (r.data->>'data')::jsonb
-                        ELSE r.data->'data'
-                    END AS data
+                    r.data
                 FROM dsa_core.commit_rows cr
                 JOIN dsa_core.rows r ON cr.row_hash = r.row_hash
                 WHERE cr.commit_id = '{commit_id}'
@@ -167,7 +177,7 @@ class SqlTransformExecutor(JobExecutor):
             # Replace common patterns
             patterns = [
                 (f" {alias} ", f" {view_name} "),  # Standalone alias
-                (f" {alias}.", f" {view_name}.data."),   # Alias with dot - access JSONB data
+                (f" {alias}.", f" {view_name}.data->'data'."),   # Alias with dot - access nested data field
                 (f"FROM {alias}", f"FROM {view_name}"),  # FROM clause
                 (f"JOIN {alias}", f"JOIN {view_name}"),  # JOIN clause
                 (f"({alias})", f"({view_name})"),  # In parentheses
@@ -176,9 +186,9 @@ class SqlTransformExecutor(JobExecutor):
             for pattern, replacement in patterns:
                 modified_sql = modified_sql.replace(pattern, replacement)
             
-            # Handle SELECT * case for JSONB data
+            # Handle SELECT * case - select the inner data field
             if f"SELECT * FROM {view_name}" in modified_sql or f"SELECT *\nFROM {view_name}" in modified_sql:
-                modified_sql = modified_sql.replace("SELECT *", "SELECT data")
+                modified_sql = modified_sql.replace("SELECT *", "SELECT data->'data' as data")
         
         return modified_sql
     
@@ -210,16 +220,31 @@ class SqlTransformExecutor(JobExecutor):
             message, user_id, datetime.utcnow()
         )
         
+        # First, copy all existing tables from parent commit EXCEPT the one we're replacing
+        await conn.execute("""
+            INSERT INTO dsa_core.commit_rows (commit_id, logical_row_id, row_hash)
+            SELECT $1, logical_row_id, row_hash
+            FROM dsa_core.commit_rows
+            WHERE commit_id = $2
+            AND NOT (logical_row_id LIKE $3 || ':%' OR logical_row_id LIKE $3 || '\\_%')
+        """, commit_id, parent_commit_id, table_key)
+        
         # Process each result row
         for idx, row in enumerate(result_rows):
             # Handle different data structures
             row_dict = dict(row)
             
-            # If we have a 'data' column that's already a dict/JSONB, use it directly
-            if 'data' in row_dict and isinstance(row_dict['data'], dict):
+            # The SQL query returns the actual column data
+            # We need to wrap it in the standardized format
+            # Check if the result has a 'data' column from SELECT * queries
+            if 'data' in row_dict and len(row_dict) == 1:
+                # This is from a SELECT * query that returned data->'data' as data
                 inner_data = row_dict['data']
+                # If it's a string, parse it as JSON
+                if isinstance(inner_data, str):
+                    inner_data = json.loads(inner_data)
             else:
-                # Otherwise use the whole row
+                # This is from a query with specific columns
                 inner_data = row_dict
             
             # Wrap in the expected structure with nested data field
@@ -265,4 +290,135 @@ class SqlTransformExecutor(JobExecutor):
                 commit_id, logical_row_id, row_hash
             )
         
+        # Get schema from parent commit and update it
+        parent_schema_row = await conn.fetchrow("""
+            SELECT schema_definition
+            FROM dsa_core.commit_schemas
+            WHERE commit_id = $1
+        """, parent_commit_id)
+        
+        # Parse existing schema or create new one
+        if parent_schema_row and parent_schema_row['schema_definition']:
+            parent_schema = json.loads(parent_schema_row['schema_definition'])
+        else:
+            parent_schema = {}
+        
+        # Infer schema for the new table from result rows
+        if result_rows:
+            # Get column names and types from first row
+            first_row = dict(result_rows[0])
+            if 'data' in first_row and isinstance(first_row['data'], dict):
+                sample_data = first_row['data']
+            else:
+                sample_data = first_row
+            
+            # Build column schema
+            columns = []
+            for col_name, value in sample_data.items():
+                col_type = 'text'  # Default
+                if isinstance(value, bool):
+                    col_type = 'boolean'
+                elif isinstance(value, int):
+                    col_type = 'integer'
+                elif isinstance(value, float):
+                    col_type = 'float'
+                elif isinstance(value, str):
+                    try:
+                        float(value)
+                        col_type = 'numeric'
+                    except ValueError:
+                        col_type = 'text'
+                
+                columns.append({
+                    'name': col_name,
+                    'type': col_type,
+                    'nullable': True
+                })
+            
+            # Update schema with new table
+            parent_schema[table_key] = {
+                'columns': columns,
+                'row_count': len(result_rows)
+            }
+        
+        # Save updated schema
+        await conn.execute("""
+            INSERT INTO dsa_core.commit_schemas (commit_id, schema_definition)
+            VALUES ($1, $2::jsonb)
+        """, commit_id, json.dumps(parent_schema))
+        
+        # Create table analysis for the new table
+        if result_rows:
+            # Compute basic statistics
+            column_types = {}
+            null_counts = {}
+            sample_values = {}
+            
+            # Initialize from first row structure
+            first_row = dict(result_rows[0])
+            if 'data' in first_row and isinstance(first_row['data'], dict):
+                sample_data = first_row['data']
+            else:
+                sample_data = first_row
+            
+            for col in sample_data.keys():
+                column_types[col] = 'text'  # Will be refined
+                null_counts[col] = 0
+                sample_values[col] = []
+            
+            # Analyze all rows
+            for row in result_rows[:100]:  # Sample first 100 rows for analysis
+                row_dict = dict(row)
+                if 'data' in row_dict and isinstance(row_dict['data'], dict):
+                    row_data = row_dict['data']
+                else:
+                    row_data = row_dict
+                
+                for col, value in row_data.items():
+                    if value is None:
+                        null_counts[col] = null_counts.get(col, 0) + 1
+                    else:
+                        # Collect sample values
+                        if col in sample_values and len(sample_values[col]) < 20:
+                            sample_values[col].append(value)
+                        
+                        # Infer type
+                        if col in column_types and column_types[col] == 'text':
+                            if isinstance(value, bool):
+                                column_types[col] = 'boolean'
+                            elif isinstance(value, int):
+                                column_types[col] = 'integer'
+                            elif isinstance(value, float):
+                                column_types[col] = 'float'
+            
+            # Create analysis data
+            analysis_data = {
+                'total_rows': len(result_rows),
+                'columns': list(column_types.keys()),
+                'column_types': column_types,
+                'null_counts': null_counts,
+                'sample_values': sample_values,
+                'statistics': {
+                    'table_key': table_key,
+                    'created_by': 'sql_transform',
+                    'transform_message': message
+                }
+            }
+            
+            # Insert table analysis
+            await conn.execute("""
+                INSERT INTO dsa_core.table_analysis (commit_id, table_key, analysis)
+                VALUES ($1, $2, $3::jsonb)
+                ON CONFLICT (commit_id, table_key) DO UPDATE 
+                SET analysis = EXCLUDED.analysis
+            """, commit_id, table_key, json.dumps(analysis_data))
+        
         return commit_id
+    
+    async def _create_output_branch(self, conn: asyncpg.Connection, dataset_id: int, branch_name: str, commit_id: str) -> None:
+        """Create a new branch pointing to the output commit."""
+        await conn.execute("""
+            INSERT INTO dsa_core.refs (dataset_id, name, commit_id)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (dataset_id, name) DO UPDATE SET commit_id = EXCLUDED.commit_id
+        """, dataset_id, branch_name, commit_id)

@@ -46,33 +46,34 @@ class PreviewSqlHandler(BaseHandler[SqlPreviewResponse]):
         Returns:
             SqlPreviewResponse with query results
         """
-        # Validate permissions for all source datasets
-        await self._validate_permissions(request.sources, user_id)
-        
-        # Create workbench context
-        context = WorkbenchContext(
-            user_id=user_id,
-            source_datasets=[s.dataset_id for s in request.sources],
-            source_refs=[s.ref for s in request.sources],
-            operation_type=OperationType.SQL_TRANSFORM,
-            parameters={
-                "sql": request.sql,
-                "sources": [s.dict() for s in request.sources],
-                "limit": request.limit
-            }
-        )
-        
-        # Validate operation
+        # Execute everything in a single transaction
         async with self._uow:
+            # Validate permissions for all source datasets
+            await self._validate_permissions(request.sources, user_id)
+            
+            # Create workbench context
+            context = WorkbenchContext(
+                user_id=user_id,
+                source_datasets=[s.dataset_id for s in request.sources],
+                source_refs=[s.ref for s in request.sources],
+                operation_type=OperationType.SQL_TRANSFORM,
+                parameters={
+                    "sql": request.sql,
+                    "sources": [s.dict() for s in request.sources],
+                    "limit": request.limit
+                }
+            )
+            
+            # Validate operation
             errors = await self._workbench_service.validate_operation(context, self._uow)
             if errors:
                 raise ValueError(f"SQL validation failed: {'; '.join(errors)}")
-        
-        # Execute preview
-        start_time = time.time()
-        
-        # Create temporary views and execute query
-        result = await self._execute_preview_query(request)
+            
+            # Execute preview
+            start_time = time.time()
+            
+            # Create temporary views and execute query
+            result = await self._execute_preview_query(request)
         
         execution_time_ms = int((time.time() - start_time) * 1000)
         
@@ -87,103 +88,107 @@ class PreviewSqlHandler(BaseHandler[SqlPreviewResponse]):
     
     async def _validate_permissions(self, sources: List[SqlSource], user_id: int):
         """Validate user has read permissions for all source datasets."""
-        async with self._uow:
-            for source in sources:
-                dataset = await self._dataset_repository.get_dataset_by_id(source.dataset_id)
-                if not dataset:
-                    raise KeyError(f"Dataset {source.dataset_id} not found")
-                
-                # Check read permission
-                has_permission = await self._dataset_repository.check_user_permission(
-                    dataset_id=source.dataset_id,
-                    user_id=user_id,
-                    required_permission='read'
-                )
-                if not has_permission:
-                    raise ForbiddenException()
+        # Don't use async with self._uow here since we're already in a transaction
+        for source in sources:
+            dataset = await self._dataset_repository.get_dataset_by_id(source.dataset_id)
+            if not dataset:
+                raise KeyError(f"Dataset {source.dataset_id} not found")
+            
+            # Check read permission
+            has_permission = await self._dataset_repository.check_user_permission(
+                dataset_id=source.dataset_id,
+                user_id=user_id,
+                required_permission='read'
+            )
+            if not has_permission:
+                raise ForbiddenException()
     
     async def _execute_preview_query(self, request: SqlPreviewRequest) -> Dict[str, Any]:
         """Execute the SQL query with temporary views for source tables."""
-        # Get database connection from unit of work
-        async with self._uow:
-            conn = self._uow.connection
+        # We're already in a transaction from the handle method
+        conn = self._uow.connection
+        
+        # Create temporary views for each source
+        view_names = []
+        try:
+            for source in request.sources:
+                view_name = f"temp_view_{source.alias}_{int(time.time())}"
+                view_names.append((source.alias, view_name))
+                
+                # Create view using table reader's data
+                await self._create_temp_view(
+                    conn,
+                    view_name,
+                    source,
+                    limit=request.limit
+                )
             
-            # Create temporary views for each source
-            view_names = []
-            try:
-                for source in request.sources:
-                    view_name = f"temp_view_{source.alias}_{int(time.time())}"
-                    view_names.append((source.alias, view_name))
-                    
-                    # Create view using table reader's data
-                    await self._create_temp_view(
-                        conn,
-                        view_name,
-                        source,
-                        limit=request.limit
-                    )
-                
-                # Replace aliases with view names in SQL
-                modified_sql = request.sql
-                for alias, view_name in view_names:
-                    # Simple replacement - in production would use SQL parser
-                    modified_sql = modified_sql.replace(f" {alias} ", f" {view_name} ")
-                    modified_sql = modified_sql.replace(f" {alias}.", f" {view_name}.data.")
-                    modified_sql = modified_sql.replace(f"FROM {alias}", f"FROM {view_name}")
-                    modified_sql = modified_sql.replace(f"JOIN {alias}", f"JOIN {view_name}")
-                    # Handle SELECT * case for JSONB data
-                    if f"SELECT * FROM {view_name}" in modified_sql or f"SELECT *\nFROM {view_name}" in modified_sql:
-                        modified_sql = modified_sql.replace("SELECT *", "SELECT data")
-                
-                # Add LIMIT if not present
-                if 'LIMIT' not in modified_sql.upper():
-                    modified_sql = f"{modified_sql} LIMIT {request.limit}"
-                
-                # Execute query
-                rows = await conn.fetch(modified_sql)
-                
-                # Get column info
-                columns = []
-                if rows:
-                    first_row = dict(rows[0])
-                    # If we have a data column with JSONB, get columns from the nested data
-                    if 'data' in first_row and isinstance(first_row['data'], dict):
-                        columns = [
-                            {"name": key, "type": self._get_pg_type_name(type(value))}
-                            for key, value in first_row['data'].items()
-                        ]
-                    else:
-                        columns = [
-                            {"name": key, "type": self._get_pg_type_name(type(value))}
-                            for key, value in first_row.items()
-                        ]
-                
-                # Convert rows to list of dicts and expand JSONB data
-                data = []
-                for row in rows:
-                    row_dict = dict(row)
-                    # If we have a 'data' column that's a dict, expand it
-                    if 'data' in row_dict and isinstance(row_dict['data'], dict):
-                        # Use the nested data directly (standardized format)
-                        data.append(row_dict['data'])
-                    else:
-                        # Otherwise, handle JSON serialization for complex types
-                        for key, value in row_dict.items():
-                            if isinstance(value, (dict, list)):
-                                row_dict[key] = json.dumps(value)
-                        data.append(row_dict)
-                
-                return {
-                    "data": data,
-                    "columns": columns,
-                    "truncated": len(data) == request.limit,
-                    "total_row_count": None  # Would need COUNT query for total
-                }
-                
-            finally:
-                # Clean up temporary views
-                for _, view_name in view_names:
+            # Replace aliases with view names in SQL
+            modified_sql = request.sql
+            for alias, view_name in view_names:
+                # Simple replacement - in production would use SQL parser
+                modified_sql = modified_sql.replace(f" {alias} ", f" {view_name} ")
+                modified_sql = modified_sql.replace(f" {alias}.", f" {view_name}.data.")
+                modified_sql = modified_sql.replace(f"FROM {alias}", f"FROM {view_name}")
+                modified_sql = modified_sql.replace(f"JOIN {alias}", f"JOIN {view_name}")
+                # Handle SELECT * case for JSONB data
+                if f"SELECT * FROM {view_name}" in modified_sql or f"SELECT *\nFROM {view_name}" in modified_sql:
+                    modified_sql = modified_sql.replace("SELECT *", "SELECT data")
+            
+            # Add LIMIT if not present
+            if 'LIMIT' not in modified_sql.upper():
+                modified_sql = f"{modified_sql} LIMIT {request.limit}"
+            
+            # Execute query
+            rows = await conn.fetch(modified_sql)
+            
+            # Get column info
+            columns = []
+            if rows:
+                first_row = dict(rows[0])
+                # If we have a data column with JSONB, get columns from the nested data
+                if 'data' in first_row and isinstance(first_row['data'], dict):
+                    columns = [
+                        {"name": key, "type": self._get_pg_type_name(type(value))}
+                        for key, value in first_row['data'].items()
+                    ]
+                else:
+                    columns = [
+                        {"name": key, "type": self._get_pg_type_name(type(value))}
+                        for key, value in first_row.items()
+                    ]
+            
+            # Convert rows to list of dicts and expand JSONB data
+            data = []
+            for row in rows:
+                row_dict = dict(row)
+                # If we have a 'data' column that's a dict, expand it
+                if 'data' in row_dict and isinstance(row_dict['data'], dict):
+                    # Use the nested data directly (standardized format)
+                    data.append(row_dict['data'])
+                else:
+                    # Otherwise, handle JSON serialization for complex types
+                    for key, value in row_dict.items():
+                        if isinstance(value, (dict, list)):
+                            row_dict[key] = json.dumps(value)
+                    data.append(row_dict)
+            
+            return {
+                "data": data,
+                "columns": columns,
+                "truncated": len(data) == request.limit,
+                "total_row_count": None  # Would need COUNT query for total
+            }
+            
+        finally:
+            # Clean up temporary views
+            # Use a separate try-except to ensure cleanup happens even if main query fails
+            for _, view_name in view_names:
+                try:
                     await conn.execute(f"DROP VIEW IF EXISTS {view_name}")
+                except Exception:
+                    # Ignore cleanup errors - views are temporary anyway
+                    pass
     
     async def _create_temp_view(
         self,

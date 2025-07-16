@@ -1,6 +1,6 @@
 """Handler for creating sampling jobs."""
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 from src.core.abstractions import IUnitOfWork
 from src.core.services.sampling_service import SamplingJobManager
@@ -15,7 +15,7 @@ class CreateSamplingJobCommand:
     dataset_id: int
     source_ref: str
     table_key: str
-    create_output_commit: bool
+    output_branch_name: Optional[str]
     commit_message: str
     rounds: List[Dict[str, Any]]
     export_residual: bool
@@ -55,7 +55,8 @@ class CreateSamplingJobHandler(BaseHandler):
             'source_commit_id': source_commit_id,
             'dataset_id': command.dataset_id,
             'table_key': command.table_key,
-            'create_output_commit': command.create_output_commit,
+            'create_output_commit': True,  # Always create output commit
+            'output_branch_name': command.output_branch_name,
             'commit_message': command.commit_message,
             'user_id': command.user_id,
             'rounds': command.rounds,
