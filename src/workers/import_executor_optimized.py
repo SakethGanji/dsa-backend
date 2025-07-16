@@ -163,19 +163,35 @@ class ImportJobExecutor(JobExecutor):
                 # Prepare data for COPY
                 copy_data = []
                 for idx, row_data in enumerate(batch):
-                    # Create standardized row format
+                    # TODO: [TECH DEBT - POC IMPLEMENTATION]
+                    # This logical ID generation is based on a hash of the entire row's content.
+                    #
+                    # PROS: It correctly handles file re-sorting without creating a new commit.
+                    # CONS: It CANNOT distinguish a row update from a DELETE and ADD operation.
+                    #       This will cause significant performance degradation and database bloat
+                    #       at scale when datasets are frequently updated.
+                    #
+                    # ACTION: This MUST be migrated to a Business Key-based hash generation
+                    #         before moving to a production environment to enable true updates
+                    #         and ensure system scalability. See ticket [POC-HASH-ID].
+                    
+                    # Calculate hash of data only (for both row_hash and logical_row_id)
+                    data_json = json.dumps(row_data, sort_keys=True, separators=(',', ':'))
+                    data_hash = hashlib.sha256(data_json.encode()).hexdigest()
+                    
+                    # Create logical row ID using the data hash
+                    logical_row_id = f"{sheet_name}:{data_hash}"
+                    
+                    # Create standardized row format for storage
                     row = {
                         "sheet_name": sheet_name,
                         "row_number": start_row_idx + idx + 2,  # 1-indexed, +1 for header
                         "data": row_data
                     }
-                    
-                    # Calculate hash
                     row_json = json.dumps(row, sort_keys=True)
-                    row_hash = hashlib.sha256(row_json.encode()).hexdigest()
                     
-                    # Create logical row ID
-                    logical_row_id = f"{sheet_name}:{start_row_idx + idx}"
+                    # Use the data hash as the row_hash (content-addressable storage)
+                    row_hash = data_hash
                     
                     copy_data.append((logical_row_id, row_hash, row_json))
                 
@@ -436,10 +452,12 @@ class ImportJobExecutor(JobExecutor):
                         # Data is JSON string, need to parse it
                         data = json.loads(data)
                     
-                    if isinstance(data, dict) and 'data' in data:
-                        row_data = data['data']
-                    else:
-                        row_data = data
+                    # All data follows the standardized format
+                    if not isinstance(data, dict) or 'data' not in data:
+                        raise ValueError(f"Invalid data format in analysis - expected standardized format")
+                    
+                    # Extract actual data from the standardized structure
+                    row_data = data['data']
                     
                     # Skip if row_data is not a dict
                     if not isinstance(row_data, dict):

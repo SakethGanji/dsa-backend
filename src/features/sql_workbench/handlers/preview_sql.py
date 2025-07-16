@@ -152,19 +152,6 @@ class PreviewSqlHandler(BaseHandler[SqlPreviewResponse]):
                             {"name": key, "type": self._get_pg_type_name(type(value))}
                             for key, value in first_row['data'].items()
                         ]
-                    elif 'data' in first_row and isinstance(first_row['data'], str):
-                        # If data is a JSON string, parse it to get columns
-                        try:
-                            parsed_data = json.loads(first_row['data'])
-                            columns = [
-                                {"name": key, "type": self._get_pg_type_name(type(value))}
-                                for key, value in parsed_data.items()
-                            ]
-                        except json.JSONDecodeError:
-                            columns = [
-                                {"name": key, "type": self._get_pg_type_name(type(value))}
-                                for key, value in first_row.items()
-                            ]
                     else:
                         columns = [
                             {"name": key, "type": self._get_pg_type_name(type(value))}
@@ -177,15 +164,8 @@ class PreviewSqlHandler(BaseHandler[SqlPreviewResponse]):
                     row_dict = dict(row)
                     # If we have a 'data' column that's a dict, expand it
                     if 'data' in row_dict and isinstance(row_dict['data'], dict):
-                        # Use the nested data directly
+                        # Use the nested data directly (standardized format)
                         data.append(row_dict['data'])
-                    elif 'data' in row_dict and isinstance(row_dict['data'], str):
-                        # If data is a JSON string, parse it
-                        try:
-                            parsed_data = json.loads(row_dict['data'])
-                            data.append(parsed_data)
-                        except json.JSONDecodeError:
-                            data.append(row_dict)
                     else:
                         # Otherwise, handle JSON serialization for complex types
                         for key, value in row_dict.items():

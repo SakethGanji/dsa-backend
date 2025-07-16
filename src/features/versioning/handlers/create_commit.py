@@ -114,13 +114,38 @@ class CreateCommitHandler(BaseHandler[CreateCommitResponse]):
                 if key != 'sheet_name':  # Exclude sheet_name from data columns
                     sheet_columns[sheet_name].add(key)
             
-            # Generate logical row ID using sheet_name:index format
-            logical_row_id = f"{sheet_name}:{sheet_counters[sheet_name]}"
+            # TODO: [TECH DEBT - POC IMPLEMENTATION]
+            # This logical ID generation is based on a hash of the entire row's content.
+            #
+            # PROS: It correctly handles file re-sorting without creating a new commit.
+            # CONS: It CANNOT distinguish a row update from a DELETE and ADD operation.
+            #       This will cause significant performance degradation and database bloat
+            #       at scale when datasets are frequently updated.
+            #
+            # ACTION: This MUST be migrated to a Business Key-based hash generation
+            #         before moving to a production environment to enable true updates
+            #         and ensure system scalability. See ticket [POC-HASH-ID].
+            
+            # Extract data (exclude sheet_name from the data that gets hashed)
+            row_data = {k: v for k, v in row.items() if k != 'sheet_name'}
+            
+            # Canonicalize and hash data only
+            data_canonical_json = self._canonicalize_json(row_data)
+            data_hash = hashlib.sha256(data_canonical_json.encode()).hexdigest()
+            
+            # Generate logical row ID using sheet_name:hash format
+            logical_row_id = f"{sheet_name}:{data_hash}"
             sheet_counters[sheet_name] += 1
             
-            # Canonicalize and hash
-            canonical_json = self._canonicalize_json(row)
-            row_hash = hashlib.sha256(canonical_json.encode()).hexdigest()
+            # Create standardized row format for storage
+            # This matches the format used by import_executor_optimized.py
+            row_wrapper = {
+                "sheet_name": sheet_name,
+                "row_number": sheet_counters[sheet_name],  # 1-indexed
+                "data": row_data
+            }
+            canonical_json = self._canonicalize_json(row_wrapper)
+            row_hash = data_hash
             
             rows_to_store.add((row_hash, canonical_json))
             manifest.append((logical_row_id, row_hash))

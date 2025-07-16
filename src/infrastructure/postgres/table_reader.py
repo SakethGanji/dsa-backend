@@ -94,7 +94,7 @@ class PostgresTableReader(ITableReader):
         limit: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """Get paginated data for a specific table."""
-        # Handle both formats: "table_key:row_idx" and "table_key_row_idx"
+        # Handle both formats: "table_key:hash" and "table_key_hash"
         if ':' in table_key:
             pattern = f"{table_key}:%"
         else:
@@ -134,20 +134,18 @@ class PostgresTableReader(ITableReader):
             if isinstance(data, str):
                 data = json.loads(data)
             
-            # Handle nested data structure
-            if 'data' in data and isinstance(data['data'], dict):
-                # Extract the actual data from nested structure
-                actual_data = data['data']
-                result.append({
-                    '_logical_row_id': row['logical_row_id'],
-                    **actual_data
-                })
-            else:
-                # Add data as-is
-                result.append({
-                    '_logical_row_id': row['logical_row_id'],
-                    **data
-                })
+            # All data follows the standardized format:
+            # { "sheet_name": "...", "row_number": N, "data": {...} }
+            if 'data' not in data or not isinstance(data['data'], dict):
+                raise ValueError(f"Invalid data format - expected standardized format with 'data' field")
+            
+            # Extract the actual data from the standardized structure
+            actual_data = data['data']
+            
+            result.append({
+                '_logical_row_id': row['logical_row_id'],
+                **actual_data
+            })
         
         return result
     
@@ -180,16 +178,12 @@ class PostgresTableReader(ITableReader):
             # Process batch
             batch = []
             for row in rows:
-                # Extract row index from logical_row_id
-                _, row_idx = row['logical_row_id'].split(':', 1)
-                
                 # Parse JSON data if needed
                 data = row['data']
                 if isinstance(data, str):
                     data = json.loads(data)
                 
                 batch.append({
-                    '_row_index': int(row_idx),
                     '_logical_row_id': row['logical_row_id'],
                     **data
                 })
@@ -205,7 +199,7 @@ class PostgresTableReader(ITableReader):
     
     async def count_table_rows(self, commit_id: str, table_key: str) -> int:
         """Get the total row count for a specific table."""
-        # Handle both formats: "table_key:row_idx" and "table_key_row_idx"
+        # Handle both formats: "table_key:hash" and "table_key_hash"
         if ':' in table_key:
             pattern = f"{table_key}:%"
         else:

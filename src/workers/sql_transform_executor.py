@@ -133,7 +133,7 @@ class SqlTransformExecutor(JobExecutor):
             view_name = f"sql_transform_{source['alias']}_{job_id.replace('-', '_')}"
             
             # Create view with data from the commit filtered by table_key
-            # Extract and parse the nested data field - it's stored as a JSON string
+            # Extract and parse the nested data field
             # Escape single quotes in table_key for SQL safety
             escaped_table_key = source['table_key'].replace("'", "''")
             
@@ -223,16 +223,18 @@ class SqlTransformExecutor(JobExecutor):
                 inner_data = row_dict
             
             # Wrap in the expected structure with nested data field
-            # Store as JSON string in the 'data' field to match existing format
+            # Store data as object, not JSON string, to match standardized format
             row_data = {
-                "data": json.dumps(inner_data, default=str),
+                "sheet_name": table_key,
                 "row_number": idx + 1,
-                "sheet_name": table_key
+                "data": inner_data  # Store as object, not JSON string
             }
             row_json = json.dumps(row_data, default=str)
             
-            # Calculate row hash
-            row_hash = hashlib.sha256(row_json.encode()).hexdigest()
+            # Calculate row hash from data content only (not the wrapper)
+            # This matches the hash calculation in create_commit.py and import_executor_optimized.py
+            data_json = json.dumps(inner_data, sort_keys=True, separators=(',', ':'), default=str)
+            row_hash = hashlib.sha256(data_json.encode()).hexdigest()
             
             # Insert row if not exists
             await conn.execute(
@@ -250,8 +252,9 @@ class SqlTransformExecutor(JobExecutor):
             if 'logical_row_id' in row_dict and row_dict['logical_row_id']:
                 logical_row_id = row_dict['logical_row_id']
             else:
-                # Create new logical_row_id with table_key:index format
-                logical_row_id = f"{table_key}:{idx}"
+                # Create new logical_row_id with table_key:hash format
+                # Use the same hash we calculated for the row_hash (data content only)
+                logical_row_id = f"{table_key}:{row_hash}"
             
             await conn.execute(
                 """
