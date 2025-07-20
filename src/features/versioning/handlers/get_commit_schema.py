@@ -36,7 +36,7 @@ class GetCommitSchemaHandler(BaseHandler[CommitSchemaResponse]):
         """
         # Permission check removed - handled by authorization middleware
         
-        # TODO: Get schema definition
+        # Get schema definition
         schema_data = await self._commit_repo.get_commit_schema(commit_id)
         if not schema_data:
             raise EntityNotFoundException("Schema", commit_id)

@@ -15,6 +15,9 @@ import pyarrow.parquet as pq
 
 from src.workers.job_worker import JobExecutor
 from src.infrastructure.postgres.database import DatabasePool
+from src.infrastructure.postgres.event_store import PostgresEventStore
+from src.core.abstractions.events import JobStartedEvent, JobCompletedEvent, JobFailedEvent
+from src.core.events.registry import InMemoryEventBus
 from src.infrastructure.config import get_settings
 
 
@@ -31,8 +34,12 @@ class ImportJobExecutor(JobExecutor):
         import logging
         logger = logging.getLogger(__name__)
         
-        print(f"[IMPORT DEBUG] Starting job {job_id}")
         logger.info(f"Import job {job_id} - Starting optimized streaming import")
+        
+        # Create event bus and store for publishing events
+        event_store = PostgresEventStore(db_pool)
+        event_bus = InMemoryEventBus()
+        event_bus.set_event_store(event_store)
         
         # Handle case where parameters come as string
         if isinstance(parameters, str):
@@ -58,6 +65,14 @@ class ImportJobExecutor(JobExecutor):
             parent_commit_id = job['source_commit_id']
         
         try:
+            # Publish job started event
+            await event_bus.publish(JobStartedEvent(
+                job_id=job_id,
+                job_type='import',
+                dataset_id=dataset_id,
+                user_id=user_id
+            ))
+            
             # Update job progress - starting
             await self._update_job_progress(job_id, {"status": "Parsing file", "percentage": 0}, db_pool)
             
@@ -107,6 +122,18 @@ class ImportJobExecutor(JobExecutor):
                 db_pool
             )
             
+            # Publish job completed event
+            await event_bus.publish(JobCompletedEvent(
+                job_id=job_id,
+                job_type='import',
+                dataset_id=dataset_id,
+                user_id=user_id,
+                result={
+                    "commit_id": commit_id,
+                    "rows_imported": total_rows_processed
+                }
+            ))
+            
             return {
                 "commit_id": commit_id,
                 "rows_imported": total_rows_processed,
@@ -118,6 +145,16 @@ class ImportJobExecutor(JobExecutor):
             import traceback
             logger.error(f"Import job {job_id} failed: {str(e)}")
             logger.error(f"Full traceback:\n{traceback.format_exc()}")
+            
+            # Publish job failed event
+            await event_bus.publish(JobFailedEvent(
+                job_id=job_id,
+                job_type='import',
+                dataset_id=dataset_id,
+                user_id=user_id,
+                error_message=str(e)
+            ))
+            
             async with db_pool.acquire() as conn:
                 await conn.execute("""
                     UPDATE dsa_jobs.analysis_runs 
@@ -163,18 +200,6 @@ class ImportJobExecutor(JobExecutor):
                 # Prepare data for COPY
                 copy_data = []
                 for idx, row_data in enumerate(batch):
-                    # TODO: [TECH DEBT - POC IMPLEMENTATION]
-                    # This logical ID generation is based on a hash of the entire row's content.
-                    #
-                    # PROS: It correctly handles file re-sorting without creating a new commit.
-                    # CONS: It CANNOT distinguish a row update from a DELETE and ADD operation.
-                    #       This will cause significant performance degradation and database bloat
-                    #       at scale when datasets are frequently updated.
-                    #
-                    # ACTION: This MUST be migrated to a Business Key-based hash generation
-                    #         before moving to a production environment to enable true updates
-                    #         and ensure system scalability. See ticket [POC-HASH-ID].
-                    
                     # Calculate hash of data only (for both row_hash and logical_row_id)
                     data_json = json.dumps(row_data, sort_keys=True, separators=(',', ':'))
                     data_hash = hashlib.sha256(data_json.encode()).hexdigest()

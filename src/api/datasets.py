@@ -22,7 +22,7 @@ from ..core.authorization import (
 )
 from ..core.exceptions import resource_not_found
 from ..core.domain_exceptions import ConflictException
-from .dependencies import get_db_pool
+from .dependencies import get_db_pool, get_event_bus
 
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
@@ -48,14 +48,15 @@ async def get_dataset_repo(
 async def create_dataset(
     request: CreateDatasetRequest,
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory)
+    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+    event_bus = Depends(get_event_bus)
 ) -> CreateDatasetResponse:
     """Create a new dataset with optional tags."""
     from ..features.datasets.handlers.create_dataset import CreateDatasetHandler, CreateDatasetCommand
     
     # Create command from request
     command = CreateDatasetCommand(
-        user_id=current_user.user_id,
+        created_by=current_user.user_id,
         name=request.name,
         description=request.description or "",
         tags=request.tags
@@ -66,7 +67,8 @@ async def create_dataset(
         handler = CreateDatasetHandler(
             uow=uow,
             dataset_repo=uow.datasets,
-            commit_repo=uow.commits
+            commit_repo=uow.commits,
+            event_bus=event_bus
         )
         
         # Execute handler
@@ -244,10 +246,11 @@ async def update_dataset(
     dataset_id: int = Path(..., description="Dataset ID"),
     request: UpdateDatasetRequest = ...,
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory)
+    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+    event_bus = Depends(get_event_bus)
 ) -> UpdateDatasetResponse:
     """Update dataset metadata (name, description, tags)."""
-    from ..features.datasets.handlers.update_dataset_fixed import UpdateDatasetHandler, UpdateDatasetCommand
+    from ..features.datasets.handlers.update_dataset import UpdateDatasetHandler, UpdateDatasetCommand
     
     # Create command from request
     command = UpdateDatasetCommand(
@@ -255,7 +258,6 @@ async def update_dataset(
         dataset_id=dataset_id,
         name=request.name,
         description=request.description,
-        metadata=None,  # Not in request model
         tags=request.tags
     )
     
@@ -263,7 +265,8 @@ async def update_dataset(
     async with uow_factory.create() as uow:
         handler = UpdateDatasetHandler(
             uow=uow,
-            dataset_repo=uow.datasets
+            dataset_repo=uow.datasets,
+            event_bus=event_bus
         )
         
         # Execute handler
@@ -275,10 +278,11 @@ async def delete_dataset(
     dataset_id: int = Path(..., description="Dataset ID"),
     current_user: CurrentUser = Depends(get_current_user_info),
     uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+    event_bus = Depends(get_event_bus),
     _: CurrentUser = Depends(require_dataset_admin)
 ) -> DeleteDatasetResponse:
     """Delete a dataset and all its related data."""
-    from ..features.datasets.handlers.delete_dataset_simple import DeleteDatasetHandler, DeleteDatasetCommand, DeleteDatasetResponse as HandlerDeleteResponse
+    from ..features.datasets.handlers.delete_dataset import DeleteDatasetHandler, DeleteDatasetCommand, DeleteDatasetResponse as HandlerDeleteResponse
     
     # Create command
     command = DeleteDatasetCommand(
@@ -290,7 +294,8 @@ async def delete_dataset(
     async with uow_factory.create() as uow:
         handler = DeleteDatasetHandler(
             uow=uow,
-            dataset_repo=uow.datasets
+            dataset_repo=uow.datasets,
+            event_bus=event_bus
         )
         
         # Execute handler - returns the handler's DeleteDatasetResponse

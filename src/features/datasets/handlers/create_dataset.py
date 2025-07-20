@@ -1,17 +1,10 @@
+from typing import Optional
 from src.core.abstractions import IUnitOfWork, IDatasetRepository, ICommitRepository
-from src.api.models import CreateDatasetRequest, CreateDatasetResponse
+from src.core.abstractions.events import IEventBus, DatasetCreatedEvent
+from src.api.models import CreateDatasetResponse
 from ...base_handler import BaseHandler, with_transaction
-from src.core.events import EventBus, DatasetCreatedEvent, get_event_bus
-from dataclasses import dataclass
-
-
-@dataclass
-class CreateDatasetCommand:
-    user_id: int  # Must be first for decorator
-    name: str
-    description: str
-    tags: list[str] = None
-    default_branch: str = 'main'
+from ..models import CreateDatasetCommand, Dataset, DatasetMetadata
+from datetime import datetime
 
 
 class CreateDatasetHandler(BaseHandler):
@@ -22,12 +15,12 @@ class CreateDatasetHandler(BaseHandler):
         uow: IUnitOfWork,
         dataset_repo: IDatasetRepository,
         commit_repo: ICommitRepository,
-        event_bus: EventBus = None
+        event_bus: Optional[IEventBus] = None
     ):
         super().__init__(uow)
         self._dataset_repo = dataset_repo
         self._commit_repo = commit_repo
-        self._event_bus = event_bus or get_event_bus()
+        self._event_bus = event_bus
     
     @with_transaction
     async def handle(
@@ -38,43 +31,53 @@ class CreateDatasetHandler(BaseHandler):
         Create a new dataset with initial empty commit
         
         Steps:
-        1. Create dataset record
-        2. Grant admin permission to creator
-        3. Create initial empty commit
-        4. Create 'main' ref pointing to initial commit
+        1. Create dataset domain model
+        2. Persist dataset
+        3. Grant admin permission to creator
+        4. Create initial empty commit
+        5. Create ref pointing to initial commit
+        6. Publish domain event
         """
-        # Transaction is handled by @with_transaction decorator
-        # Permission check is handled by @requires_permission decorator
-        
-        # Create dataset
-        dataset_id = await self._dataset_repo.create_dataset(
+        # Create dataset domain model
+        dataset = Dataset(
             name=command.name,
             description=command.description,
-            created_by=command.user_id
+            default_branch=command.default_branch
+        )
+        
+        # Add tags using domain logic
+        for tag in command.tags:
+            dataset.add_tag(tag)
+        
+        # Persist dataset
+        dataset_id = await self._dataset_repo.create_dataset(
+            name=dataset.name,
+            description=dataset.description or "",
+            created_by=command.created_by
         )
         
         # Grant admin permission to creator
         await self._dataset_repo.grant_permission(
             dataset_id=dataset_id,
-            user_id=command.user_id,
+            user_id=command.created_by,
             permission_type='admin'
         )
         
-        # Add tags if provided
-        if command.tags:
-            await self._dataset_repo.add_dataset_tags(dataset_id, command.tags)
+        # Add tags if any
+        if dataset.tags:
+            tag_values = [tag.value for tag in dataset.tags]
+            await self._dataset_repo.add_dataset_tags(dataset_id, tag_values)
         
         # Create initial empty commit
         initial_commit_id = await self._commit_repo.create_commit_and_manifest(
             dataset_id=dataset_id,
             parent_commit_id=None,
             message="Initial commit",
-            author_id=command.user_id,
+            author_id=command.created_by,
             manifest=[]  # Empty manifest for initial commit
         )
         
         # Update the default branch ref
-        # The dataset creation creates a 'main' ref with NULL commit_id
         if command.default_branch == "main":
             # Update existing ref from NULL to the initial commit
             await self._commit_repo.update_ref_atomically(
@@ -92,21 +95,22 @@ class CreateDatasetHandler(BaseHandler):
             )
         
         # Publish domain event
-        await self._event_bus.publish(DatasetCreatedEvent(
-            dataset_id=dataset_id,
-            user_id=command.user_id,
-            name=command.name,
-            description=command.description,
-            tags=command.tags if command.tags else []
-        ))
+        if self._event_bus:
+            event = DatasetCreatedEvent.from_dataset(
+                dataset_id=dataset_id,
+                name=dataset.name,
+                created_by=command.created_by,
+                tags=[tag.value for tag in dataset.tags]
+            )
+            await self._event_bus.publish(event)
         
         # Fetch the created dataset to get timestamps
-        dataset = await self._dataset_repo.get_dataset_by_id(dataset_id)
+        created_dataset = await self._dataset_repo.get_dataset_by_id(dataset_id)
         
         return CreateDatasetResponse(
             dataset_id=dataset_id,
-            name=command.name,
-            description=command.description,
-            tags=command.tags if command.tags else [],
-            created_at=dataset['created_at']
+            name=dataset.name,
+            description=dataset.description or "",
+            tags=[tag.value for tag in dataset.tags],
+            created_at=created_dataset['created_at']
         )

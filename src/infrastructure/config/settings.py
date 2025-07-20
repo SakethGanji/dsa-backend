@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     # Security
     secret_key: str = "your-secret-key"
     algorithm: str = "HS256"
-    access_token_expire_minutes: int = 1440  # 24 hours for POC phase
+    access_token_expire_minutes: int = 1440  # 24 hours
     refresh_token_expire_days: int = 7
     
     # CORS

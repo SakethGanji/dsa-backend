@@ -23,8 +23,8 @@ from src.features.versioning.handlers.get_dataset_overview import GetDatasetOver
 from src.features.refs.handlers import ListRefsHandler, CreateBranchHandler, DeleteBranchHandler
 from src.infrastructure.postgres.database import DatabasePool, UnitOfWorkFactory
 from src.core.authorization import get_current_user_info, PermissionType, require_dataset_read, require_dataset_write
-from src.api.dependencies import get_uow, get_db_pool
-from src.core.abstractions import IUnitOfWork
+from src.api.dependencies import get_uow, get_db_pool, get_event_bus
+from src.core.abstractions import IUnitOfWork, ITableAnalysisService
 
 
 router = APIRouter(tags=["versioning"])
@@ -38,6 +38,20 @@ async def get_uow_factory(
     return UnitOfWorkFactory(pool)
 
 
+async def get_table_analysis_service(
+    uow: IUnitOfWork = Depends(get_uow)
+) -> ITableAnalysisService:
+    """Get table analysis service."""
+    from src.infrastructure.services.table_analysis import (
+        TableAnalysisService, DataTypeInferenceService, ColumnStatisticsService
+    )
+    return TableAnalysisService(
+        table_reader=uow.table_reader,
+        type_inference_service=DataTypeInferenceService(),
+        statistics_service=ColumnStatisticsService()
+    )
+
+
 @router.post("/datasets/{dataset_id}/refs/{ref_name}/commits", response_model=CreateCommitResponse)
 async def create_commit(
     dataset_id: int,
@@ -45,10 +59,11 @@ async def create_commit(
     request: CreateCommitRequest,
     current_user: CurrentUser = Depends(get_current_user_info),
     _: CurrentUser = Depends(require_dataset_write),
-    uow: IUnitOfWork = Depends(get_uow)
+    uow: IUnitOfWork = Depends(get_uow),
+    event_bus = Depends(get_event_bus)
 ):
     """Create a new commit with direct data"""
-    handler = CreateCommitHandler(uow, uow.commits, uow.datasets)
+    handler = CreateCommitHandler(uow, uow.commits, uow.datasets, event_bus=event_bus)
     return await handler.handle(dataset_id, ref_name, request, current_user.user_id)
 
 
@@ -168,10 +183,11 @@ async def get_table_analysis(
     table_key: str,
     current_user: CurrentUser = Depends(get_current_user_info),
     uow: IUnitOfWork = Depends(get_uow),
+    table_analysis_service: ITableAnalysisService = Depends(get_table_analysis_service),
     _: CurrentUser = Depends(require_dataset_read)
 ) -> TableAnalysisResponse:
     """Get comprehensive table analysis including schema, statistics, and sample values"""
-    handler = GetTableAnalysisHandler(uow, uow.table_reader)
+    handler = GetTableAnalysisHandler(uow, table_analysis_service)
     return await handler.handle(
         dataset_id=dataset_id,
         ref_name=ref_name,

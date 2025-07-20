@@ -1,16 +1,13 @@
 """Handler for deleting users."""
 
 from dataclasses import dataclass
+from typing import Optional
 from src.core.abstractions import IUnitOfWork, IUserRepository
+from src.core.abstractions.events import IEventBus, UserDeletedEvent
 from ...base_handler import BaseHandler, with_transaction
 from src.core.decorators import requires_role
 from src.core.domain_exceptions import EntityNotFoundException, BusinessRuleViolation
-
-
-@dataclass
-class DeleteUserCommand:
-    user_id: int  # Must be first for decorator - this is the requesting user (admin)
-    target_user_id: int
+from ..models.commands import DeleteUserCommand
 
 
 @dataclass
@@ -29,9 +26,10 @@ class DeleteUserResponse:
 class DeleteUserHandler(BaseHandler):
     """Handler for deleting users."""
     
-    def __init__(self, uow: IUnitOfWork, user_repo: IUserRepository):
+    def __init__(self, uow: IUnitOfWork, user_repo: IUserRepository, event_bus: Optional[IEventBus] = None):
         super().__init__(uow)
         self._user_repo = user_repo
+        self._event_bus = event_bus
     
     @with_transaction
     @requires_role("admin")  # Only admins can delete users
@@ -59,6 +57,14 @@ class DeleteUserHandler(BaseHandler):
         
         # Delete the user
         await self._user_repo.delete_user(command.target_user_id)
+        
+        # Publish event
+        if self._event_bus:
+            await self._event_bus.publish(UserDeletedEvent(
+                user_id=command.target_user_id,
+                deleted_by=command.user_id,
+                user_soeid=user['soeid']
+            ))
         
         # Return standardized response
         return DeleteUserResponse(

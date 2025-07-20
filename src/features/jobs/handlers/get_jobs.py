@@ -85,9 +85,7 @@ class GetJobsHandler:
         
         # Add permission filter if current_user_id is provided
         # Only show jobs for datasets the user has permission to read
-        # In POC mode, all users can see all jobs, but we'll add the structure
-        # for when POC mode is disabled
-        if current_user_id is not None and False:  # Disabled for POC mode
+        if current_user_id is not None:
             param_count += 1
             query += f"""
                 AND (

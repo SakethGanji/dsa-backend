@@ -2,19 +2,10 @@
 
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
-import json
 
-from src.infrastructure.postgres.database import DatabasePool
-
-
-@dataclass
-class GetExplorationHistoryCommand:
-    """Command to get exploration history."""
-    dataset_id: Optional[int] = None
-    user_id: Optional[int] = None
-    requesting_user_id: Optional[int] = None  # The user making the request
-    offset: int = 0
-    limit: int = 20
+from src.features.base_handler import BaseHandler
+from src.core.abstractions import IUnitOfWork
+from ..models import GetExplorationHistoryCommand
 
 
 @dataclass 
@@ -41,93 +32,49 @@ class ExplorationHistoryResponse:
     limit: int
 
 
-class GetExplorationHistoryHandler:
+class GetExplorationHistoryHandler(BaseHandler[ExplorationHistoryResponse]):
     """Handler for getting exploration history."""
     
-    def __init__(self, pool: DatabasePool):
-        self._pool = pool
+    def __init__(self, uow: IUnitOfWork):
+        super().__init__(uow)
     
     async def handle(self, command: GetExplorationHistoryCommand) -> ExplorationHistoryResponse:
         """Get exploration history."""
-        # Build query based on filters
-        base_query = """
-            SELECT 
-                ar.id as job_id,
-                ar.dataset_id,
-                ar.user_id,
-                ar.status,
-                ar.created_at,
-                ar.completed_at as updated_at,
-                ar.run_parameters,
-                ar.output_summary,
-                d.name as dataset_name,
-                u.soeid as username
-            FROM dsa_jobs.analysis_runs ar
-            JOIN dsa_core.datasets d ON ar.dataset_id = d.id
-            JOIN dsa_auth.users u ON ar.user_id = u.id
-            WHERE ar.run_type = 'exploration'
-        """
-        
-        count_query = """
-            SELECT COUNT(*) 
-            FROM dsa_jobs.analysis_runs ar
-            WHERE ar.run_type = 'exploration'
-        """
-        
-        params = []
-        param_count = 0
-        
-        # Add filters
-        if command.dataset_id:
-            param_count += 1
-            base_query += f" AND ar.dataset_id = ${param_count}"
-            count_query += f" AND ar.dataset_id = ${param_count}"
-            params.append(command.dataset_id)
-        
-        if command.user_id:
-            param_count += 1
-            base_query += f" AND ar.user_id = ${param_count}"
-            count_query += f" AND ar.user_id = ${param_count}"
-            params.append(command.user_id)
-        
-        # Add ordering and pagination
-        base_query += " ORDER BY ar.created_at DESC"
-        param_count += 1
-        base_query += f" OFFSET ${param_count}"
-        params.append(command.offset)
-        
-        param_count += 1
-        base_query += f" LIMIT ${param_count}"
-        params.append(command.limit)
-        
-        # Get data
-        async with self._pool.acquire() as conn:
-            rows = await conn.fetch(base_query, *params)
+        async with self._uow:
+            # Get exploration history
+            history_items = await self._uow.explorations.get_exploration_history(
+                dataset_id=command.dataset_id,
+                user_id=command.user_id,
+                limit=command.limit,
+                offset=command.offset
+            )
             
+            # Convert to response items
             items = [
                 ExplorationHistoryItem(
-                    job_id=str(row["job_id"]),
-                    dataset_id=row["dataset_id"],
-                    dataset_name=row["dataset_name"],
-                    user_id=row["user_id"],
-                    username=row["username"],
-                    status=row["status"],
-                    created_at=row["created_at"].isoformat(),
-                    updated_at=row["updated_at"].isoformat() if row["updated_at"] else None,
-                    run_parameters=json.loads(row["run_parameters"]) if isinstance(row["run_parameters"], str) else row["run_parameters"] or {},
-                    has_result=bool(row["output_summary"])
+                    job_id=item["job_id"],
+                    dataset_id=item["dataset_id"],
+                    dataset_name=item["dataset_name"],
+                    user_id=item["user_id"],
+                    username=item["username"],
+                    status=item["status"],
+                    created_at=item["created_at"],
+                    updated_at=item["updated_at"],
+                    run_parameters=item["run_parameters"],
+                    has_result=item["has_result"]
                 )
-                for row in rows
+                for item in history_items
             ]
-        
-        # Get total count (without offset/limit params)
-        count_params = params[:len(params)-2] if params else []
-        async with self._pool.acquire() as conn:
-            total = await conn.fetchval(count_query, *count_params)
-        
-        return ExplorationHistoryResponse(
-            items=items,
-            total=total,
-            offset=command.offset,
-            limit=command.limit
-        )
+            
+            # Get total count
+            total = await self._uow.explorations.count_explorations(
+                dataset_id=command.dataset_id,
+                user_id=command.user_id
+            )
+            
+            return ExplorationHistoryResponse(
+                items=items,
+                total=total,
+                offset=command.offset,
+                limit=command.limit
+            )

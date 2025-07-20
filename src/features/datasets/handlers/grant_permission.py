@@ -1,17 +1,11 @@
+from typing import Optional
 from ....core.abstractions import IUnitOfWork, IDatasetRepository
+from ....core.abstractions.events import IEventBus, PermissionGrantedEvent
 from ....api.models.requests import GrantPermissionRequest
 from ....api.models.responses import GrantPermissionResponse
 from ....features.base_handler import BaseHandler, with_transaction
 from ....core.decorators import requires_permission
-from dataclasses import dataclass
-
-
-@dataclass
-class GrantPermissionCommand:
-    user_id: int  # Must be first for decorator - this is the granting user
-    dataset_id: int
-    target_user_id: int
-    permission_type: str
+from ..models import GrantPermissionCommand
 
 
 class GrantPermissionHandler(BaseHandler):
@@ -20,10 +14,12 @@ class GrantPermissionHandler(BaseHandler):
     def __init__(
         self,
         uow: IUnitOfWork,
-        dataset_repo: IDatasetRepository
+        dataset_repo: IDatasetRepository,
+        event_bus: Optional[IEventBus] = None
     ):
         super().__init__(uow)
         self._dataset_repo = dataset_repo
+        self._event_bus = event_bus
     
     @with_transaction
     @requires_permission("datasets", "admin")
@@ -51,6 +47,15 @@ class GrantPermissionHandler(BaseHandler):
             user_id=command.target_user_id,
             permission_type=command.permission_type
         )
+        
+        # Publish event
+        if self._event_bus:
+            await self._event_bus.publish(PermissionGrantedEvent(
+                dataset_id=command.dataset_id,
+                user_id=command.target_user_id,
+                permission_type=command.permission_type,
+                granted_by=command.granting_user_id
+            ))
         
         # Refresh search index to reflect permission changes
         if hasattr(self._uow, 'search_repository'):

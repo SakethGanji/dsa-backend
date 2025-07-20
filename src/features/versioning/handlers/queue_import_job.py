@@ -14,17 +14,7 @@ from src.api.models import QueueImportRequest, QueueImportResponse
 from ...base_handler import BaseHandler, with_error_handling, with_transaction
 from src.core.decorators import requires_permission
 from fastapi import HTTPException
-
-
-@dataclass
-class QueueImportJobCommand:
-    """Command for queuing import job with streaming file handling"""
-    dataset_id: int
-    ref_name: str
-    file: BinaryIO
-    filename: str
-    request: QueueImportRequest
-    user_id: int
+from ..models import QueueImportJobCommand
 
 
 class QueueImportJobHandler(BaseHandler[QueueImportResponse]):

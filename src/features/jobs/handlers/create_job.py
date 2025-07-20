@@ -5,18 +5,10 @@ from dataclasses import dataclass
 from uuid import UUID
 from datetime import datetime
 from src.core.abstractions import IUnitOfWork, IJobRepository
+from src.core.abstractions.events import IEventBus, JobCreatedEvent
 from ...base_handler import BaseHandler, with_transaction
 from src.core.decorators import requires_permission
-
-
-@dataclass
-class CreateJobCommand:
-    user_id: int  # Must be first for decorator
-    dataset_id: int
-    run_type: str
-    source_commit_id: str
-    run_parameters: Dict[str, Any]
-    description: Optional[str] = None
+from ..models import CreateJobCommand
 
 
 @dataclass
@@ -32,10 +24,12 @@ class CreateJobHandler(BaseHandler):
     def __init__(
         self,
         uow: IUnitOfWork,
-        job_repo: IJobRepository
+        job_repo: IJobRepository,
+        event_bus: Optional[IEventBus] = None
     ):
         super().__init__(uow)
         self._job_repo = job_repo
+        self._event_bus = event_bus
     
     @with_transaction
     @requires_permission("datasets", "write")  # Need write permission to create jobs
@@ -59,6 +53,15 @@ class CreateJobHandler(BaseHandler):
             run_parameters=command.run_parameters,
             description=command.description
         )
+        
+        # Publish event
+        if self._event_bus:
+            await self._event_bus.publish(JobCreatedEvent(
+                job_id=str(job_id),
+                job_type=command.run_type,
+                dataset_id=command.dataset_id,
+                created_by=command.user_id
+            ))
         
         return CreateJobResponse(
             job_id=job_id,

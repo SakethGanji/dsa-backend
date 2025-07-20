@@ -76,9 +76,10 @@ def requires_permission(resource_type: str, permission_level: str):
                         resource_id, user_id, permission_level
                     )
                 else:
-                    # For other resource types, we'll need to implement generic permission checking
-                    # For now in POC mode, this will always return True
-                    has_permission = True  # TODO: Implement generic permission checking
+                    # For other resource types, check if user is admin
+                    # A full implementation would check resource-specific permissions
+                    user = await self._uow.users.get_by_id(user_id)
+                    has_permission = user and user.get('role_name') == 'admin'
                 
                 if not has_permission:
                     raise PermissionDeniedError(resource_type, permission_level, user_id)

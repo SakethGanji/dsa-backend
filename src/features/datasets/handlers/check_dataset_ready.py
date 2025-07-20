@@ -1,16 +1,10 @@
 """Handler for checking if a dataset is ready for operations."""
 
 from typing import Dict, Any
-from dataclasses import dataclass
 from src.core.abstractions import IUnitOfWork, IJobRepository
 from ...base_handler import BaseHandler
 from src.core.decorators import requires_permission
-
-
-@dataclass
-class CheckDatasetReadyCommand:
-    user_id: int  # Must be first for decorator
-    dataset_id: int
+from ..models import CheckDatasetReadyCommand
 
 
 class CheckDatasetReadyHandler(BaseHandler):

@@ -122,13 +122,3 @@ async def transform_sql(
     return await handler.handle(request, current_user.user_id)
 
 
-# TODO: Add query history endpoint
-# @router.get("/query-history")
-# async def get_query_history(
-#     offset: int = 0,
-#     limit: int = 20,
-#     current_user: Dict = Depends(get_current_user),
-#     uow: IUnitOfWork = Depends(get_uow)
-# ):
-#     """Get user's SQL query history."""
-#     pass

@@ -2,22 +2,13 @@ from typing import BinaryIO
 import os
 import tempfile
 import uuid
-from dataclasses import dataclass
 
 from src.core.abstractions import IUnitOfWork, IDatasetRepository, ICommitRepository, IJobRepository
 from src.api.models import CreateDatasetWithFileRequest, CreateDatasetWithFileResponse, CreateDatasetResponse, QueueImportResponse
 from ...base_handler import BaseHandler, with_error_handling, with_transaction
 from src.core.events import EventBus, DatasetCreatedEvent, get_event_bus
 from src.core.abstractions.models.constants import JobStatus
-
-
-@dataclass
-class CreateDatasetWithFileCommand:
-    """Command for creating dataset with file"""
-    request: CreateDatasetWithFileRequest
-    file: BinaryIO
-    filename: str
-    user_id: int
+from ..models import CreateDatasetWithFileCommand
 
 
 class CreateDatasetWithFileHandler(BaseHandler[CreateDatasetWithFileResponse]):

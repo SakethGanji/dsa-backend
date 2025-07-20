@@ -75,9 +75,9 @@ class CancelJobRequest(BaseModel):
 
 class CreateCommitRequest(BaseModel):
     """Create a new commit."""
-    dataset_id: int
     message: str = Field(..., min_length=1, max_length=500)
     parent_commit_id: Optional[str] = None
+    table_name: Optional[str] = Field("primary", description="Name of the table to create/update")
     data: List[Dict[str, Any]] = Field(..., description="List of data rows to include in the commit")
 
 

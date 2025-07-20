@@ -1,21 +1,10 @@
 """Handler for listing datasets."""
 
 from typing import List, Tuple, Optional
-from dataclasses import dataclass
 from src.core.abstractions import IUnitOfWork, IDatasetRepository
 from src.api.models import DatasetSummary
 from ...base_handler import BaseHandler
-
-
-@dataclass
-class ListDatasetsCommand:
-    user_id: int
-    offset: int = 0
-    limit: int = 100
-    search: Optional[str] = None
-    tags: Optional[List[str]] = None
-    sort_by: Optional[str] = "created_at"
-    sort_order: Optional[str] = "desc"
+from ..models import ListDatasetsCommand
 
 
 class ListDatasetsHandler(BaseHandler):

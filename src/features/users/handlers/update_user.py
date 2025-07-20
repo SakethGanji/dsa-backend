@@ -4,20 +4,13 @@ from typing import Optional, Dict, Any
 from dataclasses import dataclass
 from datetime import datetime
 from src.core.abstractions import IUnitOfWork, IUserRepository
+from src.core.abstractions.events import IEventBus, UserUpdatedEvent
 from src.core.abstractions.external import IPasswordManager
 from src.infrastructure.external.password_hasher import PasswordHasher
 from src.features.base_update_handler import BaseUpdateHandler
 from src.core.decorators import requires_role
-from src.core.domain_exceptions import ConflictException
-
-
-@dataclass
-class UpdateUserCommand:
-    user_id: int  # Must be first for decorator - this is the requesting user (admin)
-    target_user_id: int
-    soeid: Optional[str] = None
-    password: Optional[str] = None
-    role_id: Optional[int] = None
+from src.core.domain_exceptions import ConflictException, BusinessRuleViolation
+from ..models import UpdateUserCommand, User, UserRole, UserCredentials
 
 
 @dataclass
@@ -32,10 +25,11 @@ class UpdateUserResponse:
 class UpdateUserHandler(BaseUpdateHandler[UpdateUserCommand, UpdateUserResponse, Dict[str, Any]]):
     """Handler for updating user information."""
     
-    def __init__(self, uow: IUnitOfWork, user_repo: IUserRepository, password_manager: IPasswordManager = None):
+    def __init__(self, uow: IUnitOfWork, user_repo: IUserRepository, password_manager: IPasswordManager = None, event_bus: Optional[IEventBus] = None):
         super().__init__(uow)
         self._user_repo = user_repo
         self._password_manager = password_manager or PasswordHasher()
+        self._event_bus = event_bus
     
     def get_entity_id(self, command: UpdateUserCommand) -> int:
         """Extract entity ID from command."""
@@ -51,12 +45,29 @@ class UpdateUserHandler(BaseUpdateHandler[UpdateUserCommand, UpdateUserResponse,
     
     async def validate_update(self, command: UpdateUserCommand, existing: Dict[str, Any]) -> None:
         """Validate the update operation."""
+        # Create domain model from existing data
+        user = User.from_repository_data(existing)
+        
+        # Validate password if provided
+        if command.password is not None:
+            UserCredentials.validate_password(command.password)
+        
         # Check if new soeid is already taken
         if command.soeid is not None:
             existing_user = await self._user_repo.get_by_soeid(command.soeid)
             if existing_user and existing_user['id'] != command.target_user_id:
                 raise ConflictException(
                     f"SOEID {command.soeid} is already taken",
+                    conflicting_field="soeid",
+                    existing_value=command.soeid
+                )
+            
+            # Validate new soeid using domain logic
+            try:
+                user.update_soeid(command.soeid)
+            except BusinessRuleViolation as e:
+                raise ConflictException(
+                    str(e),
                     conflicting_field="soeid",
                     existing_value=command.soeid
                 )
@@ -98,4 +109,14 @@ class UpdateUserHandler(BaseUpdateHandler[UpdateUserCommand, UpdateUserResponse,
     async def handle(self, command: UpdateUserCommand) -> UpdateUserResponse:
         """Update user information."""
         # Call parent's handle method which implements the template
-        return await super().handle(command)
+        result = await super().handle(command)
+        
+        # Publish event after successful update
+        if self._event_bus:
+            await self._event_bus.publish(UserUpdatedEvent(
+                user_id=command.target_user_id,
+                updated_fields=list(await self.prepare_update_data(command, await self.get_entity(command.target_user_id))),
+                updated_by=command.user_id
+            ))
+        
+        return result

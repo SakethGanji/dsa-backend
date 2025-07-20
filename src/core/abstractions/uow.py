@@ -9,7 +9,8 @@ if TYPE_CHECKING:
         IDatasetRepository,
         ICommitRepository,
         IJobRepository,
-        ITableReader
+        ITableReader,
+        IExplorationRepository
     )
     from .search_repository import ISearchRepository
 
@@ -68,4 +69,10 @@ class IUnitOfWork(ABC):
     @abstractmethod
     def search_repository(self) -> 'ISearchRepository':
         """Get the search repository"""
+        pass
+    
+    @property
+    @abstractmethod
+    def explorations(self) -> 'IExplorationRepository':
+        """Get the exploration repository"""
         pass

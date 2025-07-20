@@ -35,7 +35,7 @@ async def download_dataset(
     format: str = Query("csv", description="Export format (csv, excel, json)"),
     current_user: CurrentUser = Depends(get_current_user_info),
     uow: IUnitOfWork = Depends(get_uow),
-    table_reader: ITableReader = Depends(get_table_reader),
+    db_pool: DatabasePool = Depends(get_db_pool),
     _: CurrentUser = Depends(require_dataset_read)
 ):
     """Download entire dataset in specified format."""
@@ -49,8 +49,10 @@ async def download_dataset(
         format=format
     )
     
-    # Create handler and execute
-    handler = DownloadDatasetHandler(uow, table_reader, table_reader)
+    # Create handler and execute  
+    from ..infrastructure.services.data_export_service import DataExportService
+    export_service = DataExportService(db_pool)
+    handler = DownloadDatasetHandler(uow, export_service)
     result = await handler.handle(command)
     
     # Return streaming response

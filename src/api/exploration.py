@@ -116,8 +116,7 @@ async def get_dataset_exploration_history(
     limit: int = Query(20, ge=1, le=100, description="Items per page"),
     current_user: CurrentUser = Depends(get_current_user_info),
     _: CurrentUser = Depends(require_dataset_read),
-    uow: IUnitOfWork = Depends(get_uow),
-    pool: DatabasePool = Depends(get_db_pool)
+    uow: IUnitOfWork = Depends(get_uow)
 ) -> ExplorationHistoryResponse:
     """Get exploration history for a dataset."""
     from ..features.exploration.handlers.get_exploration_history import (
@@ -133,7 +132,7 @@ async def get_dataset_exploration_history(
     )
     
     # Create handler and execute
-    handler = GetExplorationHistoryHandler(pool)
+    handler = GetExplorationHistoryHandler(uow)
     result = await handler.handle(command)
     
     # Convert handler response to API response
@@ -166,7 +165,7 @@ async def get_user_exploration_history(
     offset: int = Query(0, ge=0, description="Pagination offset"),
     limit: int = Query(20, ge=1, le=100, description="Items per page"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    pool: DatabasePool = Depends(get_db_pool)
+    uow: IUnitOfWork = Depends(get_uow)
 ) -> ExplorationHistoryResponse:
     """Get exploration history for a user."""
     from ..features.exploration.handlers.get_exploration_history import (
@@ -188,7 +187,7 @@ async def get_user_exploration_history(
     )
     
     # Create handler and execute
-    handler = GetExplorationHistoryHandler(pool)
+    handler = GetExplorationHistoryHandler(uow)
     result = await handler.handle(command)
     
     # Convert handler response to API response
@@ -220,8 +219,7 @@ async def get_exploration_result(
     job_id: UUID = Path(..., description="Job ID"),
     format: str = Query("html", description="Output format (html, json, info)"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow: IUnitOfWork = Depends(get_uow),
-    pool: DatabasePool = Depends(get_db_pool)
+    uow: IUnitOfWork = Depends(get_uow)
 ):
     """Get the result of a completed exploration job."""
     from ..features.exploration.handlers.get_exploration_result import (
@@ -237,7 +235,7 @@ async def get_exploration_result(
     )
     
     # Create handler and execute
-    handler = GetExplorationResultHandler(uow, pool)
+    handler = GetExplorationResultHandler(uow)
     result = await handler.handle(command)
     
     # Return appropriate response based on format

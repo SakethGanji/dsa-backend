@@ -5,10 +5,9 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 
 from ..infrastructure.postgres.database import DatabasePool
-from ..core.abstractions import IUnitOfWork
+from ..core.abstractions import IUnitOfWork, IEventBus
 from ..infrastructure.postgres.uow import PostgresUnitOfWork
 from ..infrastructure.services import FileParserFactory, DefaultStatisticsCalculator
-from ..core.events import EventBus, get_event_bus
 
 # OAuth2 scheme for token authentication
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
@@ -17,7 +16,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 _db_pool: Optional[DatabasePool] = None
 _parser_factory: Optional[FileParserFactory] = None
 _stats_calculator: Optional[DefaultStatisticsCalculator] = None
-_event_bus: Optional[EventBus] = None
+_event_bus: Optional[IEventBus] = None
 
 
 def set_database_pool(pool: DatabasePool) -> None:
@@ -36,6 +35,12 @@ def set_stats_calculator(calculator: DefaultStatisticsCalculator) -> None:
     """Set the global statistics calculator instance."""
     global _stats_calculator
     _stats_calculator = calculator
+
+
+def set_event_bus(event_bus: IEventBus) -> None:
+    """Set the global event bus instance."""
+    global _event_bus
+    _event_bus = event_bus
 
 
 async def get_db_pool() -> DatabasePool:
@@ -67,6 +72,11 @@ async def get_stats_calculator() -> DefaultStatisticsCalculator:
     return _stats_calculator
 
 
+async def get_event_bus() -> Optional[IEventBus]:
+    """Get event bus dependency."""
+    return _event_bus  # Can be None if events not configured
+
+
 async def get_current_user(
     token: str = Depends(oauth2_scheme),
     uow: IUnitOfWork = Depends(get_uow)
@@ -80,8 +90,6 @@ async def get_current_user(
     3. Load user from database
     4. Return user dict
     """
-    # TODO: Implement proper JWT validation
-    # For now, return a mock user
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -116,15 +124,3 @@ async def require_admin(
     return current_user
 
 
-def set_event_bus(event_bus: EventBus) -> None:
-    """Set the global event bus instance."""
-    global _event_bus
-    _event_bus = event_bus
-
-
-async def get_event_bus_dependency() -> EventBus:
-    """Get event bus dependency."""
-    if _event_bus is None:
-        # Return the default global event bus
-        return get_event_bus()
-    return _event_bus

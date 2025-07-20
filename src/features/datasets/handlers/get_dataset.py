@@ -1,18 +1,12 @@
 """Handler for getting dataset details."""
 
 from typing import Dict, Any, Optional
-from dataclasses import dataclass
 from src.core.abstractions import IUnitOfWork, IDatasetRepository
 from src.api.models import DatasetDetailResponse
 from ...base_handler import BaseHandler
 from src.core.decorators import requires_permission
 from src.core.domain_exceptions import EntityNotFoundException
-
-
-@dataclass
-class GetDatasetCommand:
-    user_id: int  # Must be first for decorator
-    dataset_id: int
+from ..models import GetDatasetCommand
 
 
 class GetDatasetHandler(BaseHandler):

@@ -8,23 +8,7 @@ from src.core.services.sampling_service import SamplingService
 from ...base_handler import BaseHandler
 from src.core.decorators import requires_permission
 from src.core.domain_exceptions import EntityNotFoundException
-
-
-@dataclass
-class DirectSamplingCommand:
-    user_id: int  # Must be first for decorator
-    dataset_id: int
-    ref_name: str
-    table_key: str
-    method: SamplingMethod
-    sample_size: int
-    random_seed: Optional[int] = None
-    stratify_columns: Optional[List[str]] = None
-    proportional: bool = True
-    cluster_column: Optional[str] = None
-    num_clusters: Optional[int] = None
-    offset: int = 0
-    limit: int = 100
+from ..models import DirectSamplingCommand
 
 
 @dataclass 
@@ -58,9 +42,12 @@ class SampleDataDirectHandler(BaseHandler):
         
         commit_id = ref['commit_id']
         
+        # Convert string method to enum
+        method_enum = SamplingMethod[command.method.upper()] if isinstance(command.method, str) else command.method
+        
         # Create sampling config
         config = SampleConfig(
-            method=command.method,
+            method=method_enum,
             sample_size=command.sample_size,
             random_seed=command.random_seed,
             stratify_columns=command.stratify_columns,

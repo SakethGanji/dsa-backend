@@ -7,17 +7,7 @@ from src.core.abstractions import IUnitOfWork, IUserRepository
 from ...base_handler import BaseHandler
 from src.core.decorators import requires_role
 from src.core.common.pagination import PaginationMixin
-
-
-@dataclass
-class ListUsersCommand:
-    user_id: int  # Must be first for decorator
-    offset: int = 0
-    limit: int = 100
-    search: Optional[str] = None
-    role_id: Optional[int] = None
-    sort_by: Optional[str] = "created_at"
-    sort_order: Optional[str] = "desc"
+from ..models.commands import ListUsersCommand
 
 
 @dataclass

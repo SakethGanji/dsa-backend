@@ -333,3 +333,397 @@ class IWorkbenchService(ABC):
     def list_available_operations(self) -> List[OperationType]:
         """List all available operation types."""
         pass
+
+# Table Analysis Service Interfaces
+@dataclass
+class ColumnStatistics:
+    """Statistics for a single column."""
+    column_name: str
+    data_type: str
+    non_null_count: int
+    null_count: int
+    unique_count: int
+    min_value: Optional[Any] = None
+    max_value: Optional[Any] = None
+    mean_value: Optional[float] = None
+    median_value: Optional[float] = None
+    mode_value: Optional[Any] = None
+    std_dev: Optional[float] = None
+    percentiles: Optional[Dict[str, float]] = None
+
+
+@dataclass
+class TableSchema:
+    """Schema information for a table."""
+    columns: List[Dict[str, Any]]
+    primary_key: Optional[List[str]] = None
+    row_count: int = 0
+    size_bytes: Optional[int] = None
+
+
+@dataclass 
+class TableAnalysis:
+    """Complete analysis results for a table."""
+    schema: TableSchema
+    statistics: List[ColumnStatistics]
+    sample_values: Dict[str, List[Any]]
+    data_quality_issues: List[Dict[str, Any]]
+    profiling_metadata: Dict[str, Any]
+
+
+class ITableAnalysisService(ABC):
+    """Service for comprehensive table analysis."""
+    
+    @abstractmethod
+    async def analyze_table(
+        self,
+        commit_id: str,
+        table_key: str,
+        sample_size: int = 100,
+        compute_statistics: bool = True,
+        infer_types: bool = True
+    ) -> TableAnalysis:
+        """Perform comprehensive analysis on a table."""
+        pass
+    
+    @abstractmethod
+    async def get_column_profile(
+        self,
+        commit_id: str,
+        table_key: str,
+        column_name: str
+    ) -> ColumnStatistics:
+        """Get detailed profile for a single column."""
+        pass
+
+
+class IDataTypeInferenceService(ABC):
+    """Service for inferring data types from values."""
+    
+    @abstractmethod
+    def infer_column_type(self, values: List[Any]) -> str:
+        """Infer the data type of a column based on sample values."""
+        pass
+    
+    @abstractmethod
+    def validate_type_consistency(
+        self,
+        values: List[Any],
+        expected_type: str
+    ) -> Dict[str, Any]:
+        """Validate that values are consistent with expected type."""
+        pass
+    
+    @abstractmethod
+    def get_type_hierarchy(self) -> Dict[str, List[str]]:
+        """Get the type hierarchy for type coercion."""
+        pass
+
+
+class IColumnStatisticsService(ABC):
+    """Service for computing column statistics."""
+    
+    @abstractmethod
+    async def compute_numeric_statistics(
+        self,
+        values: List[float]
+    ) -> Dict[str, float]:
+        """Compute statistics for numeric columns."""
+        pass
+    
+    @abstractmethod
+    async def compute_string_statistics(
+        self,
+        values: List[str]
+    ) -> Dict[str, Any]:
+        """Compute statistics for string columns."""
+        pass
+    
+    @abstractmethod
+    async def compute_date_statistics(
+        self,
+        values: List[Any]
+    ) -> Dict[str, Any]:
+        """Compute statistics for date/time columns."""
+        pass
+    
+    @abstractmethod
+    async def detect_outliers(
+        self,
+        values: List[float],
+        method: str = "iqr"
+    ) -> List[int]:
+        """Detect outlier indices in numeric data."""
+        pass
+    
+    @abstractmethod
+    async def compute_correlations(
+        self,
+        columns: Dict[str, List[float]]
+    ) -> Dict[str, Dict[str, float]]:
+        """Compute correlations between numeric columns."""
+        pass
+
+
+# SQL Execution Service Interfaces
+@dataclass
+class SqlSource:
+    """Represents a source table for SQL execution."""
+    dataset_id: int
+    ref: str
+    table_key: str
+    alias: str
+
+
+@dataclass
+class SqlTarget:
+    """Represents the target for SQL results."""
+    dataset_id: int
+    ref: str
+    table_key: str
+    message: str
+    output_branch_name: Optional[str] = None
+
+
+@dataclass
+class SqlExecutionPlan:
+    """Execution plan for SQL transformation."""
+    sources: List[SqlSource]
+    sql_query: str
+    target: SqlTarget
+    estimated_rows: Optional[int] = None
+    estimated_memory_mb: Optional[float] = None
+    optimization_hints: Optional[List[str]] = None
+
+
+@dataclass
+class SqlExecutionResult:
+    """Result of SQL execution."""
+    new_commit_id: str
+    rows_processed: int
+    execution_time_ms: int
+    table_key: str
+    output_branch_name: str
+    memory_used_mb: Optional[float] = None
+    optimization_applied: Optional[List[str]] = None
+
+
+class ISqlValidationService(ABC):
+    """Service for validating SQL queries."""
+    
+    @abstractmethod
+    async def validate_query(
+        self,
+        sql: str,
+        sources: List[SqlSource]
+    ) -> Tuple[bool, List[str]]:
+        """
+        Validate SQL syntax and semantic correctness.
+        Returns (is_valid, error_messages).
+        """
+        pass
+    
+    @abstractmethod
+    async def estimate_resource_usage(
+        self,
+        sql: str,
+        sources: List[SqlSource],
+        table_reader: 'ITableReader'
+    ) -> Dict[str, Any]:
+        """Estimate memory and time requirements for the query."""
+        pass
+    
+    @abstractmethod
+    def sanitize_query(self, sql: str) -> str:
+        """Sanitize SQL query for safe execution."""
+        pass
+
+
+class ISqlExecutionService(ABC):
+    """Service for executing SQL transformations."""
+    
+    @abstractmethod
+    async def create_execution_plan(
+        self,
+        sources: List[SqlSource],
+        sql: str,
+        target: SqlTarget
+    ) -> SqlExecutionPlan:
+        """Create an optimized execution plan."""
+        pass
+    
+    @abstractmethod
+    async def execute_transformation(
+        self,
+        plan: SqlExecutionPlan,
+        job_id: str,
+        user_id: int
+    ) -> SqlExecutionResult:
+        """Execute the SQL transformation according to the plan."""
+        pass
+    
+    @abstractmethod
+    async def preview_results(
+        self,
+        sources: List[SqlSource],
+        sql: str,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """Preview transformation results without committing."""
+        pass
+
+
+class IQueryOptimizationService(ABC):
+    """Service for optimizing SQL queries."""
+    
+    @abstractmethod
+    def optimize_query(
+        self,
+        sql: str,
+        table_schemas: Dict[str, TableSchema]
+    ) -> str:
+        """Optimize SQL query based on table schemas."""
+        pass
+    
+    @abstractmethod
+    def suggest_indexes(
+        self,
+        sql: str,
+        table_schemas: Dict[str, TableSchema]
+    ) -> List[Dict[str, Any]]:
+        """Suggest indexes that would improve query performance."""
+        pass
+    
+    @abstractmethod
+    def analyze_query_plan(self, sql: str) -> Dict[str, Any]:
+        """Analyze the query execution plan."""
+        pass
+
+
+# Data Export Service
+@dataclass
+class ExportOptions:
+    """Options for data export operations."""
+    batch_size: int = 10000
+    include_headers: bool = True
+    compression: Optional[str] = None
+    filters: Optional[Dict[str, Any]] = None
+    columns: Optional[List[str]] = None
+    limit: Optional[int] = None
+
+
+@dataclass
+class ExportResult:
+    """Result of a data export operation."""
+    file_path: str
+    format: str
+    row_count: int
+    file_size: int
+    export_time_ms: int
+    metadata: Dict[str, Any]
+
+
+class IDataExportService(ABC):
+    """Service interface for exporting data in various formats."""
+    
+    @abstractmethod
+    async def export_to_csv(
+        self,
+        dataset_id: str,
+        commit_id: str,
+        table_name: str,
+        options: Optional[ExportOptions] = None
+    ) -> ExportResult:
+        """Export data to CSV format."""
+        pass
+    
+    @abstractmethod
+    async def export_to_excel(
+        self,
+        dataset_id: str,
+        commit_id: str,
+        table_name: str,
+        options: Optional[ExportOptions] = None
+    ) -> ExportResult:
+        """Export data to Excel format."""
+        pass
+    
+    @abstractmethod
+    async def export_to_json(
+        self,
+        dataset_id: str,
+        commit_id: str,
+        table_name: str,
+        options: Optional[ExportOptions] = None
+    ) -> ExportResult:
+        """Export data to JSON format."""
+        pass
+    
+    @abstractmethod
+    async def export_to_parquet(
+        self,
+        dataset_id: str,
+        commit_id: str,
+        table_name: str,
+        options: Optional[ExportOptions] = None
+    ) -> ExportResult:
+        """Export data to Parquet format."""
+        pass
+    
+    @abstractmethod
+    def get_supported_formats(self) -> List[str]:
+        """Get list of supported export formats."""
+        pass
+
+
+# Commit Preparation Service
+@dataclass
+class CommitData:
+    """Data needed to create a commit."""
+    commit_id: str
+    parent_commit_id: Optional[str]
+    message: str
+    author: str
+    table_changes: Dict[str, Any]
+    row_hashes: List[str]
+    metadata: Dict[str, Any]
+
+
+class ICommitPreparationService(ABC):
+    """Service interface for preparing commit data."""
+    
+    @abstractmethod
+    async def prepare_commit_data(
+        self,
+        dataset_id: str,
+        parent_commit_id: str,
+        changes: Dict[str, Any],
+        message: str,
+        author: str
+    ) -> CommitData:
+        """Prepare all data needed for creating a commit."""
+        pass
+    
+    @abstractmethod
+    async def canonicalize_data(
+        self,
+        data: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Canonicalize data for consistent hashing."""
+        pass
+    
+    @abstractmethod
+    def compute_row_hash(
+        self,
+        row_data: Dict[str, Any]
+    ) -> str:
+        """Compute hash for a single row."""
+        pass
+    
+    @abstractmethod
+    async def extract_schema(
+        self,
+        table_data: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """Extract schema from table data."""
+        pass

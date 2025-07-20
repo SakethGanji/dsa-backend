@@ -8,7 +8,8 @@ from ....infrastructure.external.password_hasher import PasswordHasher
 from ....api.models.requests import LoginRequest
 from ....api.models.responses import LoginResponse
 from ....core.auth import create_access_token, create_refresh_token
-from ....core.domain_exceptions import ValidationException
+from ....core.domain_exceptions import ValidationException, BusinessRuleViolation
+from ..models import User
 
 
 class LoginUserHandler:
@@ -21,31 +22,44 @@ class LoginUserHandler:
     async def handle(self, request: LoginRequest) -> LoginResponse:
         """Authenticate user and generate tokens."""
         # Get user with password
-        user = await self._user_repo.get_user_with_password(request.soeid)
-        if not user:
+        user_data = await self._user_repo.get_user_with_password(request.soeid)
+        if not user_data:
             raise ValidationException("Invalid credentials")
         
-        # Verify password
-        if not self._password_manager.verify_password(request.password, user['password_hash']):
+        # Create domain model from repository data
+        user = User.from_repository_data(user_data)
+        
+        # Validate user can login (checks status, etc.)
+        try:
+            user.validate_for_login()
+        except BusinessRuleViolation:
             raise ValidationException("Invalid credentials")
+        
+        # Verify credentials using domain method
+        if not user.verify_credentials(request.password, self._password_manager):
+            raise ValidationException("Invalid credentials")
+        
+        # Record successful login
+        user.record_login()
+        # Note: In a complete implementation, we would persist this through the repository
         
         # Generate tokens
         access_token = create_access_token(
-            subject=user['soeid'],
-            role_id=user['role_id'],
-            role_name=user.get('role_name')
+            subject=user.soeid,
+            role_id=user.role.to_id(),
+            role_name=user.role.value
         )
         
         refresh_token = create_refresh_token(
-            subject=user['soeid']
+            subject=user.soeid
         )
         
         return LoginResponse(
             access_token=access_token,
             refresh_token=refresh_token,
             token_type="bearer",
-            user_id=user['id'],
-            soeid=user['soeid'],
-            role_id=user['role_id'],
-            role_name=user.get('role_name')
+            user_id=user.id,
+            soeid=user.soeid,
+            role_id=user.role.to_id(),
+            role_name=user.role.value
         )

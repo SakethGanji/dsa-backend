@@ -393,3 +393,85 @@ class ITableReader(ABC):
             Sampled row data dictionaries
         """
         pass
+
+
+class IExplorationRepository(ABC):
+    """SQL exploration and query management"""
+    
+    @abstractmethod
+    async def save_exploration(
+        self,
+        dataset_id: int,
+        user_id: int,
+        query: str,
+        ref_name: str,
+        commit_id: str,
+        results_summary: Dict[str, Any]
+    ) -> UUID:
+        """
+        Save an exploration query and its results summary.
+        
+        Args:
+            dataset_id: The dataset being explored
+            user_id: The user who ran the query
+            query: The SQL query executed
+            ref_name: The ref/branch used
+            commit_id: The specific commit explored
+            results_summary: Summary of results (row count, preview, etc.)
+            
+        Returns:
+            The exploration ID
+        """
+        pass
+    
+    @abstractmethod
+    async def get_exploration_by_id(self, exploration_id: UUID) -> Optional[Dict[str, Any]]:
+        """
+        Get exploration details by ID.
+        
+        Returns:
+            Exploration dict with query, results, metadata
+        """
+        pass
+    
+    @abstractmethod
+    async def get_exploration_history(
+        self,
+        dataset_id: int,
+        user_id: Optional[int] = None,
+        limit: int = 50,
+        offset: int = 0
+    ) -> List[Dict[str, Any]]:
+        """
+        Get exploration history for a dataset.
+        
+        Args:
+            dataset_id: The dataset ID
+            user_id: Filter by specific user (optional)
+            limit: Maximum results to return
+            offset: Pagination offset
+            
+        Returns:
+            List of exploration records with query, timestamp, user info
+        """
+        pass
+    
+    @abstractmethod
+    async def get_exploration_result(self, exploration_id: UUID) -> Optional[Dict[str, Any]]:
+        """
+        Get the full results of an exploration.
+        
+        Returns:
+            Full exploration results including data rows
+        """
+        pass
+    
+    @abstractmethod
+    async def delete_old_explorations(self, days_to_keep: int = 30) -> int:
+        """
+        Delete explorations older than specified days.
+        
+        Returns:
+            Number of explorations deleted
+        """
+        pass

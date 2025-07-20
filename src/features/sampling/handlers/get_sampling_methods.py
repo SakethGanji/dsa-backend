@@ -8,12 +8,7 @@ from src.core.services.sampling_service import SamplingService
 from ...base_handler import BaseHandler
 from src.core.decorators import requires_permission
 from src.core.domain_exceptions import EntityNotFoundException
-
-
-@dataclass
-class GetSamplingMethodsCommand:
-    user_id: int  # Must be first for decorator
-    dataset_id: int
+from ..models import GetSamplingMethodsCommand
 
 
 class GetSamplingMethodsHandler(BaseHandler):

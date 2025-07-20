@@ -5,7 +5,8 @@ from .repositories import (
     IDatasetRepository,
     ICommitRepository,
     IJobRepository,
-    ITableReader
+    ITableReader,
+    IExplorationRepository
 )
 from .table_interfaces import (
     ITableMetadataReader,
@@ -23,7 +24,18 @@ from .services import (
     IStatisticsService,
     IExplorationService,
     ISamplingService,
-    IWorkbenchService
+    IWorkbenchService,
+    ITableAnalysisService,
+    IDataTypeInferenceService,
+    IColumnStatisticsService,
+    ISqlValidationService,
+    ISqlExecutionService,
+    IQueryOptimizationService,
+    IDataExportService,
+    ICommitPreparationService,
+    ExportOptions,
+    ExportResult,
+    CommitData
 )
 
 __all__ = [
@@ -35,6 +47,7 @@ __all__ = [
     'ICommitRepository',
     'IJobRepository',
     'ITableReader',
+    'IExplorationRepository',
     # Table Interfaces (Segregated)
     'ITableMetadataReader',
     'ITableDataReader',
@@ -49,4 +62,65 @@ __all__ = [
     'IExplorationService',
     'ISamplingService',
     'IWorkbenchService',
+    'ITableAnalysisService',
+    'IDataTypeInferenceService',
+    'IColumnStatisticsService',
+    'ISqlValidationService',
+    'ISqlExecutionService',
+    'IQueryOptimizationService',
+    'IDataExportService',
+    'ICommitPreparationService',
+    'ExportOptions',
+    'ExportResult',
+    'CommitData',
 ]
+
+# Import event abstractions separately to avoid circular imports
+from .events import (
+    IEventBus,
+    IEventStore,
+    IEventHandler,
+    IEventPublisher,
+    DomainEvent,
+    EventType,
+    DatasetCreatedEvent,
+    DatasetUpdatedEvent,
+    DatasetDeletedEvent,
+    CommitCreatedEvent,
+    UserCreatedEvent,
+    UserUpdatedEvent,
+    UserDeletedEvent,
+    JobCreatedEvent,
+    JobStartedEvent,
+    JobCompletedEvent,
+    JobFailedEvent,
+    JobCancelledEvent,
+    JobLifecycleEvent,
+    PermissionGrantedEvent,
+    BranchDeletedEvent
+)
+
+__all__.extend([
+    # Event abstractions
+    'IEventBus',
+    'IEventStore',
+    'IEventHandler',
+    'IEventPublisher',
+    'DomainEvent',
+    'EventType',
+    'DatasetCreatedEvent',
+    'DatasetUpdatedEvent',
+    'DatasetDeletedEvent',
+    'CommitCreatedEvent',
+    'UserCreatedEvent',
+    'UserUpdatedEvent',
+    'UserDeletedEvent',
+    'JobCreatedEvent',
+    'JobStartedEvent',
+    'JobCompletedEvent',
+    'JobFailedEvent',
+    'JobCancelledEvent',
+    'JobLifecycleEvent',
+    'PermissionGrantedEvent',
+    'BranchDeletedEvent',
+])

@@ -6,27 +6,7 @@ from uuid import UUID
 
 from src.core.abstractions import IUnitOfWork
 from src.core.domain_exceptions import EntityNotFoundException
-
-
-@dataclass
-class ProfileConfig:
-    """Configuration for profiling."""
-    minimal: bool = False
-    samples_head: int = 10
-    samples_tail: int = 10
-    missing_diagrams: bool = True
-    correlation_threshold: float = 0.9
-    n_obs: Optional[int] = None
-
-
-@dataclass
-class CreateExplorationJobCommand:
-    """Command to create an exploration job."""
-    user_id: int
-    dataset_id: int
-    source_ref: str = "main"
-    table_key: str = "primary"
-    profile_config: Optional[ProfileConfig] = None
+from ..models import CreateExplorationJobCommand, ProfileConfig
 
 
 @dataclass

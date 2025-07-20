@@ -10,6 +10,9 @@ from concurrent.futures import ThreadPoolExecutor
 
 from ..infrastructure.postgres.database import DatabasePool
 from ..infrastructure.postgres.table_reader import PostgresTableReader
+from ..infrastructure.postgres.event_store import PostgresEventStore
+from ..core.abstractions.events import JobStartedEvent, JobCompletedEvent, JobFailedEvent
+from ..core.events.registry import InMemoryEventBus
 from .job_worker import JobExecutor
 from src.core.domain_exceptions import EntityNotFoundException
 
@@ -26,10 +29,15 @@ class ExplorationExecutor(JobExecutor):
     
     async def execute(self, job_id: str, parameters: Dict[str, Any], db_pool: DatabasePool) -> Dict[str, Any]:
         """Execute pandas profiling on dataset."""
+        # Create event bus and store for publishing events
+        event_store = PostgresEventStore(db_pool)
+        event_bus = InMemoryEventBus()
+        event_bus.set_event_store(event_store)
+        
         # Get job details from database
         async with db_pool.acquire() as conn:
             job = await conn.fetchrow(
-                "SELECT dataset_id, source_commit_id FROM dsa_jobs.analysis_runs WHERE id = $1::uuid",
+                "SELECT dataset_id, source_commit_id, user_id FROM dsa_jobs.analysis_runs WHERE id = $1::uuid",
                 job_id
             )
             
@@ -38,6 +46,7 @@ class ExplorationExecutor(JobExecutor):
             
             dataset_id = job["dataset_id"]
             source_commit_id = job["source_commit_id"]
+            user_id = job["user_id"]
         
         # Extract parameters
         table_key = parameters.get("table_key", "primary")
@@ -46,6 +55,14 @@ class ExplorationExecutor(JobExecutor):
         logger.info(f"Starting exploration job {job_id} for dataset {dataset_id}, table {table_key}")
         
         try:
+            # Publish job started event
+            await event_bus.publish(JobStartedEvent(
+                job_id=job_id,
+                job_type='exploration',
+                dataset_id=dataset_id,
+                user_id=user_id
+            ))
+            
             # Read data using existing infrastructure
             async with db_pool.acquire() as conn:
                 from ..infrastructure.postgres.uow import PostgresUnitOfWork
@@ -92,11 +109,22 @@ class ExplorationExecutor(JobExecutor):
                     "message": "Dataset is empty"
                 })
                 
-                return {
+                result = {
                     "profile_html": profile_html,
                     "profile_json": profile_json,
                     "dataset_info": dataset_info
                 }
+                
+                # Publish job completed event for empty dataset
+                await event_bus.publish(JobCompletedEvent(
+                    job_id=job_id,
+                    job_type='exploration',
+                    dataset_id=dataset_id,
+                    user_id=user_id,
+                    result=dataset_info
+                ))
+                
+                return result
             
             # Run profiling in thread pool to avoid blocking
             loop = asyncio.get_event_loop()
@@ -108,7 +136,7 @@ class ExplorationExecutor(JobExecutor):
             )
             
             # Return results
-            return {
+            result = {
                 "profile_html": profile_html,
                 "profile_json": profile_json,
                 "dataset_info": {
@@ -119,8 +147,29 @@ class ExplorationExecutor(JobExecutor):
                 }
             }
             
+            # Publish job completed event
+            await event_bus.publish(JobCompletedEvent(
+                job_id=job_id,
+                job_type='exploration',
+                dataset_id=dataset_id,
+                user_id=user_id,
+                result=result["dataset_info"]
+            ))
+            
+            return result
+            
         except Exception as e:
             logger.error(f"Exploration job {job_id} failed: {str(e)}", exc_info=True)
+            
+            # Publish job failed event
+            await event_bus.publish(JobFailedEvent(
+                job_id=job_id,
+                job_type='exploration',
+                dataset_id=dataset_id,
+                user_id=user_id,
+                error_message=str(e)
+            ))
+            
             raise
     
     def _generate_profile(self, df: pd.DataFrame, config: Dict[str, Any]) -> tuple[str, str]:

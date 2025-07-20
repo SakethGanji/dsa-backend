@@ -60,32 +60,27 @@ class PermissionChecker:
         db_pool: DatabasePool = Depends(get_db_pool)
     ) -> CurrentUser:
         """Check if user has required permission on dataset."""
-        # POC MODE: Allow all users to access all datasets
-        # TODO: Remove this bypass when moving to production
-        return current_user
-        
-        # Original permission checking code (commented out for POC)
         # Admin users have all permissions
-        # if current_user.is_admin():
-        #     return current_user
-        # 
-        # # Check specific dataset permission
-        # from .infrastructure.postgres import PostgresDatasetRepository
-        # async with db_pool.acquire() as conn:
-        #     dataset_repo = PostgresDatasetRepository(conn)
-        #     has_permission = await dataset_repo.check_user_permission(
-        #         dataset_id=dataset_id,
-        #         user_id=current_user.user_id,
-        #         required_permission=self.required_permission.value
-        #     )
-        # 
-        # if not has_permission:
-        #     raise HTTPException(
-        #         status_code=status.HTTP_403_FORBIDDEN,
-        #         detail=f"User does not have {self.required_permission.value} permission on this dataset"
-        #     )
-        # 
-        # return current_user
+        if current_user.is_admin():
+            return current_user
+        
+        # Check specific dataset permission
+        from .infrastructure.postgres import PostgresDatasetRepository
+        async with db_pool.acquire() as conn:
+            dataset_repo = PostgresDatasetRepository(conn)
+            has_permission = await dataset_repo.check_user_permission(
+                dataset_id=dataset_id,
+                user_id=current_user.user_id,
+                required_permission=self.required_permission.value
+            )
+        
+        if not has_permission:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"User does not have {self.required_permission.value} permission on this dataset"
+            )
+        
+        return current_user
 
 
 # Pre-configured permission checkers
@@ -108,13 +103,17 @@ class GenericPermissionChecker:
         db_pool: DatabasePool = Depends(get_db_pool)
     ) -> CurrentUser:
         """Check if user has required permission on resource."""
-        # POC MODE: Allow all users to access all resources
-        # TODO: Remove this bypass when moving to production
-        return current_user
+        # For now, admin users have all permissions
+        # A full generic permission system would check resource-specific permissions
+        if current_user.is_admin():
+            return current_user
         
-        # TODO: Implement generic permission checking
-        # This will be implemented when we have a generic permission system
-        # For now, use specific checkers like require_dataset_read
+        # Non-admin users need explicit permissions
+        # This would be expanded with proper resource-based permission checking
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"User does not have {self.permission_level} permission on {self.resource_type}"
+        )
 
 
 # Job permission checkers

@@ -5,10 +5,14 @@ import json
 import logging
 from typing import Dict, Any, List, AsyncGenerator, Set, Tuple, Optional
 from uuid import UUID
+from datetime import datetime
 from abc import ABC, abstractmethod
 
 from asyncpg import Connection
 from src.infrastructure.postgres.database import DatabasePool
+from src.infrastructure.postgres.event_store import PostgresEventStore
+from src.core.abstractions.events import JobStartedEvent, JobCompletedEvent, JobFailedEvent
+from src.core.events.registry import InMemoryEventBus
 from .job_worker import JobExecutor
 
 logger = logging.getLogger(__name__)
@@ -418,6 +422,11 @@ class SamplingJobExecutor(JobExecutor):
         """Execute sampling job using SQL-based methods with streaming results."""
         logger.info(f"Starting sampling job {job_id} with parameters: {parameters}")
         
+        # Create event bus and store for publishing events
+        event_store = PostgresEventStore(db_pool)
+        event_bus = InMemoryEventBus()
+        event_bus.set_event_store(event_store)
+        
         # Validate parameters
         if not isinstance(parameters, dict):
             raise TypeError(f"Expected parameters to be dict, got {type(parameters).__name__}")
@@ -427,94 +436,140 @@ class SamplingJobExecutor(JobExecutor):
         total_sampled = 0
         round_results = []
         
+        # Get job details for event publishing
         async with db_pool.acquire() as conn:
-            async with conn.transaction():
-                # Create temporary exclusion table with auto-cleanup
-                await conn.execute("""
+            job = await conn.fetchrow(
+                "SELECT dataset_id, user_id FROM dsa_jobs.analysis_runs WHERE id = $1::uuid",
+                job_id
+            )
+            dataset_id = job["dataset_id"] if job else parameters.get('dataset_id')
+            user_id = job["user_id"] if job else parameters.get('user_id')
+        
+        try:
+            # Publish job started event
+            await event_bus.publish(JobStartedEvent(
+                job_id=job_id,
+                job_type='sampling',
+                dataset_id=dataset_id,
+                user_id=user_id
+            ))
+            
+            async with db_pool.acquire() as conn:
+                async with conn.transaction():
+                    # Create temporary exclusion table with auto-cleanup
+                    await conn.execute("""
                     CREATE TEMP TABLE IF NOT EXISTS temp_sampling_exclusions (
                         row_id TEXT PRIMARY KEY
                     ) ON COMMIT DROP
-                """)
-                
-                # Process each sampling round
-                rounds = parameters.get('rounds', [])
-                if not isinstance(rounds, list):
-                    raise TypeError(f"Expected 'rounds' to be a list, got {type(rounds).__name__}")
-                
-                for round_idx, round_config in enumerate(rounds):
-                    logger.info(f"Executing sampling round {round_idx + 1}")
+                    """)
                     
-                    # Validate round_config
-                    if not isinstance(round_config, dict):
-                        raise TypeError(f"Expected round_config to be dict, got {type(round_config).__name__}")
+                    # Process each sampling round
+                    rounds = parameters.get('rounds', [])
+                    if not isinstance(rounds, list):
+                        raise TypeError(f"Expected 'rounds' to be a list, got {type(rounds).__name__}")
                     
-                    count, round_summary = await self._execute_sampling_round(
-                        conn, 
-                        parameters['source_commit_id'].strip(),  # Remove any trailing spaces
-                        parameters.get('table_key', 'primary'),
-                        round_config,
-                        round_idx + 1
-                    )
+                    for round_idx, round_config in enumerate(rounds):
+                        logger.info(f"Executing sampling round {round_idx + 1}")
+                        
+                        # Validate round_config
+                        if not isinstance(round_config, dict):
+                            raise TypeError(f"Expected round_config to be dict, got {type(round_config).__name__}")
+                        
+                        count, round_summary = await self._execute_sampling_round(
+                            conn, 
+                            parameters['source_commit_id'].strip(),  # Remove any trailing spaces
+                            parameters.get('table_key', 'primary'),
+                            round_config,
+                            round_idx + 1
+                        )
+                        
+                        total_sampled += count
+                        round_results.append(round_summary)
+                        
+                        logger.info(f"Round {round_idx + 1} sampled {count} rows")
                     
-                    total_sampled += count
-                    round_results.append(round_summary)
+                    # Export residual if requested
+                    residual_count = 0
+                    if parameters.get('export_residual', False):
+                        residual_count = await self._export_residual_data(
+                            conn,
+                            parameters['source_commit_id'].strip(),  # Remove any trailing spaces
+                            parameters.get('table_key', 'primary'),
+                            parameters.get('residual_output_name', 'Residual Data')
+                        )
+                        logger.info(f"Exported {residual_count} residual rows")
                     
-                    logger.info(f"Round {round_idx + 1} sampled {count} rows")
-                
-                # Export residual if requested
-                residual_count = 0
-                if parameters.get('export_residual', False):
-                    residual_count = await self._export_residual_data(
+                    # Create output commit (always)
+                    output_commit_id = await self._create_output_commit(
                         conn,
+                        parameters['dataset_id'],
                         parameters['source_commit_id'].strip(),  # Remove any trailing spaces
-                        parameters.get('table_key', 'primary'),
-                        parameters.get('residual_output_name', 'Residual Data')
+                        parameters.get('user_id'),
+                        parameters.get('commit_message', f'Sampled {total_sampled} rows'),
+                        round_results
                     )
-                    logger.info(f"Exported {residual_count} residual rows")
+                    
+                    logger.info(f"Created output commit: {output_commit_id}")
+                    
+                    # Create branch for the output commit
+                    # Use provided branch name or default to commit ID
+                    output_branch_name = parameters.get('output_branch_name') or output_commit_id
+                    await self._create_output_branch(
+                        conn,
+                        parameters['dataset_id'],
+                        output_branch_name,
+                        output_commit_id
+                    )
+                    logger.info(f"Created output branch: {output_branch_name}")
+                    
+                    # Clean up temporary tables
+                    for round_idx in range(len(round_results)):
+                        round_table = f"temp_round_{round_idx + 1}_samples"
+                        await conn.execute(f"DROP TABLE IF EXISTS {round_table}")
                 
-                # Create output commit (always)
-                output_commit_id = await self._create_output_commit(
-                    conn,
-                    parameters['dataset_id'],
-                    parameters['source_commit_id'].strip(),  # Remove any trailing spaces
-                    parameters.get('user_id'),
-                    parameters.get('commit_message', f'Sampled {total_sampled} rows'),
-                    round_results
-                )
-                
-                logger.info(f"Created output commit: {output_commit_id}")
-                
-                # Create branch for the output commit
-                # Use provided branch name or default to commit ID
-                output_branch_name = parameters.get('output_branch_name') or output_commit_id
-                await self._create_output_branch(
-                    conn,
-                    parameters['dataset_id'],
-                    output_branch_name,
-                    output_commit_id
-                )
-                logger.info(f"Created output branch: {output_branch_name}")
-                
-                # Clean up temporary tables
-                for round_idx in range(len(round_results)):
-                    round_table = f"temp_round_{round_idx + 1}_samples"
-                    await conn.execute(f"DROP TABLE IF EXISTS {round_table}")
-                
-                # Also drop residual table if it was created
-                await conn.execute("DROP TABLE IF EXISTS temp_residual_data")
-        
-        # Return job summary
-        end_time = datetime.utcnow()
-        return {
-            'status': 'completed',
-            'total_sampled': total_sampled,
-            'residual_count': residual_count,
-            'output_commit_id': output_commit_id,
-            'output_branch_name': parameters.get('output_branch_name') or output_commit_id,
-            'round_results': round_results,
-            'execution_time_seconds': (end_time - start_time).total_seconds(),
-            'parameters_used': parameters
-        }
+                    # Also drop residual table if it was created
+                    await conn.execute("DROP TABLE IF EXISTS temp_residual_data")
+            
+            # Return job summary
+            end_time = datetime.utcnow()
+            result = {
+                'status': 'completed',
+                'total_sampled': total_sampled,
+                'residual_count': residual_count,
+                'output_commit_id': output_commit_id,
+                'output_branch_name': parameters.get('output_branch_name') or output_commit_id,
+                'round_results': round_results,
+                'execution_time_seconds': (end_time - start_time).total_seconds(),
+                'parameters_used': parameters
+            }
+            
+            # Publish job completed event
+            await event_bus.publish(JobCompletedEvent(
+                job_id=job_id,
+                job_type='sampling',
+                dataset_id=dataset_id,
+                user_id=user_id,
+                result={
+                    'total_sampled': total_sampled,
+                    'output_commit_id': output_commit_id
+                }
+            ))
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Sampling job {job_id} failed: {str(e)}", exc_info=True)
+            
+            # Publish job failed event
+            await event_bus.publish(JobFailedEvent(
+                job_id=job_id,
+                job_type='sampling',
+                dataset_id=dataset_id,
+                user_id=user_id,
+                error_message=str(e)
+            ))
+            
+            raise
     
     async def _execute_sampling_round(
         self, 

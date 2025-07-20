@@ -8,16 +8,7 @@ from dataclasses import dataclass
 
 from src.core.abstractions import IUnitOfWork, ITableMetadataReader, ITableDataReader
 from src.core.domain_exceptions import EntityNotFoundException, ValidationException
-
-
-@dataclass
-class DownloadTableCommand:
-    user_id: int
-    dataset_id: int
-    ref_name: str
-    table_key: str
-    format: str = "csv"  # csv or json
-    columns: Optional[List[str]] = None  # Specific columns to include
+from ..models import DownloadTableCommand
 
 
 class DownloadTableHandler:

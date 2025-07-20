@@ -3,7 +3,6 @@
 from typing import Dict, Any, List
 from dataclasses import dataclass
 from src.core.abstractions import IUnitOfWork
-from src.infrastructure.postgres.table_reader import PostgresTableReader
 from ...base_handler import BaseHandler
 from src.core.decorators import requires_permission
 from src.core.domain_exceptions import EntityNotFoundException
@@ -39,27 +38,27 @@ class GetColumnSamplesHandler(BaseHandler):
         Returns:
             ColumnSamplesResponse with samples
         """
-        # Get current commit for ref
-        ref = await self._uow.commits.get_ref(command.dataset_id, command.ref_name)
-        if not ref:
-            raise EntityNotFoundException("Ref", command.ref_name)
-        
-        commit_id = ref['commit_id']
-        
-        # Get column samples using table reader
-        table_reader = PostgresTableReader(self._uow.connection)
-        samples = await table_reader.get_column_samples(
-            commit_id, command.table_key, command.columns, command.samples_per_column
-        )
-        
-        return ColumnSamplesResponse(
-            samples=samples,
-            metadata={
-                'dataset_id': command.dataset_id,
-                'ref_name': command.ref_name,
-                'table_key': command.table_key,
-                'commit_id': commit_id,
-                'columns_requested': len(command.columns),
-                'samples_per_column': command.samples_per_column
-            }
-        )
+        async with self._uow:
+            # Get current commit for ref
+            ref = await self._uow.commits.get_ref(command.dataset_id, command.ref_name)
+            if not ref:
+                raise EntityNotFoundException("Ref", command.ref_name)
+            
+            commit_id = ref['commit_id']
+            
+            # Get column samples using table reader abstraction
+            samples = await self._uow.table_reader.get_column_samples(
+                commit_id, command.table_key, command.columns, command.samples_per_column
+            )
+            
+            return ColumnSamplesResponse(
+                samples=samples,
+                metadata={
+                    'dataset_id': command.dataset_id,
+                    'ref_name': command.ref_name,
+                    'table_key': command.table_key,
+                    'commit_id': commit_id,
+                    'columns_requested': len(command.columns),
+                    'samples_per_column': command.samples_per_column
+                }
+            )

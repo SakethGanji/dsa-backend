@@ -1,17 +1,13 @@
 """Handler for deleting datasets with standardized response."""
 
 from dataclasses import dataclass
+from typing import Optional
 from src.core.abstractions import IUnitOfWork, IDatasetRepository
+from src.core.abstractions.events import IEventBus, DatasetDeletedEvent
 from ...base_handler import BaseHandler, with_transaction
 from src.core.decorators import requires_permission
 from src.core.domain_exceptions import EntityNotFoundException
-from src.api.models import BaseDeleteResponse
-
-
-@dataclass
-class DeleteDatasetCommand:
-    user_id: int  # Must be first for decorator
-    dataset_id: int
+from ..models import DeleteDatasetCommand
 
 
 @dataclass
@@ -33,10 +29,12 @@ class DeleteDatasetHandler(BaseHandler):
     def __init__(
         self,
         uow: IUnitOfWork,
-        dataset_repo: IDatasetRepository
+        dataset_repo: IDatasetRepository,
+        event_bus: Optional[IEventBus] = None
     ):
         super().__init__(uow)
         self._dataset_repo = dataset_repo
+        self._event_bus = event_bus
     
     @with_transaction
     @requires_permission("datasets", "admin")  # Only admins can delete datasets
@@ -62,21 +60,19 @@ class DeleteDatasetHandler(BaseHandler):
         # 1. Delete tags
         await self._dataset_repo.remove_dataset_tags(command.dataset_id)
         
-        # 2. Delete permissions (handled by database cascade delete)
-        
-        # 3. Delete refs
-        if hasattr(self._uow, 'commits'):
-            await self._uow.commits.delete_all_refs(command.dataset_id)
-        
-        # 4. Delete commits and manifests (cascade delete should handle manifests)
-        if hasattr(self._uow, 'commits'):
-            await self._uow.commits.delete_all_commits(command.dataset_id)
-        
-        # 5. Finally, delete the dataset itself
+        # 2. Delete the dataset itself (cascade should handle related records)
         await self._dataset_repo.delete_dataset(command.dataset_id)
         
         # Note: Row data cleanup might be handled by a separate cleanup job
         # to avoid deleting rows that are shared across datasets
+        
+        # Publish deletion event
+        if self._event_bus:
+            event = DatasetDeletedEvent.from_deletion(
+                dataset_id=command.dataset_id,
+                deleted_by=command.user_id
+            )
+            await self._event_bus.publish(event)
         
         # Return standardized response
         return DeleteDatasetResponse(

@@ -9,14 +9,7 @@ from src.core.domain_exceptions import ConflictException
 from src.infrastructure.postgres.database import DatabasePool
 from src.infrastructure.postgres.uow import PostgresUnitOfWork
 from src.infrastructure.external.password_hasher import PasswordHasher
-
-
-@dataclass
-class CreateUserPublicCommand:
-    """Command to create a user via public endpoint."""
-    soeid: str
-    password: str
-    role_id: Optional[int] = None
+from ..models import CreateUserPublicCommand
 
 
 @dataclass

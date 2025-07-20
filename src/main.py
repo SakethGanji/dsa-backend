@@ -1,4 +1,4 @@
-"""Main FastAPI application - REFACTORED with new error handling."""
+"""Main FastAPI application with comprehensive error handling."""
 
 from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,7 +14,8 @@ from .infrastructure.external.password_manager import get_password_manager
 from .api.dependencies import (
     set_database_pool,
     set_parser_factory,
-    set_stats_calculator
+    set_stats_calculator,
+    set_event_bus
 )
 from .infrastructure.services import FileParserFactory, DefaultStatisticsCalculator
 
@@ -31,6 +32,14 @@ from .workers.sampling_executor import SamplingJobExecutor
 from .workers.exploration_executor import ExplorationExecutor
 from .workers.sql_transform_executor import SqlTransformExecutor
 
+# Import event system
+from .core.events import EventHandlerRegistry, InMemoryEventBus
+from .infrastructure.postgres.event_store import PostgresEventStore
+from .features.search.event_handlers import SearchIndexEventHandler
+from .features.common.event_handlers import (
+    CacheInvalidationHandler, AuditLogHandler, NotificationHandler
+)
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -38,19 +47,23 @@ logger = logging.getLogger(__name__)
 # Global references for health check
 app_state = {
     "db_pool": None,
-    "worker_task": None
+    "worker_task": None,
+    "event_bus": None,
+    "event_registry": None
 }
 
 # Global database pool
 db_pool: DatabasePool = None
 worker_task = None
 worker = None
+event_bus = None
+event_registry = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifecycle."""
-    global db_pool, worker_task, worker
+    global db_pool, worker_task, worker, event_bus, event_registry
     
     settings = get_settings()
     logger.info("Starting DSA Platform...")
@@ -84,6 +97,33 @@ async def lifespan(app: FastAPI):
     set_database_pool(db_pool)
     set_parser_factory(FileParserFactory())
     set_stats_calculator(DefaultStatisticsCalculator())
+    
+    # Initialize event system
+    logger.info("Initializing event system...")
+    event_store = PostgresEventStore(db_pool)
+    event_bus = InMemoryEventBus(store_events=True)
+    event_bus.set_event_store(event_store)
+    
+    # Create and register event handlers
+    event_registry = EventHandlerRegistry()
+    
+    # Register handlers
+    event_registry.register_handler(SearchIndexEventHandler(db_pool))
+    event_registry.register_handler(AuditLogHandler(db_pool))
+    event_registry.register_handler(CacheInvalidationHandler())  # No cache configured yet
+    event_registry.register_handler(NotificationHandler())  # No notification service yet
+    
+    # Wire handlers to event bus
+    event_registry.wire_to_event_bus(event_bus)
+    
+    # Store in app state
+    app_state["event_bus"] = event_bus
+    app_state["event_registry"] = event_registry
+    
+    # Set event bus in dependencies
+    set_event_bus(event_bus)
+    
+    logger.info(f"Event system initialized with {len(event_registry.get_all_handlers())} handlers")
     
     # Initialize and start job worker
     worker = JobWorker(db_pool)

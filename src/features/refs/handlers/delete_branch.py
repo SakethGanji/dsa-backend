@@ -1,18 +1,14 @@
 """Handler for deleting a branch with standardized response."""
 
 from dataclasses import dataclass
+from typing import Optional
 from src.core.abstractions import IUnitOfWork
+from src.core.abstractions.events import IEventBus, BranchDeletedEvent
 from src.api.models import PermissionType
 from ...base_handler import BaseHandler, with_transaction
 from src.core.decorators import requires_permission
 from src.core.domain_exceptions import EntityNotFoundException, BusinessRuleViolation
-
-
-@dataclass
-class DeleteBranchCommand:
-    user_id: int  # Must be first for decorator
-    dataset_id: int
-    ref_name: str
+from ..models import DeleteBranchCommand
 
 
 @dataclass
@@ -31,8 +27,9 @@ class DeleteBranchResponse:
 class DeleteBranchHandler(BaseHandler):
     """Handler for deleting a branch/ref."""
     
-    def __init__(self, uow: IUnitOfWork):
+    def __init__(self, uow: IUnitOfWork, event_bus: Optional[IEventBus] = None):
         super().__init__(uow)
+        self._event_bus = event_bus
     
     @with_transaction
     @requires_permission("datasets", "write")
@@ -62,6 +59,14 @@ class DeleteBranchHandler(BaseHandler):
         
         if not deleted:
             raise EntityNotFoundException("Branch", command.ref_name)
+        
+        # Publish event
+        if self._event_bus:
+            await self._event_bus.publish(BranchDeletedEvent(
+                dataset_id=command.dataset_id,
+                branch_name=command.ref_name,
+                deleted_by=command.user_id
+            ))
         
         # Return standardized response
         return DeleteBranchResponse(

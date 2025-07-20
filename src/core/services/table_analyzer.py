@@ -157,9 +157,6 @@ class TableAnalysisService:
         # This would use a proper repository method
         # For now, we'll store it as part of commit metadata
         logger.info(f"Storing analysis for table {table_key} in commit {commit_id}")
-        
-        # In a real implementation, this would call:
-        # await self._uow.commits.store_table_analysis(commit_id, table_key, analysis)
     
     async def get_table_analysis(
         self,

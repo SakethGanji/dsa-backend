@@ -7,19 +7,7 @@ from src.core.services.sampling_service import SamplingJobManager
 from ...base_handler import BaseHandler
 from src.core.decorators import requires_permission
 from src.core.domain_exceptions import EntityNotFoundException
-
-
-@dataclass
-class CreateSamplingJobCommand:
-    user_id: int  # Must be first for decorator
-    dataset_id: int
-    source_ref: str
-    table_key: str
-    output_branch_name: Optional[str]
-    commit_message: str
-    rounds: List[Dict[str, Any]]
-    export_residual: bool
-    residual_output_name: str
+from ..models import CreateSamplingJobCommand
 
 
 @dataclass

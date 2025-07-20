@@ -20,12 +20,12 @@ class GetJobStatusHandler:
         2. Verify user owns the job
         3. Return status information
         """
-        # TODO: Get job details
+        # Get job details
         job = await self._job_repo.get_job_by_id(job_id)
         if not job:
             raise EntityNotFoundException("Job", job_id)
         
-        # TODO: Verify user owns the job or has permission
+        # Verify user owns the job or has permission
         if job['user_id'] != user_id:
             # In production, might want to check if user has admin permission
             raise ForbiddenException()
