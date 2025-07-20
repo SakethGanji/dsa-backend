@@ -7,6 +7,16 @@ from .repositories import (
     IJobRepository,
     ITableReader
 )
+from .table_interfaces import (
+    ITableMetadataReader,
+    ITableDataReader,
+    ITableAnalytics
+)
+from .commit_interfaces import (
+    ICommitOperations,
+    IRefOperations,
+    IManifestOperations
+)
 from .uow import IUnitOfWork
 from .services import (
     IFileProcessingService,
@@ -25,6 +35,14 @@ __all__ = [
     'ICommitRepository',
     'IJobRepository',
     'ITableReader',
+    # Table Interfaces (Segregated)
+    'ITableMetadataReader',
+    'ITableDataReader',
+    'ITableAnalytics',
+    # Commit Interfaces (Segregated)
+    'ICommitOperations',
+    'IRefOperations', 
+    'IManifestOperations',
     # Services
     'IFileProcessingService',
     'IStatisticsService',

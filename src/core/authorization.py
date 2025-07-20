@@ -3,7 +3,7 @@
 from typing import Dict, Any, Optional
 from fastapi import Depends, HTTPException, status
 from .auth import get_current_user
-from .abstractions import IDatasetRepository
+from .abstractions import IDatasetRepository, IUserRepository
 from ..api.models import CurrentUser, PermissionType
 from ..infrastructure.postgres.database import DatabasePool
 from .exceptions import PermissionDeniedError, permission_denied, unauthorized
@@ -26,10 +26,12 @@ async def get_current_user_info(
         )
     
     # Get user_id from database based on soeid
-    from ..infrastructure.postgres import PostgresUserRepository
-    async with db_pool.acquire() as conn:
-        user_repo = PostgresUserRepository(conn)
-        user = await user_repo.get_by_soeid(token_data["soeid"])
+    from ..infrastructure.postgres.uow import PostgresUnitOfWork
+    
+    # Create unit of work to access repository through interface
+    uow = PostgresUnitOfWork(db_pool)
+    async with uow:
+        user = await uow.users.get_by_soeid(token_data["soeid"])
         
         if not user:
             raise HTTPException(

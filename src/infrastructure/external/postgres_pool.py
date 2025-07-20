@@ -1,26 +1,28 @@
 """PostgreSQL connection pool implementation."""
 
-from typing import Optional, AsyncContextManager
+from typing import Optional, AsyncContextManager, Dict, Any, List
 import asyncpg
 from contextlib import asynccontextmanager
-from src.core.abstractions.external import IConnectionPool
+from src.core.abstractions.database import IDatabasePool, IDatabaseConnection
+from ..postgres.adapters import AsyncpgConnectionAdapter
 
 
-class PostgresConnectionPool(IConnectionPool):
-    """PostgreSQL implementation of IConnectionPool."""
+class PostgresConnectionPool(IDatabasePool):
+    """PostgreSQL implementation of IDatabasePool."""
     
     def __init__(self, pool: asyncpg.Pool):
         self._pool = pool
     
     @asynccontextmanager
-    async def acquire(self) -> AsyncContextManager[asyncpg.Connection]:
+    async def acquire(self) -> AsyncContextManager[IDatabaseConnection]:
         """Acquire a connection from the pool."""
         async with self._pool.acquire() as connection:
-            yield connection
+            yield AsyncpgConnectionAdapter(connection)
     
-    async def release(self, connection: asyncpg.Connection) -> None:
+    async def release(self, connection: IDatabaseConnection) -> None:
         """Release a connection back to the pool."""
-        await self._pool.release(connection)
+        # Connection release is handled by context manager
+        pass
     
     async def close(self) -> None:
         """Close the connection pool."""
@@ -28,15 +30,14 @@ class PostgresConnectionPool(IConnectionPool):
     
     async def execute(self, query: str, *args) -> str:
         """Execute a query without returning results."""
-        async with self.acquire() as conn:
-            return await conn.execute(query, *args)
+        return await self._pool.execute(query, *args)
     
-    async def fetchrow(self, query: str, *args) -> Optional[asyncpg.Record]:
+    async def fetchrow(self, query: str, *args) -> Optional[Dict[str, Any]]:
         """Execute a query and return a single row."""
-        async with self.acquire() as conn:
-            return await conn.fetchrow(query, *args)
+        row = await self._pool.fetchrow(query, *args)
+        return dict(row) if row else None
     
-    async def fetch(self, query: str, *args) -> list[asyncpg.Record]:
+    async def fetch(self, query: str, *args) -> List[Dict[str, Any]]:
         """Execute a query and return all rows."""
-        async with self.acquire() as conn:
-            return await conn.fetch(query, *args)
+        rows = await self._pool.fetch(query, *args)
+        return [dict(row) for row in rows]

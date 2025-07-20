@@ -1,9 +1,11 @@
 """PostgreSQL Unit of Work implementation."""
 
-from typing import Optional
-from asyncpg import Connection
+from typing import Optional, Union
+import asyncpg
 
 from src.core.abstractions import IUnitOfWork
+from src.core.abstractions.database import IDatabaseConnection
+from .adapters import AsyncpgConnectionAdapter
 from .user_repo import PostgresUserRepository
 from .dataset_repo import PostgresDatasetRepository
 from .versioning_repo import PostgresCommitRepository
@@ -17,7 +19,8 @@ class PostgresUnitOfWork(IUnitOfWork):
     
     def __init__(self, pool):
         self._pool = pool
-        self._connection: Optional[Connection] = None
+        self._connection: Optional[Union[asyncpg.Connection, IDatabaseConnection]] = None
+        self._is_adapted = False
         self._transaction = None
         self._users = None
         self._datasets = None
@@ -39,8 +42,13 @@ class PostgresUnitOfWork(IUnitOfWork):
             await self.commit()
         
         if self._connection:
-            await self._pool._pool.release(self._connection)
+            # Release based on connection type
+            if self._is_adapted and hasattr(self._connection, 'raw_connection'):
+                await self._pool._pool.release(self._connection.raw_connection)
+            elif isinstance(self._connection, asyncpg.Connection):
+                await self._pool._pool.release(self._connection)
             self._connection = None
+            self._is_adapted = False
         
         # Reset repositories
         self._users = None
@@ -53,8 +61,12 @@ class PostgresUnitOfWork(IUnitOfWork):
     async def begin(self):
         """Begin a new transaction."""
         if self._connection is None:
-            self._connection = await self._pool._pool.acquire()
-            self._transaction = self._connection.transaction()
+            raw_conn = await self._pool._pool.acquire()
+            # Wrap in adapter for consistency
+            self._connection = AsyncpgConnectionAdapter(raw_conn)
+            self._is_adapted = True
+            # Get transaction from raw connection
+            self._transaction = raw_conn.transaction()
             await self._transaction.start()
     
     async def commit(self):
@@ -70,7 +82,7 @@ class PostgresUnitOfWork(IUnitOfWork):
             self._transaction = None
     
     @property
-    def connection(self) -> Connection:
+    def connection(self) -> Union[asyncpg.Connection, IDatabaseConnection]:
         """Get the current database connection."""
         if not self._connection:
             raise RuntimeError("No active connection in unit of work")

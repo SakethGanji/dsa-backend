@@ -257,7 +257,7 @@ class SqlTransformExecutor(JobExecutor):
             row_json = json.dumps(row_data, default=str)
             
             # Calculate row hash from data content only (not the wrapper)
-            # This matches the hash calculation in create_commit.py and import_executor_optimized.py
+            # This matches the hash calculation in create_commit.py and import_executor.py
             data_json = json.dumps(inner_data, sort_keys=True, separators=(',', ':'), default=str)
             row_hash = hashlib.sha256(data_json.encode()).hexdigest()
             

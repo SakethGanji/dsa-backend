@@ -8,8 +8,7 @@ from dataclasses import dataclass
 import openpyxl
 from openpyxl import Workbook
 
-from src.core.abstractions import IUnitOfWork
-from src.infrastructure.postgres.table_reader import PostgresTableReader
+from src.core.abstractions import IUnitOfWork, ITableMetadataReader, ITableDataReader
 from src.core.domain_exceptions import EntityNotFoundException, ValidationException
 
 
@@ -25,9 +24,10 @@ class DownloadDatasetCommand:
 class DownloadDatasetHandler:
     """Handler for downloading dataset data."""
     
-    def __init__(self, uow: IUnitOfWork, table_reader: PostgresTableReader):
+    def __init__(self, uow: IUnitOfWork, metadata_reader: ITableMetadataReader, data_reader: ITableDataReader):
         self._uow = uow
-        self._table_reader = table_reader
+        self._metadata_reader = metadata_reader
+        self._data_reader = data_reader
     
     async def handle(self, command: DownloadDatasetCommand) -> Dict[str, Any]:
         """
@@ -133,7 +133,7 @@ class DownloadDatasetHandler:
         batch_size = 1000
         
         while True:
-            result = await self._table_reader.get_table_data(
+            result = await self._data_reader.get_table_data(
                 commit_id=commit_id,
                 table_key=table_key,
                 offset=offset,
@@ -151,7 +151,7 @@ class DownloadDatasetHandler:
     async def _get_table_columns(self, commit_id: str, table_key: str, data: List[Dict]) -> List[str]:
         """Get column names for a table."""
         # Try to get from schema first
-        schema = await self._table_reader.get_table_schema(commit_id, table_key)
+        schema = await self._metadata_reader.get_table_schema(commit_id, table_key)
         if schema and 'columns' in schema:
             return [col['name'] for col in schema['columns']]
         
@@ -170,7 +170,7 @@ class DownloadDatasetHandler:
             wb.remove(wb['Sheet'])
         
         # Get all table keys
-        table_keys = await self._table_reader.list_table_keys(commit_id)
+        table_keys = await self._metadata_reader.list_table_keys(commit_id)
         if not table_keys:
             table_keys = ['primary']  # Default to primary
         
@@ -212,7 +212,7 @@ class DownloadDatasetHandler:
         }
         
         # Get all table keys
-        table_keys = await self._table_reader.list_table_keys(commit_id)
+        table_keys = await self._metadata_reader.list_table_keys(commit_id)
         if not table_keys:
             table_keys = ['primary']  # Default to primary
         
@@ -221,7 +221,7 @@ class DownloadDatasetHandler:
             data = await self._get_all_table_data(commit_id, table_key)
             
             # Get schema
-            schema = await self._table_reader.get_table_schema(commit_id, table_key)
+            schema = await self._metadata_reader.get_table_schema(commit_id, table_key)
             
             result["tables"][table_key] = {
                 "schema": schema,

@@ -1,16 +1,14 @@
 """Handler for creating new users."""
 
 from typing import Dict, Any
-from passlib.context import CryptContext
 from ....core.abstractions import IUnitOfWork, IUserRepository
+from ....core.abstractions.external import IPasswordManager
+from ....infrastructure.external.password_hasher import PasswordHasher
 from ....api.models.requests import CreateUserRequest
 from ....api.models.responses import CreateUserResponse
 from ....features.base_handler import BaseHandler, with_transaction
 from ....core.decorators import requires_role
 from dataclasses import dataclass
-
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 @dataclass
@@ -24,9 +22,10 @@ class CreateUserCommand:
 class CreateUserHandler(BaseHandler):
     """Handler for creating new users with proper password hashing."""
     
-    def __init__(self, uow: IUnitOfWork, user_repo: IUserRepository):
+    def __init__(self, uow: IUnitOfWork, user_repo: IUserRepository, password_manager: IPasswordManager = None):
         super().__init__(uow)
         self._user_repo = user_repo
+        self._password_manager = password_manager or PasswordHasher()
     
     @with_transaction
     @requires_role("admin")  # Only admins can create users
@@ -40,7 +39,7 @@ class CreateUserHandler(BaseHandler):
             raise ValueError(f"User with SOEID {command.soeid} already exists")
         
         # Hash the password
-        password_hash = pwd_context.hash(command.password)
+        password_hash = self._password_manager.hash_password(command.password)
         
         # Create user
         user_id = await self._user_repo.create_user(

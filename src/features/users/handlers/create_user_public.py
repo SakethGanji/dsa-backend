@@ -3,12 +3,12 @@
 from dataclasses import dataclass
 from typing import Optional
 from datetime import datetime
-from passlib.context import CryptContext
-
 from src.core.abstractions import IUnitOfWork
-from src.infrastructure.postgres import PostgresUserRepository
+from src.core.abstractions.external import IPasswordManager
 from src.core.domain_exceptions import ConflictException
 from src.infrastructure.postgres.database import DatabasePool
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
+from src.infrastructure.external.password_hasher import PasswordHasher
 
 
 @dataclass
@@ -33,17 +33,16 @@ class CreateUserPublicResponse:
 class CreateUserPublicHandler:
     """Handler for creating users via public endpoint (testing only)."""
     
-    def __init__(self, pool: DatabasePool):
+    def __init__(self, pool: DatabasePool, password_manager: IPasswordManager = None):
         self._pool = pool
-        self._pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+        self._password_manager = password_manager or PasswordHasher()
     
     async def handle(self, command: CreateUserPublicCommand) -> CreateUserPublicResponse:
         """Create a new user."""
-        async with self._pool.acquire() as conn:
-            user_repo = PostgresUserRepository(conn)
-            
+        uow = PostgresUnitOfWork(self._pool)
+        async with uow:
             # Check if user already exists
-            existing_user = await user_repo.get_by_soeid(command.soeid)
+            existing_user = await uow.users.get_by_soeid(command.soeid)
             if existing_user:
                 raise ConflictException(
                     f"User with SOEID {command.soeid} already exists",
@@ -52,13 +51,13 @@ class CreateUserPublicHandler:
                 )
             
             # Hash the password
-            password_hash = self._pwd_context.hash(command.password)
+            password_hash = self._password_manager.hash_password(command.password)
             
             # Ensure role exists (default to admin role for testing)
             role_id = command.role_id
             if not role_id:
                 # Get or create admin role
-                role = await conn.fetchrow("""
+                role = await uow.connection.fetchrow("""
                     INSERT INTO dsa_auth.roles (role_name, description) 
                     VALUES ('admin', 'Administrator role')
                     ON CONFLICT (role_name) DO UPDATE SET role_name = EXCLUDED.role_name
@@ -67,14 +66,14 @@ class CreateUserPublicHandler:
                 role_id = role['id']
             
             # Create user
-            user_id = await user_repo.create_user(
+            user_id = await uow.users.create_user(
                 soeid=command.soeid,
                 password_hash=password_hash,
                 role_id=role_id
             )
             
             # Get the created user details
-            user = await user_repo.get_by_id(user_id)
+            user = await uow.users.get_by_id(user_id)
             
             return CreateUserPublicResponse(
                 user_id=user['id'],

@@ -3,14 +3,12 @@
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
 from datetime import datetime
-from passlib.context import CryptContext
 from src.core.abstractions import IUnitOfWork, IUserRepository
+from src.core.abstractions.external import IPasswordManager
+from src.infrastructure.external.password_hasher import PasswordHasher
 from src.features.base_update_handler import BaseUpdateHandler
 from src.core.decorators import requires_role
 from src.core.domain_exceptions import ConflictException
-
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 @dataclass
@@ -34,9 +32,10 @@ class UpdateUserResponse:
 class UpdateUserHandler(BaseUpdateHandler[UpdateUserCommand, UpdateUserResponse, Dict[str, Any]]):
     """Handler for updating user information."""
     
-    def __init__(self, uow: IUnitOfWork, user_repo: IUserRepository):
+    def __init__(self, uow: IUnitOfWork, user_repo: IUserRepository, password_manager: IPasswordManager = None):
         super().__init__(uow)
         self._user_repo = user_repo
+        self._password_manager = password_manager or PasswordHasher()
     
     def get_entity_id(self, command: UpdateUserCommand) -> int:
         """Extract entity ID from command."""
@@ -71,7 +70,7 @@ class UpdateUserHandler(BaseUpdateHandler[UpdateUserCommand, UpdateUserResponse,
         
         if command.password is not None:
             # Hash the new password
-            update_data['password_hash'] = pwd_context.hash(command.password)
+            update_data['password_hash'] = self._password_manager.hash_password(command.password)
         
         if command.role_id is not None:
             update_data['role_id'] = command.role_id

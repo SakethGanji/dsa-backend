@@ -99,20 +99,6 @@ class PaginationMixin:
             has_more=total > offset + limit
         )
     
-    def paginate_response(
-        self,
-        items: List[T],
-        total: int,
-        offset: int,
-        limit: int
-    ) -> PaginatedResponse[T]:
-        """
-        Alias for create_paginated_response for backward compatibility.
-        
-        This method exists to maintain compatibility with existing code
-        that uses self.paginate_response().
-        """
-        return self.create_paginated_response(items, total, offset, limit)
 
 
 # Re-export common types for convenience

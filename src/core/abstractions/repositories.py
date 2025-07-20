@@ -129,15 +129,6 @@ class ICommitRepository(ABC):
         """Get ref details including commit_id"""
         pass
     
-    @abstractmethod
-    async def get_commit_data(self, commit_id: str, table_key: Optional[str] = None, offset: int = 0, limit: int = 100) -> List[Dict[str, Any]]:
-        """
-        Retrieve data for a commit, optionally filtered by table
-        
-        DEPRECATED: Use ITableReader.get_table_data() instead for consistent table-aware data access.
-        This method will be removed in a future version.
-        """
-        pass
     
     @abstractmethod
     async def create_commit_schema(self, commit_id: str, schema_definition: Dict[str, Any]) -> None:

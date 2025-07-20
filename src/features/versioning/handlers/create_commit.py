@@ -138,7 +138,7 @@ class CreateCommitHandler(BaseHandler[CreateCommitResponse]):
             sheet_counters[sheet_name] += 1
             
             # Create standardized row format for storage
-            # This matches the format used by import_executor_optimized.py
+            # This matches the format used by import_executor.py
             row_wrapper = {
                 "sheet_name": sheet_name,
                 "row_number": sheet_counters[sheet_name],  # 1-indexed

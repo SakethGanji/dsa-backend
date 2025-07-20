@@ -13,7 +13,7 @@ from ..core.authorization import get_current_user_info, require_dataset_read
 from ..core.exceptions import resource_not_found
 from .dependencies import get_uow, get_db_pool
 from ..core.abstractions import IUnitOfWork
-from ..infrastructure.postgres.table_reader import PostgresTableReader
+from ..core.abstractions import ITableReader
 from ..infrastructure.postgres.database import DatabasePool
 
 
@@ -23,9 +23,9 @@ router = APIRouter(prefix="/datasets", tags=["downloads"])
 # Local dependency helpers
 async def get_table_reader(
     uow: IUnitOfWork = Depends(get_uow)
-) -> PostgresTableReader:
+) -> ITableReader:
     """Get table reader."""
-    return PostgresTableReader(uow.connection)
+    return uow.table_reader
 
 
 @router.get("/{dataset_id}/refs/{ref_name}/download")
@@ -35,7 +35,7 @@ async def download_dataset(
     format: str = Query("csv", description="Export format (csv, excel, json)"),
     current_user: CurrentUser = Depends(get_current_user_info),
     uow: IUnitOfWork = Depends(get_uow),
-    table_reader: PostgresTableReader = Depends(get_table_reader),
+    table_reader: ITableReader = Depends(get_table_reader),
     _: CurrentUser = Depends(require_dataset_read)
 ):
     """Download entire dataset in specified format."""
@@ -50,7 +50,7 @@ async def download_dataset(
     )
     
     # Create handler and execute
-    handler = DownloadDatasetHandler(uow, table_reader)
+    handler = DownloadDatasetHandler(uow, table_reader, table_reader)
     result = await handler.handle(command)
     
     # Return streaming response
@@ -72,7 +72,7 @@ async def download_table(
     columns: Optional[str] = Query(None, description="Comma-separated column names"),
     current_user: CurrentUser = Depends(get_current_user_info),
     uow: IUnitOfWork = Depends(get_uow),
-    table_reader: PostgresTableReader = Depends(get_table_reader),
+    table_reader: ITableReader = Depends(get_table_reader),
     _: CurrentUser = Depends(require_dataset_read)
 ):
     """Download a specific table in specified format."""
@@ -92,7 +92,7 @@ async def download_table(
     )
     
     # Create handler and execute
-    handler = DownloadTableHandler(uow, table_reader)
+    handler = DownloadTableHandler(uow, table_reader, table_reader)
     result = await handler.handle(command)
     
     # Return streaming response

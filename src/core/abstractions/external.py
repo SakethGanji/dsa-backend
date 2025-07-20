@@ -1,53 +1,9 @@
 """Abstract interfaces for external dependencies."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Optional, Dict, AsyncContextManager
-import asyncpg
+from typing import Any, Optional, Dict, AsyncContextManager, List
 from datetime import datetime
 
-
-class IConnectionPool(ABC):
-    """Interface for database connection pool."""
-    
-    @abstractmethod
-    async def acquire(self) -> AsyncContextManager[asyncpg.Connection]:
-        """
-        Acquire a connection from the pool.
-        
-        Returns:
-            AsyncContextManager that yields a Connection
-        """
-        pass
-    
-    @abstractmethod
-    async def release(self, connection: asyncpg.Connection) -> None:
-        """
-        Release a connection back to the pool.
-        
-        Args:
-            connection: The connection to release
-        """
-        pass
-    
-    @abstractmethod
-    async def close(self) -> None:
-        """Close the connection pool."""
-        pass
-    
-    @abstractmethod
-    async def execute(self, query: str, *args) -> str:
-        """Execute a query without returning results."""
-        pass
-    
-    @abstractmethod
-    async def fetchrow(self, query: str, *args) -> Optional[asyncpg.Record]:
-        """Execute a query and return a single row."""
-        pass
-    
-    @abstractmethod
-    async def fetch(self, query: str, *args) -> list[asyncpg.Record]:
-        """Execute a query and return all rows."""
-        pass
 
 
 class IFileStorage(ABC):
@@ -319,6 +275,37 @@ class IMessageQueue(ABC):
         
         Args:
             topic: Topic/queue name
+        """
+        pass
+
+
+class IPasswordManager(ABC):
+    """Interface for password hashing and verification."""
+    
+    @abstractmethod
+    def hash_password(self, password: str) -> str:
+        """
+        Hash a plain text password.
+        
+        Args:
+            password: Plain text password to hash
+            
+        Returns:
+            Hashed password string
+        """
+        pass
+    
+    @abstractmethod
+    def verify_password(self, plain_password: str, hashed_password: str) -> bool:
+        """
+        Verify a plain text password against a hashed password.
+        
+        Args:
+            plain_password: Plain text password to verify
+            hashed_password: Previously hashed password
+            
+        Returns:
+            True if password matches, False otherwise
         """
         pass
 

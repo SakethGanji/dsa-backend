@@ -6,8 +6,7 @@ import json
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 
-from src.core.abstractions import IUnitOfWork
-from src.infrastructure.postgres.table_reader import PostgresTableReader
+from src.core.abstractions import IUnitOfWork, ITableMetadataReader, ITableDataReader
 from src.core.domain_exceptions import EntityNotFoundException, ValidationException
 
 
@@ -24,9 +23,10 @@ class DownloadTableCommand:
 class DownloadTableHandler:
     """Handler for downloading table data."""
     
-    def __init__(self, uow: IUnitOfWork, table_reader: PostgresTableReader):
+    def __init__(self, uow: IUnitOfWork, metadata_reader: ITableMetadataReader, data_reader: ITableDataReader):
         self._uow = uow
-        self._table_reader = table_reader
+        self._metadata_reader = metadata_reader
+        self._data_reader = data_reader
     
     async def handle(self, command: DownloadTableCommand) -> Dict[str, Any]:
         """
@@ -59,7 +59,7 @@ class DownloadTableHandler:
         batch_size = 1000
         
         while True:
-            result = await self._table_reader.get_table_data(
+            result = await self._data_reader.get_table_data(
                 commit_id=commit_id,
                 table_key=command.table_key,
                 offset=offset,
@@ -96,7 +96,7 @@ class DownloadTableHandler:
                 dataset_name=dataset['name'],
                 table_key=command.table_key,
                 commit_id=commit_id,
-                table_reader=self._table_reader
+                metadata_reader=self._metadata_reader
             )
     
     async def _format_as_csv(
@@ -128,11 +128,11 @@ class DownloadTableHandler:
         dataset_name: str,
         table_key: str,
         commit_id: str,
-        table_reader: PostgresTableReader
+        metadata_reader: ITableMetadataReader
     ) -> Dict[str, Any]:
         """Format data as JSON with schema."""
         # Get schema
-        schema = await table_reader.get_table_schema(commit_id, table_key)
+        schema = await metadata_reader.get_table_schema(commit_id, table_key)
         
         result = {
             "dataset_name": dataset_name,

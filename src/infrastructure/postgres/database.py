@@ -2,19 +2,22 @@
 
 import asyncio
 from contextlib import asynccontextmanager
-from typing import Optional, AsyncContextManager
+from typing import Optional, AsyncContextManager, Dict, Any, List
 import asyncpg
 from asyncpg import Pool, Connection
 from src.core.abstractions import IUnitOfWork
+from src.core.abstractions.database import IDatabasePool, IDatabaseConnection
 from .uow import PostgresUnitOfWork
+from .adapters import AsyncpgPoolAdapter, AsyncpgConnectionAdapter
 
 
-class DatabasePool:
+class DatabasePool(IDatabasePool):
     """Manages the PostgreSQL connection pool."""
     
     def __init__(self, dsn: str):
         self.dsn = dsn
         self._pool: Optional[Pool] = None
+        self._adapter: Optional[AsyncpgPoolAdapter] = None
     
     async def initialize(self, min_size: int = 10, max_size: int = 20):
         """Initialize the connection pool."""
@@ -26,6 +29,7 @@ class DatabasePool:
                 command_timeout=60,
                 init=self._init_connection
             )
+            self._adapter = AsyncpgPoolAdapter(self._pool)
     
     async def _init_connection(self, conn):
         """Initialize each connection with the proper search_path."""
@@ -38,13 +42,38 @@ class DatabasePool:
             self._pool = None
     
     @asynccontextmanager
-    async def acquire(self) -> AsyncContextManager[Connection]:
+    async def acquire(self) -> AsyncContextManager[IDatabaseConnection]:
         """Acquire a connection from the pool."""
         if not self._pool:
             raise RuntimeError("Database pool not initialized")
         
         async with self._pool.acquire() as connection:
-            yield connection
+            yield AsyncpgConnectionAdapter(connection)
+    
+    async def release(self, connection: IDatabaseConnection) -> None:
+        """Release a connection back to the pool."""
+        # Connection release is handled by context manager
+        pass
+    
+    async def execute(self, query: str, *args) -> str:
+        """Execute a query without returning results."""
+        if not self._pool:
+            raise RuntimeError("Database pool not initialized")
+        return await self._pool.execute(query, *args)
+    
+    async def fetchrow(self, query: str, *args) -> Optional[Dict[str, Any]]:
+        """Execute a query and return a single row."""
+        if not self._pool:
+            raise RuntimeError("Database pool not initialized")
+        row = await self._pool.fetchrow(query, *args)
+        return dict(row) if row else None
+    
+    async def fetch(self, query: str, *args) -> List[Dict[str, Any]]:
+        """Execute a query and return all rows."""
+        if not self._pool:
+            raise RuntimeError("Database pool not initialized")
+        rows = await self._pool.fetch(query, *args)
+        return [dict(row) for row in rows]
 
 
 

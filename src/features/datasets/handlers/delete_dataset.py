@@ -62,9 +62,7 @@ class DeleteDatasetHandler(BaseHandler):
         # 1. Delete tags
         await self._dataset_repo.remove_dataset_tags(command.dataset_id)
         
-        # 2. Delete permissions
-        # Note: delete_all_permissions may not exist, using delete_dataset which handles cascade
-        # await self._dataset_repo.delete_all_permissions(command.dataset_id)
+        # 2. Delete permissions (handled by database cascade delete)
         
         # 3. Delete refs
         if hasattr(self._uow, 'commits'):

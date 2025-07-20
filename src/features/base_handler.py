@@ -76,5 +76,5 @@ def with_transaction(func: Callable) -> Callable:
     return wrapper
 
 
-# Import PaginationMixin from unified module for backward compatibility
+# Export public API
 __all__ = ['BaseHandler', 'with_error_handling', 'with_transaction', 'PaginationMixin']

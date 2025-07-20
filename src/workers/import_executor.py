@@ -1,4 +1,4 @@
-"""Optimized executor for import jobs with true streaming and memory efficiency."""
+"""Executor for import jobs with streaming and memory efficiency."""
 
 import os
 import json

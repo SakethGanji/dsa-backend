@@ -5,9 +5,14 @@ import json
 import re
 from asyncpg import Connection
 from src.core.abstractions.repositories import ITableReader
+from src.core.abstractions.table_interfaces import (
+    ITableMetadataReader,
+    ITableDataReader,
+    ITableAnalytics
+)
 
 
-class PostgresTableReader(ITableReader):
+class PostgresTableReader(ITableReader, ITableMetadataReader, ITableDataReader, ITableAnalytics):
     """PostgreSQL implementation for reading table data from commits."""
     
     def __init__(self, connection: Connection):
@@ -350,3 +355,101 @@ class PostgresTableReader(ITableReader):
                         '_logical_row_id': row['logical_row_id'],
                         **data
                     }
+    
+    async def batch_get_table_metadata(self, commit_ids: List[str]) -> Dict[str, List[Dict[str, Any]]]:
+        """Batch fetch table metadata for multiple commits in a single operation."""
+        # First, get all schemas for the commits
+        schema_query = """
+            SELECT 
+                cs.commit_id,
+                cs.schema_definition,
+                cs.created_at
+            FROM dsa_core.commit_schemas cs
+            WHERE cs.commit_id = ANY($1::text[])
+        """
+        
+        schema_rows = await self._conn.fetch(schema_query, commit_ids)
+        
+        # Then get row counts for each table
+        count_query = """
+            SELECT 
+                commit_id,
+                CASE 
+                    WHEN logical_row_id LIKE '%:%' THEN SPLIT_PART(logical_row_id, ':', 1)
+                    ELSE REGEXP_REPLACE(logical_row_id, '_[0-9]+$', '')
+                END AS table_key,
+                COUNT(*) as row_count
+            FROM dsa_core.commit_rows
+            WHERE commit_id = ANY($1::text[])
+            GROUP BY commit_id, table_key
+        """
+        
+        count_rows = await self._conn.fetch(count_query, commit_ids)
+        
+        # Build a lookup for row counts
+        row_counts = {}
+        for row in count_rows:
+            commit_id = row['commit_id'].strip()
+            table_key = row['table_key']
+            if commit_id not in row_counts:
+                row_counts[commit_id] = {}
+            row_counts[commit_id][table_key] = row['row_count']
+        
+        # Process results
+        result = {}
+        for schema_row in schema_rows:
+            commit_id = schema_row['commit_id'].strip()
+            schema_def = schema_row['schema_definition']
+            created_at = schema_row['created_at']
+            
+            if commit_id not in result:
+                result[commit_id] = []
+            
+            # Parse schema to get table information
+            if schema_def:
+                # Handle different schema formats
+                if isinstance(schema_def, str):
+                    schema_def = json.loads(schema_def)
+                
+                # Extract table keys and column info
+                tables_to_process = []
+                
+                # Check for direct table keys (newer format)
+                if isinstance(schema_def, dict):
+                    for table_key, table_schema in schema_def.items():
+                        if isinstance(table_schema, dict) and 'columns' in table_schema:
+                            tables_to_process.append({
+                                'table_key': table_key,
+                                'columns': table_schema['columns']
+                            })
+                    
+                    # Also check for 'sheets' format (Excel files)
+                    if 'sheets' in schema_def:
+                        for sheet in schema_def['sheets']:
+                            if 'sheet_name' in sheet and 'columns' in sheet:
+                                tables_to_process.append({
+                                    'table_key': sheet['sheet_name'],
+                                    'columns': sheet['columns']
+                                })
+                
+                # Create metadata for each table
+                for table_data in tables_to_process:
+                    table_key = table_data['table_key']
+                    columns = table_data['columns']
+                    
+                    # Get column count
+                    column_count = len(columns) if columns else 0
+                    
+                    # Get row count from our lookup
+                    row_count = row_counts.get(commit_id, {}).get(table_key, 0)
+                    
+                    metadata = {
+                        'table_key': table_key,
+                        'row_count': row_count,
+                        'column_count': column_count,
+                        'created_at': created_at
+                    }
+                    
+                    result[commit_id].append(metadata)
+        
+        return result

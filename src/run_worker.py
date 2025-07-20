@@ -13,7 +13,7 @@ from src.infrastructure.config import get_settings
 from src.infrastructure.postgres.database import DatabasePool
 from src.infrastructure.external.password_manager import get_password_manager
 from src.workers.job_worker import JobWorker
-from src.workers.import_executor_optimized import ImportJobExecutor
+from src.workers.import_executor import ImportJobExecutor
 from src.workers.sampling_executor import SamplingJobExecutor
 
 logging.basicConfig(

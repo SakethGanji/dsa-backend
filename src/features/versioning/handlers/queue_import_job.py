@@ -1,18 +1,24 @@
-from typing import BinaryIO
+"""Optimized handler for queuing dataset import jobs with streaming file upload."""
+
+from typing import BinaryIO, AsyncIterator
 from uuid import UUID
 import os
 import tempfile
+import aiofiles
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 from src.core.abstractions import IUnitOfWork, IJobRepository, IDatasetRepository
+from src.infrastructure.config import get_settings
 from src.api.models import QueueImportRequest, QueueImportResponse
 from ...base_handler import BaseHandler, with_error_handling, with_transaction
 from src.core.decorators import requires_permission
+from fastapi import HTTPException
 
 
 @dataclass
 class QueueImportJobCommand:
-    """Command for queuing import job"""
+    """Command for queuing import job with streaming file handling"""
     dataset_id: int
     ref_name: str
     file: BinaryIO
@@ -22,10 +28,74 @@ class QueueImportJobCommand:
 
 
 class QueueImportJobHandler(BaseHandler[QueueImportResponse]):
-    """Handler for queuing dataset import jobs from uploaded files"""
+    """Handler for queuing dataset import jobs from uploaded files with streaming support"""
     
     def __init__(self, uow: IUnitOfWork):
         super().__init__(uow)
+        self.settings = get_settings()
+    
+    @asynccontextmanager
+    async def save_upload_file_tmp(
+        self, 
+        file: BinaryIO, 
+        filename: str,
+        dataset_id: int,
+        max_size: int
+    ) -> AsyncIterator[str]:
+        """
+        Save uploaded file to temp location with streaming, size validation and cleanup.
+        
+        Args:
+            file: File-like object to read from
+            filename: Original filename
+            dataset_id: Dataset ID for unique naming
+            max_size: Maximum allowed file size in bytes
+            
+        Yields:
+            Path to temporary file
+            
+        Raises:
+            HTTPException: If file exceeds max size
+        """
+        # Create unique temp file
+        temp_file = tempfile.NamedTemporaryFile(
+            delete=False,
+            prefix=f"import_{dataset_id}_",
+            suffix=f"_{filename}"
+        )
+        
+        try:
+            file_size = 0
+            chunk_size = 1024 * 1024  # 1MB chunks
+            
+            # Stream file to disk with size validation
+            async with aiofiles.open(temp_file.name, 'wb') as f:
+                while True:
+                    # Read chunk from upload
+                    chunk = file.read(chunk_size)
+                    if not chunk:
+                        break
+                    
+                    # Check size limit
+                    file_size += len(chunk)
+                    if file_size > max_size:
+                        raise HTTPException(
+                            status_code=413,
+                            detail=f"File size ({file_size:,} bytes) exceeds maximum allowed size ({max_size:,} bytes)"
+                        )
+                    
+                    # Write chunk to disk
+                    await f.write(chunk)
+            
+            # Yield the temp file path
+            yield temp_file.name
+            
+        finally:
+            # Always cleanup temp file
+            try:
+                os.unlink(temp_file.name)
+            except OSError:
+                pass  # File already deleted
     
     @with_error_handling
     @with_transaction
@@ -40,55 +110,50 @@ class QueueImportJobHandler(BaseHandler[QueueImportResponse]):
         user_id: int
     ) -> QueueImportResponse:
         """
-        Queue an import job for processing uploaded file
+        Queue an import job for processing uploaded file with streaming support
         
         Steps:
         1. Validate user has write permission
-        2. Save file to temporary storage
+        2. Stream file to temporary storage with size validation
         3. Create job record with parameters
         4. Return job_id for status polling
         """
         # Permission check handled by @requires_permission decorator
-        
-        # TODO: Save file to temporary storage
-        # In production, use S3 or similar with expiration policies
-        temp_dir = tempfile.gettempdir()
-        temp_path = os.path.join(temp_dir, f"import_{dataset_id}_{filename}")
-        
-        # Save uploaded file
-        with open(temp_path, 'wb') as f:
-            # TODO: Stream large files instead of loading in memory
-            content = file.read()
-            f.write(content)
         
         # Get current commit for the ref
         current_commit = await self._uow.commits.get_current_commit_for_ref(
             dataset_id, ref_name
         )
         
-        # Create job record
-        job_parameters = {
-            "temp_file_path": temp_path,
-            "filename": filename,
-            "commit_message": request.commit_message,
-            "target_ref": ref_name,
-            "dataset_id": dataset_id,
-            "user_id": user_id,
-            "file_size": os.path.getsize(temp_path)
-        }
-        
-        # Transaction management handled by @with_transaction decorator
-        job_id = await self._uow.jobs.create_job(
-            run_type='import',
-            dataset_id=dataset_id,
-            user_id=user_id,
-            source_commit_id=current_commit,
-            run_parameters=job_parameters
-        )
-        
-        return QueueImportResponse(
-            job_id=str(job_id),
-            status="pending",
-            message="Import job queued successfully"
-        )
-        # TODO: Add cleanup of temp file on failure via context manager
+        # Stream file to temporary storage with automatic cleanup
+        async with self.save_upload_file_tmp(
+            file, 
+            filename, 
+            dataset_id,
+            self.settings.max_upload_size
+        ) as temp_path:
+            
+            # Get file size for progress tracking
+            file_size = os.path.getsize(temp_path)
+            
+            # Create job record
+            job_parameters = {
+                "temp_file_path": temp_path,
+                "filename": filename,
+                "file_size": file_size,
+                "commit_message": request.commit_message,
+                "target_ref": ref_name,
+                "dataset_id": dataset_id,
+                "user_id": user_id
+            }
+            
+            # Transaction management handled by @with_transaction decorator
+            job_id = await self._uow.jobs.create_job(
+                run_type='import',
+                dataset_id=dataset_id,
+                user_id=user_id,
+                source_commit_id=current_commit,
+                run_parameters=job_parameters
+            )
+            
+            return QueueImportResponse(job_id=job_id)

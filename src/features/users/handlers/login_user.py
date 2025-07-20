@@ -2,22 +2,21 @@
 
 from typing import Dict, Any
 from datetime import timedelta
-from passlib.context import CryptContext
-from ....core.services.interfaces import IUserRepository
+from ....core.abstractions.repositories import IUserRepository
+from ....core.abstractions.external import IPasswordManager
+from ....infrastructure.external.password_hasher import PasswordHasher
 from ....api.models.requests import LoginRequest
 from ....api.models.responses import LoginResponse
 from ....core.auth import create_access_token, create_refresh_token
 from ....core.domain_exceptions import ValidationException
 
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-
 class LoginUserHandler:
     """Handler for user login and token generation."""
     
-    def __init__(self, user_repo: IUserRepository):
+    def __init__(self, user_repo: IUserRepository, password_manager: IPasswordManager = None):
         self._user_repo = user_repo
+        self._password_manager = password_manager or PasswordHasher()
     
     async def handle(self, request: LoginRequest) -> LoginResponse:
         """Authenticate user and generate tokens."""
@@ -27,7 +26,7 @@ class LoginUserHandler:
             raise ValidationException("Invalid credentials")
         
         # Verify password
-        if not pwd_context.verify(request.password, user['password_hash']):
+        if not self._password_manager.verify_password(request.password, user['password_hash']):
             raise ValidationException("Invalid credentials")
         
         # Generate tokens

@@ -1,12 +1,13 @@
 """Base PostgreSQL repository implementation."""
 
 from typing import Optional, Dict, Any, List, TypeVar, Generic, Union
-from asyncpg import Connection
 import json
 from datetime import datetime
 from uuid import UUID
 
 from src.core.abstractions.base_repository import IBaseRepository
+from src.core.abstractions.database import IDatabaseConnection
+from .adapters import AsyncpgConnectionAdapter
 
 # Type for entities (PostgreSQL returns Dict[str, Any])
 TEntity = Dict[str, Any]
@@ -18,7 +19,7 @@ class BasePostgresRepository(IBaseRepository[TEntity, int], Generic[TId]):
     
     def __init__(
         self, 
-        connection: Connection, 
+        connection: Union[IDatabaseConnection, 'asyncpg.Connection'], 
         table_name: str, 
         id_column: str = "id",
         id_type: type = int
@@ -27,12 +28,23 @@ class BasePostgresRepository(IBaseRepository[TEntity, int], Generic[TId]):
         Initialize base repository.
         
         Args:
-            connection: AsyncPG connection
+            connection: Database connection (generic or asyncpg)
             table_name: Name of the database table
             id_column: Name of the ID column (default: "id")
             id_type: Type of the ID (int, str, or UUID)
         """
-        self._conn = connection
+        # Handle both generic interface and asyncpg connection
+        if hasattr(connection, 'fetchrow') and hasattr(connection, 'execute'):
+            # It's already a proper connection (either IDatabaseConnection or asyncpg)
+            self._conn = connection
+        else:
+            # Wrap asyncpg connection in adapter
+            from asyncpg import Connection as AsyncpgConnection
+            if isinstance(connection, AsyncpgConnection):
+                self._conn = AsyncpgConnectionAdapter(connection)
+            else:
+                self._conn = connection
+        
         self._table_name = table_name
         self._id_column = id_column
         self._id_type = id_type
@@ -44,7 +56,14 @@ class BasePostgresRepository(IBaseRepository[TEntity, int], Generic[TId]):
             WHERE {self._id_column} = $1
         """
         row = await self._conn.fetchrow(query, entity_id)
-        return dict(row) if row else None
+        # Handle both dict (from generic interface) and asyncpg.Record
+        if row is None:
+            return None
+        elif isinstance(row, dict):
+            return row
+        else:
+            # asyncpg.Record
+            return dict(row)
     
     async def exists(self, entity_id: TId) -> bool:
         """Efficient existence check."""
@@ -125,7 +144,14 @@ class BasePostgresRepository(IBaseRepository[TEntity, int], Generic[TId]):
         values.extend([offset, limit])
         
         rows = await self._conn.fetch(query, *values)
-        return [dict(row) for row in rows]
+        # Handle both list of dicts (from generic interface) and asyncpg.Records
+        if not rows:
+            return []
+        elif isinstance(rows[0], dict):
+            return rows
+        else:
+            # asyncpg.Records
+            return [dict(row) for row in rows]
     
     async def find_one(self, **filters) -> Optional[TEntity]:
         """Find single entity matching filters."""
@@ -207,12 +233,25 @@ class BasePostgresRepository(IBaseRepository[TEntity, int], Generic[TId]):
                 values.append(value)
             records.append(tuple(values))
         
-        # Use COPY for bulk insert
-        result = await self._conn.copy_records_to_table(
-            self._table_name,
-            records=records,
-            columns=columns
-        )
+        # Use COPY for bulk insert (only available on asyncpg connections)
+        if hasattr(self._conn, 'copy_records_to_table'):
+            result = await self._conn.copy_records_to_table(
+                self._table_name,
+                records=records,
+                columns=columns
+            )
+        elif hasattr(self._conn, 'raw_connection'):
+            # Using adapter, get raw connection
+            result = await self._conn.raw_connection.copy_records_to_table(
+                self._table_name,
+                records=records,
+                columns=columns
+            )
+        else:
+            # Fallback to regular inserts
+            for record in records:
+                values_dict = dict(zip(columns, record))
+                await self.create(**values_dict)
         
         # Get the IDs of inserted records
         # This is a simplified approach - in production you might want to use RETURNING
@@ -222,7 +261,14 @@ class BasePostgresRepository(IBaseRepository[TEntity, int], Generic[TId]):
             LIMIT $1
         """
         rows = await self._conn.fetch(query, len(entities))
-        return [self._id_type(row[self._id_column]) for row in reversed(rows)]
+        # Handle both dict and asyncpg.Record
+        if not rows:
+            return []
+        elif isinstance(rows[0], dict):
+            return [self._id_type(row[self._id_column]) for row in reversed(rows)]
+        else:
+            # asyncpg.Records
+            return [self._id_type(row[self._id_column]) for row in reversed(rows)]
     
     async def bulk_delete(self, entity_ids: List[TId]) -> int:
         """Efficient bulk delete."""

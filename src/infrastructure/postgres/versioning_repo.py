@@ -5,9 +5,14 @@ import json
 import hashlib
 from asyncpg import Connection
 from src.core.abstractions.repositories import ICommitRepository
+from src.core.abstractions.commit_interfaces import (
+    ICommitOperations,
+    IRefOperations,
+    IManifestOperations
+)
 
 
-class PostgresCommitRepository(ICommitRepository):
+class PostgresCommitRepository(ICommitRepository, ICommitOperations, IRefOperations, IManifestOperations):
     """PostgreSQL implementation for versioning engine operations."""
     
     def __init__(self, connection: Connection):
@@ -30,6 +35,22 @@ class PostgresCommitRepository(ICommitRepository):
         
         # Execute batch insert
         await self._conn.executemany(query, rows_list)
+    
+    async def create_commit(
+        self, 
+        dataset_id: int,
+        parent_commit_id: Optional[str],
+        message: str,
+        author_id: int
+    ) -> str:
+        """Create a new commit without manifest (delegates to create_commit_and_manifest)."""
+        return await self.create_commit_and_manifest(
+            dataset_id=dataset_id,
+            parent_commit_id=parent_commit_id,
+            message=message,
+            author_id=author_id,
+            manifest=[]  # Empty manifest
+        )
     
     async def create_commit_and_manifest(
         self, 
@@ -125,53 +146,6 @@ class PostgresCommitRepository(ICommitRepository):
         row = await self._conn.fetchrow(query, dataset_id, ref_name)
         return dict(row) if row else None
     
-    async def get_commit_data(
-        self, 
-        commit_id: str, 
-        table_key: Optional[str] = None, 
-        offset: int = 0, 
-        limit: int = 100
-    ) -> List[Dict[str, Any]]:
-        """
-        Retrieve data for a commit, optionally filtered by table.
-        
-        DEPRECATED: Use ITableReader.get_table_data() instead for consistent table-aware data access.
-        This method will be removed in a future version.
-        """
-        if table_key:
-            # Filter by table key prefix
-            query = """
-                SELECT cr.logical_row_id, r.data
-                FROM dsa_core.commit_rows cr
-                INNER JOIN dsa_core.rows r ON cr.row_hash = r.row_hash
-                WHERE cr.commit_id = $1 AND cr.logical_row_id LIKE $2
-                ORDER BY cr.logical_row_id
-                OFFSET $3 LIMIT $4
-            """
-            pattern = f"{table_key}:%"
-            rows = await self._conn.fetch(query, commit_id, pattern, offset, limit)
-        else:
-            # Get all rows
-            query = """
-                SELECT cr.logical_row_id, r.data
-                FROM dsa_core.commit_rows cr
-                INNER JOIN dsa_core.rows r ON cr.row_hash = r.row_hash
-                WHERE cr.commit_id = $1
-                ORDER BY cr.logical_row_id
-                OFFSET $2 LIMIT $3
-            """
-            rows = await self._conn.fetch(query, commit_id, offset, limit)
-        
-        # Parse JSONB data
-        result = []
-        for row in rows:
-            data = json.loads(row['data']) if isinstance(row['data'], str) else row['data']
-            result.append({
-                'logical_row_id': row['logical_row_id'],
-                'data': data
-            })
-        
-        return result
     
     async def create_commit_schema(self, commit_id: str, schema_definition: Dict[str, Any]) -> None:
         """Store schema for a commit."""

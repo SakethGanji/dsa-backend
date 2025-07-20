@@ -129,7 +129,6 @@ class CreateSamplingJobRequest(BaseModel):
     source_ref: str = Field("main", description="Source ref/branch name")
     table_key: str = Field("primary", description="Table to sample from")
     output_branch_name: Optional[str] = Field(None, description="Name for the output branch (defaults to commit ID)")
-    create_output_commit: Optional[bool] = Field(None, description="Deprecated: commits are always created")
     commit_message: Optional[str] = Field(None, description="Message for output commit")
     rounds: List[SamplingRoundConfig] = Field(..., description="Sampling rounds to execute")
     export_residual: bool = Field(False, description="Export unsampled records")
