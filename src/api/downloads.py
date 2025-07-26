@@ -10,7 +10,7 @@ from openpyxl import Workbook
 
 from ..api.models import CurrentUser
 from ..core.authorization import get_current_user_info, require_dataset_read
-from ..core.exceptions import resource_not_found
+from ..core.domain_exceptions import resource_not_found
 from .dependencies import get_uow, get_db_pool
 from ..core.abstractions import IUnitOfWork
 from ..core.abstractions import ITableReader

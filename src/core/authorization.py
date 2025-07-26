@@ -6,7 +6,7 @@ from .auth import get_current_user
 from .abstractions import IDatasetRepository, IUserRepository
 from ..api.models import CurrentUser, PermissionType
 from ..infrastructure.postgres.database import DatabasePool
-from .exceptions import PermissionDeniedError, permission_denied, unauthorized
+from .domain_exceptions import PermissionDeniedError, permission_denied, unauthorized
 
 
 # Import get_db_pool from api.dependencies

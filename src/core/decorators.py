@@ -2,7 +2,7 @@
 
 from functools import wraps
 from typing import Callable, Any
-from .exceptions import PermissionDeniedError
+from .domain_exceptions import PermissionDeniedError
 import inspect
 
 

@@ -11,7 +11,7 @@ from ..core.events.registry import InMemoryEventBus
 from ..infrastructure.services.sql_execution import (
     SqlValidationService, SqlExecutionService, QueryOptimizationService
 )
-from ..core.abstractions.services import SqlSource, SqlTarget
+from ..core.abstractions.service_interfaces import SqlSource, SqlTarget
 from ..infrastructure.postgres.table_reader import PostgresTableReader
 
 

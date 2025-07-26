@@ -1,7 +1,7 @@
 """File parser factory implementation."""
 
 from typing import Dict, List
-from src.core.abstractions.services import IFileParser, IFileProcessingService
+from src.core.abstractions.service_interfaces import IFileParser, IFileProcessingService
 from .parsers import CSVParser, ParquetParser, ExcelParser
 
 

@@ -20,8 +20,7 @@ from ..core.authorization import (
     require_dataset_write,
     PermissionType
 )
-from ..core.exceptions import resource_not_found
-from ..core.domain_exceptions import ConflictException
+from ..core.domain_exceptions import resource_not_found, ConflictException
 from .dependencies import get_db_pool, get_event_bus
 
 

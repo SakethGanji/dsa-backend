@@ -11,7 +11,7 @@ from datetime import datetime
 from ..infrastructure.postgres.database import DatabasePool
 from ..core.abstractions.uow import IUnitOfWork
 from ..core.authorization import get_current_user_info, require_dataset_read
-from ..core.exceptions import resource_not_found
+from ..core.domain_exceptions import resource_not_found
 from ..core.domain_exceptions import ValidationException, BusinessRuleViolation
 from ..api.models import CurrentUser
 from .dependencies import get_db_pool, get_uow

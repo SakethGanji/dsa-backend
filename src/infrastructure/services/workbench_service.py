@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from datetime import datetime
 
-from src.core.abstractions.services import IWorkbenchService, ISqlValidationService
+from src.core.abstractions.service_interfaces import IWorkbenchService, ISqlValidationService
 from src.core.abstractions.repositories import ITableReader
 from src.core.abstractions.uow import IUnitOfWork
 

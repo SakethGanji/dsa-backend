@@ -3,7 +3,7 @@
 from typing import List, Dict, Any, Optional
 import re
 
-from ..abstractions.services import (
+from ..abstractions.service_interfaces import (
     IWorkbenchService,
     WorkbenchContext,
     OperationResult,

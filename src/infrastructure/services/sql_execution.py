@@ -8,7 +8,7 @@ from typing import Dict, Any, List, Tuple, Optional
 from datetime import datetime
 import asyncpg
 
-from src.core.abstractions.services import (
+from src.core.abstractions.service_interfaces import (
     ISqlValidationService,
     ISqlExecutionService,
     IQueryOptimizationService,

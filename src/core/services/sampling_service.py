@@ -5,7 +5,7 @@ from typing import List, Dict, Any, Optional
 import json
 from uuid import uuid4
 
-from ..abstractions.services import ISamplingService, SamplingMethod, SampleConfig, SampleResult
+from ..abstractions.service_interfaces import ISamplingService, SamplingMethod, SampleConfig, SampleResult
 from ..abstractions.repositories import ITableReader, IJobRepository
 from ..abstractions.uow import IUnitOfWork
 from ..domain_exceptions import EntityNotFoundException

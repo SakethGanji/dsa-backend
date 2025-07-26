@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 import pandas as pd
 
-from src.core.abstractions.services import ICommitPreparationService
+from src.core.abstractions.service_interfaces import ICommitPreparationService
 from src.core.abstractions.repositories import ITableReader
 
 

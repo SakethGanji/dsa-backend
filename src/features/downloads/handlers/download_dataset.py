@@ -2,7 +2,7 @@
 from typing import Dict, Any
 
 from src.core.abstractions import IUnitOfWork
-from src.core.abstractions.services import IDataExportService
+from src.core.abstractions.service_interfaces import IDataExportService
 from src.core.domain_exceptions import EntityNotFoundException, ValidationException
 from src.infrastructure.services.data_export_service import ExportOptions
 from ..models import DownloadDatasetCommand

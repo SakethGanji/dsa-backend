@@ -4,7 +4,7 @@ from typing import List
 
 from ...base_handler import BaseHandler, with_error_handling
 from ....core.abstractions.uow import IUnitOfWork
-from ....core.abstractions.services import IWorkbenchService
+from ....core.abstractions.service_interfaces import IWorkbenchService
 from ....core.domain_exceptions import ForbiddenException
 from ..models.sql_preview import SqlPreviewRequest, SqlPreviewResponse, SqlSource
 

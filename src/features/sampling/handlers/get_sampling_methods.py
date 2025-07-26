@@ -3,7 +3,7 @@
 from typing import Dict, Any, List
 from dataclasses import dataclass
 from src.core.abstractions import IUnitOfWork
-from src.core.abstractions.services import SamplingMethod
+from src.core.abstractions.service_interfaces import SamplingMethod
 from src.core.services.sampling_service import SamplingService
 from ...base_handler import BaseHandler
 from src.core.decorators import requires_permission

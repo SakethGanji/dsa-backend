@@ -19,7 +19,7 @@ from .commit_interfaces import (
     IManifestOperations
 )
 from .uow import IUnitOfWork
-from .services import (
+from .service_interfaces import (
     IFileProcessingService,
     IStatisticsService,
     IExplorationService,

@@ -5,7 +5,7 @@ from typing import Dict
 
 from ..infrastructure.postgres.database import DatabasePool
 from ..core.abstractions.uow import IUnitOfWork
-from ..core.abstractions.services import IWorkbenchService
+from ..core.abstractions.service_interfaces import IWorkbenchService
 from ..core.abstractions.repositories import ITableReader, IDatasetRepository, IJobRepository, ICommitRepository
 from ..core.authorization import get_current_user_info
 # Custom exception classes will be handled as standard Python exceptions

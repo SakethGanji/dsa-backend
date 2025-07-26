@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from dataclasses import dataclass
 from collections import defaultdict
 
-from src.core.abstractions.services import ISamplingService
+from src.core.abstractions.service_interfaces import ISamplingService
 from src.core.abstractions.repositories import ITableReader
 
 

@@ -10,7 +10,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from openpyxl import Workbook
 
-from src.core.abstractions.services import IDataExportService
+from src.core.abstractions.service_interfaces import IDataExportService
 from src.core.abstractions.repositories import ITableReader
 
 

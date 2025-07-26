@@ -4,7 +4,7 @@ from typing import Dict, Any
 import pandas as pd
 import numpy as np
 
-from src.core.abstractions.services import (
+from src.core.abstractions.service_interfaces import (
     IStatisticsService,
     TableStatistics,
     ColumnStatistics

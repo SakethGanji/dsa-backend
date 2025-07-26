@@ -2,7 +2,7 @@
 from typing import Optional
 
 from src.core.abstractions import IUnitOfWork
-from src.core.abstractions.services import ICommitPreparationService
+from src.core.abstractions.service_interfaces import ICommitPreparationService
 from src.core.abstractions.events import IEventBus, CommitCreatedEvent
 from src.api.models import CreateCommitRequest, CreateCommitResponse
 from ...base_handler import BaseHandler, with_error_handling, with_transaction

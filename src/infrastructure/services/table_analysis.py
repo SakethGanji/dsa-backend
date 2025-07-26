@@ -6,7 +6,7 @@ from collections import Counter
 from datetime import datetime
 import re
 
-from src.core.abstractions.services import (
+from src.core.abstractions.service_interfaces import (
     ITableAnalysisService,
     IDataTypeInferenceService, 
     IColumnStatisticsService,

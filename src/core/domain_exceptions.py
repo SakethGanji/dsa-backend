@@ -1,7 +1,8 @@
 """Domain exceptions hierarchy for consistent error handling."""
 
 from typing import Any, Optional, Dict
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
+from fastapi.responses import JSONResponse
 
 
 class DomainException(Exception):
@@ -300,3 +301,58 @@ def convert_to_domain_exception(exc: Exception) -> DomainException:
             ErrorMessages.INTERNAL_ERROR,
             details={"original_error": str(exc), "error_type": type(exc).__name__}
         )
+
+
+# Legacy compatibility - content from exceptions.py
+class PermissionDeniedError(ForbiddenException):
+    """Custom exception for permission denied scenarios - extends ForbiddenException for compatibility."""
+    
+    def __init__(self, resource_type: str, permission_level: str, user_id: int):
+        super().__init__(
+            message=f"Permission denied: {resource_type} {permission_level} access required",
+            resource_type=resource_type,
+            required_permission=permission_level
+        )
+        self.permission_level = permission_level
+        self.user_id = user_id
+
+
+async def permission_exception_handler(request: Request, exc: PermissionDeniedError) -> JSONResponse:
+    """Handle PermissionDeniedError with consistent format."""
+    return JSONResponse(
+        status_code=403,
+        content={
+            "detail": str(exc),
+            "error_type": "permission_denied",
+            "resource": exc.resource_type,
+            "required_permission": exc.permission_level
+        }
+    )
+
+
+def permission_denied(resource_type: str, permission_level: str) -> HTTPException:
+    """Create standardized permission denied exception."""
+    return HTTPException(
+        status_code=403,
+        detail=f"Permission denied: {resource_type} {permission_level} access required"
+    )
+
+
+def unauthorized() -> HTTPException:
+    """Create standardized unauthorized exception."""
+    return HTTPException(
+        status_code=401,
+        detail="Authentication required"
+    )
+
+
+def resource_not_found(resource_type: str, resource_id: Optional[int] = None) -> HTTPException:
+    """Create standardized resource not found exception."""
+    detail = f"{resource_type} not found"
+    if resource_id:
+        detail = f"{resource_type} with id {resource_id} not found"
+    
+    return HTTPException(
+        status_code=404,
+        detail=detail
+    )

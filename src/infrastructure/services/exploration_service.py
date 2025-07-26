@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from collections import Counter
 
-from src.core.abstractions.services import IExplorationService
+from src.core.abstractions.service_interfaces import IExplorationService
 from src.core.abstractions.repositories import ITableReader
 
 

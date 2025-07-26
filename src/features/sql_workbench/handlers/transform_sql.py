@@ -5,7 +5,7 @@ from typing import Dict, Any
 
 from ...base_handler import BaseHandler, with_error_handling, with_transaction
 from ....core.abstractions.uow import IUnitOfWork
-from ....core.abstractions.services import IWorkbenchService, WorkbenchContext, OperationType
+from ....core.abstractions.service_interfaces import IWorkbenchService, WorkbenchContext, OperationType
 from ....core.abstractions.repositories import IDatasetRepository, IJobRepository, ICommitRepository
 # Use standard Python exceptions instead of custom error classes
 from ..models.sql_transform import SqlTransformRequest, SqlTransformResponse

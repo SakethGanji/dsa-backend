@@ -51,7 +51,7 @@ class UpdateDatasetHandler(BaseUpdateHandler[UpdateDatasetCommand, UpdateDataset
             command.dataset_id, command.user_id, "write"
         )
         if not has_permission:
-            from src.core.exceptions import PermissionDeniedError
+            from src.core.domain_exceptions import PermissionDeniedError
             raise PermissionDeniedError(
                 f"User {command.user_id} does not have write permission on dataset {command.dataset_id}"
             )
