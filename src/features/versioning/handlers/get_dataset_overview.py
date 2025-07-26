@@ -1,6 +1,6 @@
 from typing import List, Dict, Any
-from src.core.abstractions import IUnitOfWork
-from src.core.abstractions.table_interfaces import ITableMetadataReader
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
+from src.infrastructure.postgres.table_reader import PostgresTableReader
 from src.api.models import DatasetOverviewResponse, RefWithTables, TableInfo
 from ...base_handler import BaseHandler, with_error_handling
 from src.core.domain_exceptions import EntityNotFoundException
@@ -9,7 +9,7 @@ from src.core.domain_exceptions import EntityNotFoundException
 class GetDatasetOverviewHandler(BaseHandler):
     """Optimized handler for getting dataset overview with refs and tables."""
     
-    def __init__(self, uow: IUnitOfWork, table_reader: ITableMetadataReader):
+    def __init__(self, uow: PostgresUnitOfWork, table_reader: PostgresTableReader):
         self.uow = uow
         self.table_reader = table_reader
         

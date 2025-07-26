@@ -1,6 +1,7 @@
 from typing import Optional, Dict, Any, List
 
-from src.core.abstractions import ICommitRepository, IDatasetRepository
+from src.infrastructure.postgres.versioning_repo import PostgresCommitRepository
+from src.infrastructure.postgres.dataset_repo import PostgresDatasetRepository
 from src.api.models import CommitSchemaResponse, SheetSchema, ColumnSchema
 from ...base_handler import BaseHandler, with_error_handling
 from src.core.domain_exceptions import EntityNotFoundException
@@ -11,8 +12,8 @@ class GetCommitSchemaHandler(BaseHandler[CommitSchemaResponse]):
     
     def __init__(
         self,
-        commit_repo: ICommitRepository,
-        dataset_repo: IDatasetRepository
+        commit_repo: PostgresCommitRepository,
+        dataset_repo: PostgresDatasetRepository
     ):
         # Note: We don't have UoW here, so we pass None to BaseHandler
         super().__init__(None)

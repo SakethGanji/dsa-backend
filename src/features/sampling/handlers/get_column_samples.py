@@ -2,7 +2,7 @@
 
 from typing import Dict, Any, List
 from dataclasses import dataclass
-from src.core.abstractions import IUnitOfWork
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
 from ...base_handler import BaseHandler
 from src.core.decorators import requires_permission
 from src.core.domain_exceptions import EntityNotFoundException
@@ -27,7 +27,7 @@ class ColumnSamplesResponse:
 class GetColumnSamplesHandler(BaseHandler):
     """Handler for retrieving unique value samples for columns."""
     
-    def __init__(self, uow: IUnitOfWork):
+    def __init__(self, uow: PostgresUnitOfWork):
         super().__init__(uow)
     
     @requires_permission("datasets", "read")

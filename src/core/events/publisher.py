@@ -7,8 +7,57 @@ from datetime import datetime
 import asyncio
 import logging
 from uuid import UUID, uuid4
+from enum import Enum
 
 logger = logging.getLogger(__name__)
+
+
+class EventType(Enum):
+    """Standardized event types."""
+    # Dataset events
+    DATASET_CREATED = "dataset.created"
+    DATASET_UPDATED = "dataset.updated"
+    DATASET_DELETED = "dataset.deleted"
+    
+    # Commit events
+    COMMIT_CREATED = "commit.created"
+    COMMIT_MERGED = "commit.merged"
+    
+    # User events
+    USER_CREATED = "user.created"
+    USER_UPDATED = "user.updated"
+    USER_DELETED = "user.deleted"
+    USER_LOGIN = "user.login"
+    
+    # Job events
+    JOB_CREATED = "job.created"
+    JOB_STARTED = "job.started"
+    JOB_COMPLETED = "job.completed"
+    JOB_FAILED = "job.failed"
+    JOB_CANCELLED = "job.cancelled"
+    
+    # Permission events
+    PERMISSION_GRANTED = "permission.granted"
+    PERMISSION_REVOKED = "permission.revoked"
+    
+    # Branch events
+    BRANCH_CREATED = "branch.created"
+    BRANCH_DELETED = "branch.deleted"
+    BRANCH_MERGED = "branch.merged"
+    
+    # Import events
+    IMPORT_STARTED = "import.started"
+    IMPORT_COMPLETED = "import.completed"
+    IMPORT_FAILED = "import.failed"
+    
+    # Export events
+    EXPORT_REQUESTED = "export.requested"
+    EXPORT_COMPLETED = "export.completed"
+    EXPORT_FAILED = "export.failed"
+    
+    # Search events
+    SEARCH_INDEX_UPDATED = "search.index.updated"
+    SEARCH_INDEX_DELETED = "search.index.deleted"
 
 
 class DomainEvent(ABC):
@@ -129,6 +178,17 @@ class CommitCreatedEvent(DomainEvent):
     
     def __post_init__(self):
         super().__init__()
+    
+    @classmethod
+    def from_commit(cls, commit_id: str, dataset_id: int, message: str, user_id: int, parent_commit_id: Optional[str] = None):
+        """Create an event from commit details."""
+        return cls(
+            commit_id=commit_id,
+            dataset_id=dataset_id,
+            user_id=user_id,
+            message=message,
+            parent_commit_id=parent_commit_id
+        )
 
 
 # File Events

@@ -2,13 +2,24 @@
 
 from dataclasses import dataclass
 from typing import Optional
-from src.core.abstractions import IUnitOfWork
-from src.core.abstractions.events import IEventBus, BranchDeletedEvent
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
+from src.core.events.publisher import EventBus, DomainEvent
 from src.api.models import PermissionType
 from ...base_handler import BaseHandler, with_transaction
 from src.core.decorators import requires_permission
 from src.core.domain_exceptions import EntityNotFoundException, BusinessRuleViolation
 from ..models import DeleteBranchCommand
+
+
+@dataclass  
+class BranchDeletedEvent(DomainEvent):
+    """Event raised when a branch is deleted."""
+    dataset_id: int
+    branch_name: str
+    deleted_by: int
+    
+    def __post_init__(self):
+        super().__init__()
 
 
 @dataclass
@@ -27,7 +38,7 @@ class DeleteBranchResponse:
 class DeleteBranchHandler(BaseHandler):
     """Handler for deleting a branch/ref."""
     
-    def __init__(self, uow: IUnitOfWork, event_bus: Optional[IEventBus] = None):
+    def __init__(self, uow: PostgresUnitOfWork, event_bus: Optional[EventBus] = None):
         super().__init__(uow)
         self._event_bus = event_bus
     

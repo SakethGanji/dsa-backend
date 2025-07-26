@@ -2,8 +2,9 @@
 
 from dataclasses import dataclass
 from typing import Optional
-from src.core.abstractions import IUnitOfWork, IDatasetRepository
-from src.core.abstractions.events import IEventBus, DatasetDeletedEvent
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
+from src.infrastructure.postgres.dataset_repo import PostgresDatasetRepository
+from src.core.events.publisher import EventBus, DatasetDeletedEvent
 from ...base_handler import BaseHandler, with_transaction
 from src.core.decorators import requires_permission
 from src.core.domain_exceptions import EntityNotFoundException
@@ -28,9 +29,9 @@ class DeleteDatasetHandler(BaseHandler):
     
     def __init__(
         self,
-        uow: IUnitOfWork,
-        dataset_repo: IDatasetRepository,
-        event_bus: Optional[IEventBus] = None
+        uow: PostgresUnitOfWork,
+        dataset_repo: PostgresDatasetRepository,
+        event_bus: Optional[EventBus] = None
     ):
         super().__init__(uow)
         self._dataset_repo = dataset_repo
@@ -68,9 +69,10 @@ class DeleteDatasetHandler(BaseHandler):
         
         # Publish deletion event
         if self._event_bus:
-            event = DatasetDeletedEvent.from_deletion(
+            event = DatasetDeletedEvent(
                 dataset_id=command.dataset_id,
-                deleted_by=command.user_id
+                user_id=command.user_id,
+                name=dataset['name']
             )
             await self._event_bus.publish(event)
         

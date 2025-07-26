@@ -1,7 +1,7 @@
 """Handler for autocomplete suggestions."""
 
 from ...base_handler import BaseHandler
-from ....core.abstractions.uow import IUnitOfWork
+from ....infrastructure.postgres.uow import PostgresUnitOfWork
 from ..models.search_request import SuggestRequest
 from ..models.search_response import SuggestResponse
 from src.core.domain_exceptions import ValidationException
@@ -10,7 +10,7 @@ from src.core.domain_exceptions import ValidationException
 class SuggestHandler(BaseHandler[SuggestResponse]):
     """Handler for getting autocomplete suggestions."""
     
-    def __init__(self, unit_of_work: IUnitOfWork):
+    def __init__(self, unit_of_work: PostgresUnitOfWork):
         """Initialize the handler with a unit of work."""
         super().__init__(unit_of_work)
 

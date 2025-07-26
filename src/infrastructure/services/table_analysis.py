@@ -6,19 +6,46 @@ from collections import Counter
 from datetime import datetime
 import re
 
-from src.core.abstractions.service_interfaces import (
-    ITableAnalysisService,
-    IDataTypeInferenceService, 
-    IColumnStatisticsService,
-    TableAnalysis,
-    ColumnStatistics as ServiceColumnStatistics,
-    TableSchema
-)
-from src.core.abstractions import ITableReader
+from dataclasses import dataclass
+
+# Data classes for table analysis
+@dataclass
+class TableSchema:
+    """Schema information for a table."""
+    columns: List[Dict[str, Any]]
+    primary_key: Optional[List[str]] = None
+    row_count: int = 0
+    size_bytes: Optional[int] = None
+
+@dataclass
+class ServiceColumnStatistics:
+    """Statistics for a single column."""
+    column_name: str
+    data_type: str
+    non_null_count: int
+    null_count: int
+    unique_count: int
+    min_value: Optional[Any] = None
+    max_value: Optional[Any] = None
+    mean_value: Optional[float] = None
+    median_value: Optional[float] = None
+    mode_value: Optional[Any] = None
+    std_dev: Optional[float] = None
+    percentiles: Optional[Dict[str, float]] = None
+
+@dataclass 
+class TableAnalysis:
+    """Complete analysis results for a table."""
+    schema: TableSchema
+    statistics: List[ServiceColumnStatistics]
+    sample_values: Dict[str, List[Any]]
+    data_quality_issues: List[Dict[str, Any]]
+    profiling_metadata: Dict[str, Any]
+from src.infrastructure.postgres.table_reader import PostgresTableReader
 from src.core.domain_exceptions import ValidationException
 
 
-class DataTypeInferenceService(IDataTypeInferenceService):
+class DataTypeInferenceService:
     """Service for inferring data types from sample values."""
     
     def __init__(self):
@@ -121,7 +148,7 @@ class DataTypeInferenceService(IDataTypeInferenceService):
         }
 
 
-class ColumnStatisticsService(IColumnStatisticsService):
+class ColumnStatisticsService:
     """Service for computing column statistics."""
     
     async def compute_numeric_statistics(
@@ -320,14 +347,14 @@ class ColumnStatisticsService(IColumnStatisticsService):
         return numerator / denominator if denominator != 0 else 0.0
 
 
-class TableAnalysisService(ITableAnalysisService):
+class TableAnalysisService:
     """Service for comprehensive table analysis."""
     
     def __init__(
         self,
-        table_reader: ITableReader,
-        type_inference_service: IDataTypeInferenceService,
-        statistics_service: IColumnStatisticsService
+        table_reader: PostgresTableReader,
+        type_inference_service: DataTypeInferenceService,
+        statistics_service: ColumnStatisticsService
     ):
         self._table_reader = table_reader
         self._type_inference = type_inference_service

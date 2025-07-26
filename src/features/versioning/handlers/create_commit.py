@@ -1,9 +1,9 @@
 """Handler for creating new commits."""
 from typing import Optional
 
-from src.core.abstractions import IUnitOfWork
-from src.core.abstractions.service_interfaces import ICommitPreparationService
-from src.core.abstractions.events import IEventBus, CommitCreatedEvent
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
+from src.infrastructure.services.commit_preparation_service import CommitPreparationService
+from src.core.events.publisher import EventBus, CommitCreatedEvent
 from src.api.models import CreateCommitRequest, CreateCommitResponse
 from ...base_handler import BaseHandler, with_error_handling, with_transaction
 
@@ -13,9 +13,9 @@ class CreateCommitHandler(BaseHandler[CreateCommitResponse]):
     
     def __init__(
         self,
-        uow: IUnitOfWork,
-        commit_service: ICommitPreparationService,
-        event_bus: Optional[IEventBus] = None
+        uow: PostgresUnitOfWork,
+        commit_service: CommitPreparationService,
+        event_bus: Optional[EventBus] = None
     ):
         super().__init__(uow)
         self._commit_service = commit_service

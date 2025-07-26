@@ -3,10 +3,10 @@
 from typing import Any, Optional, Dict, List, AsyncContextManager
 from contextlib import asynccontextmanager
 import asyncpg
-from ...core.abstractions.database import IDatabaseConnection, ITransaction, IDatabasePool
+# Remove interface imports
 
 
-class AsyncpgConnectionAdapter(IDatabaseConnection):
+class AsyncpgConnectionAdapter:
     """Adapter to wrap asyncpg.Connection with generic interface."""
     
     def __init__(self, connection: asyncpg.Connection):
@@ -46,7 +46,7 @@ class AsyncpgConnectionAdapter(IDatabaseConnection):
         return self._conn
 
 
-class AsyncpgTransactionAdapter(ITransaction):
+class AsyncpgTransactionAdapter:
     """Adapter for asyncpg transactions."""
     
     async def commit(self) -> None:
@@ -58,19 +58,19 @@ class AsyncpgTransactionAdapter(ITransaction):
         pass
 
 
-class AsyncpgPoolAdapter(IDatabasePool):
+class AsyncpgPoolAdapter:
     """Adapter to wrap asyncpg.Pool with generic interface."""
     
     def __init__(self, pool: asyncpg.Pool):
         self._pool = pool
     
     @asynccontextmanager
-    async def acquire(self) -> AsyncContextManager[IDatabaseConnection]:
+    async def acquire(self) -> AsyncContextManager:
         """Acquire a connection from the pool."""
         async with self._pool.acquire() as conn:
             yield AsyncpgConnectionAdapter(conn)
     
-    async def release(self, connection: IDatabaseConnection) -> None:
+    async def release(self, connection) -> None:
         """Release is handled automatically by asyncpg context manager."""
         pass
     

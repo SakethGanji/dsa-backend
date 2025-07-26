@@ -1,13 +1,13 @@
 """Handler for refreshing the search index."""
 
 from ...base_handler import BaseHandler
-from ....core.abstractions.uow import IUnitOfWork
+from ....infrastructure.postgres.uow import PostgresUnitOfWork
 
 
 class RefreshSearchIndexHandler(BaseHandler[dict]):
     """Handler for refreshing the search materialized view."""
     
-    def __init__(self, unit_of_work: IUnitOfWork):
+    def __init__(self, unit_of_work: PostgresUnitOfWork):
         """Initialize the handler with a unit of work."""
         super().__init__(unit_of_work)
 

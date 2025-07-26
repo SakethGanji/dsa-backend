@@ -11,13 +11,44 @@ from concurrent.futures import ThreadPoolExecutor
 from ..infrastructure.postgres.database import DatabasePool
 from ..infrastructure.postgres.table_reader import PostgresTableReader
 from ..infrastructure.postgres.event_store import PostgresEventStore
-from ..core.abstractions.events import JobStartedEvent, JobCompletedEvent, JobFailedEvent
 from ..core.events.registry import InMemoryEventBus
 from .job_worker import JobExecutor
 from src.core.domain_exceptions import EntityNotFoundException
+from dataclasses import dataclass
+from typing import Optional
 
 
 logger = logging.getLogger(__name__)
+
+
+# Job event classes
+@dataclass
+class JobStartedEvent:
+    """Event raised when a job starts."""
+    job_id: str
+    job_type: str
+    dataset_id: int
+    user_id: int
+
+
+@dataclass
+class JobCompletedEvent:
+    """Event raised when a job completes successfully."""
+    job_id: str
+    job_type: str
+    dataset_id: int
+    user_id: int
+    result: Dict[str, Any]
+
+
+@dataclass
+class JobFailedEvent:
+    """Event raised when a job fails."""
+    job_id: str
+    job_type: str
+    dataset_id: int
+    user_id: int
+    error_message: str
 
 
 class ExplorationExecutor(JobExecutor):

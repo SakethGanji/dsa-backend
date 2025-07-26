@@ -2,8 +2,9 @@
 
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
-from src.core.abstractions import IUnitOfWork, IDatasetRepository
-from src.core.abstractions.events import IEventBus, DatasetUpdatedEvent
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
+from src.infrastructure.postgres.dataset_repo import PostgresDatasetRepository
+from src.core.events.publisher import EventBus, DatasetUpdatedEvent
 from src.api.models import UpdateDatasetResponse
 from ...base_update_handler import BaseUpdateHandler
 from src.core.decorators import requires_permission
@@ -17,9 +18,9 @@ class UpdateDatasetHandler(BaseUpdateHandler[UpdateDatasetCommand, UpdateDataset
     
     def __init__(
         self,
-        uow: IUnitOfWork,
-        dataset_repo: IDatasetRepository,
-        event_bus: Optional[IEventBus] = None
+        uow: PostgresUnitOfWork,
+        dataset_repo: PostgresDatasetRepository,
+        event_bus: Optional[EventBus] = None
     ):
         super().__init__(uow)
         self._dataset_repo = dataset_repo
@@ -123,9 +124,9 @@ class UpdateDatasetHandler(BaseUpdateHandler[UpdateDatasetCommand, UpdateDataset
         
         # Publish event if there were changes
         if changes:
-            event = DatasetUpdatedEvent.from_update(
+            event = DatasetUpdatedEvent(
                 dataset_id=entity_id,
-                changes=changes,
-                updated_by=command.user_id
+                user_id=command.user_id,
+                changes=changes
             )
             await self._event_bus.publish(event)

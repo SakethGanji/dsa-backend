@@ -10,10 +10,10 @@ import io
 import csv
 
 from ..infrastructure.postgres.database import DatabasePool, UnitOfWorkFactory
-from ..core.abstractions.uow import IUnitOfWork
-from ..core.abstractions.service_interfaces import SamplingMethod, SampleConfig
+from ..infrastructure.postgres.uow import PostgresUnitOfWork
 from ..core.services.sampling_service import SamplingService, SamplingJobManager
 from ..infrastructure.postgres.table_reader import PostgresTableReader
+from enum import Enum
 from ..core.authorization import get_current_user_info, require_dataset_read
 from ..core.domain_exceptions import resource_not_found
 from ..core.domain_exceptions import ValidationException
@@ -26,12 +26,21 @@ from ..features.sampling.handlers import (
 from .dependencies import get_db_pool, get_uow
 
 
+# Sampling method enum
+class SamplingMethod(Enum):
+    """Supported sampling methods."""
+    RANDOM = "random"
+    STRATIFIED = "stratified"
+    CLUSTER = "cluster"
+    SYSTEMATIC = "systematic"
+
+
 router = APIRouter(prefix="/sampling", tags=["sampling"])
 
 
 # Local dependency helpers
 async def get_table_reader(
-    uow: IUnitOfWork = Depends(get_uow)
+    uow: PostgresUnitOfWork = Depends(get_uow)
 ) -> PostgresTableReader:
     """Get table reader."""
     return PostgresTableReader(uow.connection)
@@ -192,7 +201,7 @@ async def create_sampling_job(
     request: CreateSamplingJobRequest = ...,
     current_user: CurrentUser = Depends(get_current_user_info),
     _: CurrentUser = Depends(require_dataset_read),
-    uow: IUnitOfWork = Depends(get_uow)
+    uow: PostgresUnitOfWork = Depends(get_uow)
 ) -> SamplingJobResponse:
     """Create a sampling job for asynchronous processing."""
     from ..features.sampling.handlers.create_sampling_job import CreateSamplingJobHandler, CreateSamplingJobCommand
@@ -242,7 +251,7 @@ async def sample_data_direct(
     request: DirectSamplingRequest = ...,
     current_user: CurrentUser = Depends(get_current_user_info),
     _: CurrentUser = Depends(require_dataset_read),
-    uow: IUnitOfWork = Depends(get_uow)
+    uow: PostgresUnitOfWork = Depends(get_uow)
 ) -> SamplingResultResponse:
     """Perform direct sampling and return results immediately."""
     from ..features.sampling.handlers.sample_data_direct import SampleDataDirectHandler, DirectSamplingCommand
@@ -277,7 +286,7 @@ async def get_column_samples(
     request: ColumnSamplesRequest = ...,
     current_user: CurrentUser = Depends(get_current_user_info),
     _: CurrentUser = Depends(require_dataset_read),
-    uow: IUnitOfWork = Depends(get_uow)
+    uow: PostgresUnitOfWork = Depends(get_uow)
 ) -> ColumnSamplesResponse:
     """Get unique value samples for specified columns."""
     from ..features.sampling.handlers.get_column_samples import GetColumnSamplesHandler, GetColumnSamplesCommand
@@ -301,7 +310,7 @@ async def get_column_samples(
 async def get_sampling_methods(
     dataset_id: int = Path(..., description="Dataset ID"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow: IUnitOfWork = Depends(get_uow)
+    uow: PostgresUnitOfWork = Depends(get_uow)
 ) -> Dict[str, Any]:
     """Get available sampling methods and their parameters."""
     from ..features.sampling.handlers.get_sampling_methods import GetSamplingMethodsHandler, GetSamplingMethodsCommand
@@ -330,7 +339,7 @@ async def get_sampling_job_data(
     columns: Optional[str] = Query(None, description="Comma-separated column names"),
     format: str = Query("json", description="Output format (json or csv)"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow: IUnitOfWork = Depends(get_uow),
+    uow: PostgresUnitOfWork = Depends(get_uow),
     table_reader: PostgresTableReader = Depends(get_table_reader)
 ):
     """Get sampled data from a completed sampling job."""
@@ -403,7 +412,7 @@ async def get_sampling_job_residual(
     columns: Optional[str] = Query(None, description="Comma-separated column names"),
     format: str = Query("json", description="Output format (json or csv)"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow: IUnitOfWork = Depends(get_uow),
+    uow: PostgresUnitOfWork = Depends(get_uow),
     table_reader: PostgresTableReader = Depends(get_table_reader)
 ):
     """Get residual (unsampled) data from a sampling job."""
@@ -432,7 +441,7 @@ async def get_dataset_sampling_history(
     offset: int = Query(0, ge=0, description="Pagination offset"),
     limit: int = Query(20, ge=1, le=100, description="Items per page"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow: IUnitOfWork = Depends(get_uow)
+    uow: PostgresUnitOfWork = Depends(get_uow)
 ):
     """Get sampling job history for a dataset."""
     
@@ -459,7 +468,7 @@ async def get_user_sampling_history(
     offset: int = Query(0, ge=0, description="Pagination offset"),
     limit: int = Query(20, ge=1, le=100, description="Items per page"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow: IUnitOfWork = Depends(get_uow)
+    uow: PostgresUnitOfWork = Depends(get_uow)
 ):
     """Get sampling job history for a user."""
     

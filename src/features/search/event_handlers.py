@@ -3,17 +3,18 @@
 import logging
 from typing import List
 
-from src.core.abstractions.events import (
-    IEventHandler, DomainEvent, EventType,
+from src.core.events.publisher import (
+    DomainEvent,
     DatasetCreatedEvent, DatasetUpdatedEvent, DatasetDeletedEvent
 )
+from src.core.events.publisher import EventType
 from src.infrastructure.postgres.database import DatabasePool
 
 
 logger = logging.getLogger(__name__)
 
 
-class SearchIndexEventHandler(IEventHandler):
+class SearchIndexEventHandler:
     """Handler for updating search indexes based on dataset events."""
     
     def __init__(self, db_pool: DatabasePool):

@@ -1,6 +1,7 @@
 """Handler for comprehensive table analysis using service abstraction."""
 
-from src.core.abstractions import IUnitOfWork, ITableAnalysisService
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
+from src.infrastructure.services.table_analysis import TableAnalysisService
 from src.api.models import TableAnalysisResponse
 from ...base_handler import BaseHandler, with_error_handling
 from fastapi import HTTPException
@@ -9,7 +10,7 @@ from fastapi import HTTPException
 class GetTableAnalysisHandler(BaseHandler[TableAnalysisResponse]):
     """Handler for retrieving comprehensive table analysis."""
     
-    def __init__(self, uow: IUnitOfWork, table_analysis_service: ITableAnalysisService):
+    def __init__(self, uow: PostgresUnitOfWork, table_analysis_service: TableAnalysisService):
         super().__init__(uow)
         self._table_analysis_service = table_analysis_service
     

@@ -4,15 +4,7 @@ from typing import List, Dict, Any, Optional, AsyncGenerator
 import json
 import re
 from asyncpg import Connection
-from src.core.abstractions.repositories import ITableReader
-from src.core.abstractions.table_interfaces import (
-    ITableMetadataReader,
-    ITableDataReader,
-    ITableAnalytics
-)
-
-
-class PostgresTableReader(ITableReader, ITableMetadataReader, ITableDataReader, ITableAnalytics):
+class PostgresTableReader:
     """PostgreSQL implementation for reading table data from commits."""
     
     def __init__(self, connection: Connection):

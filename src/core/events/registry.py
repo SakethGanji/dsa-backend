@@ -1,11 +1,13 @@
 """Event handler registry for managing event-handler mappings."""
 
-from typing import Dict, List, Type
+from typing import Dict, List, Type, Callable, Awaitable, Any
 import logging
 
-from src.core.abstractions.events import (
-    EventType, IEventHandler, IEventBus, DomainEvent, EventHandler
-)
+from src.core.events.publisher import EventType
+from src.core.events.publisher import DomainEvent
+
+# Event handler type
+EventHandler = Callable[[DomainEvent], Awaitable[None]]
 
 
 logger = logging.getLogger(__name__)
@@ -15,10 +17,10 @@ class EventHandlerRegistry:
     """Registry for managing event handlers and their mappings."""
     
     def __init__(self):
-        self._handlers: Dict[EventType, List[IEventHandler]] = {}
-        self._handler_instances: Dict[str, IEventHandler] = {}
+        self._handlers: Dict[EventType, List[Any]] = {}
+        self._handler_instances: Dict[str, Any] = {}
     
-    def register_handler(self, handler: IEventHandler) -> None:
+    def register_handler(self, handler) -> None:
         """Register an event handler for its declared event types."""
         handler_name = handler.handler_name
         
@@ -52,21 +54,21 @@ class EventHandlerRegistry:
         del self._handler_instances[handler_name]
         logger.info(f"Unregistered handler {handler_name}")
     
-    def get_handlers(self, event_type: EventType) -> List[IEventHandler]:
+    def get_handlers(self, event_type: EventType) -> List[Any]:
         """Get all handlers for a specific event type."""
         return self._handlers.get(event_type, [])
     
-    def get_all_handlers(self) -> Dict[str, IEventHandler]:
+    def get_all_handlers(self) -> Dict[str, Any]:
         """Get all registered handler instances."""
         return self._handler_instances.copy()
     
-    def get_handler_by_name(self, handler_name: str) -> IEventHandler:
+    def get_handler_by_name(self, handler_name: str) -> Any:
         """Get a specific handler by name."""
         if handler_name not in self._handler_instances:
             raise ValueError(f"Handler {handler_name} not found")
         return self._handler_instances[handler_name]
     
-    def wire_to_event_bus(self, event_bus: IEventBus) -> None:
+    def wire_to_event_bus(self, event_bus) -> None:
         """Wire all registered handlers to the event bus."""
         for event_type, handlers in self._handlers.items():
             for handler in handlers:
@@ -92,7 +94,7 @@ class EventHandlerRegistry:
         return mapping
 
 
-class InMemoryEventBus(IEventBus):
+class InMemoryEventBus:
     """In-memory implementation of event bus for immediate event handling."""
     
     def __init__(self, store_events: bool = True):

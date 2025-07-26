@@ -3,7 +3,7 @@
 from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
 import jwt
-from src.core.abstractions.external import IAuthenticationService
+# Remove interface import
 
 
 class AuthenticationError(Exception):
@@ -11,8 +11,8 @@ class AuthenticationError(Exception):
     pass
 
 
-class JWTAuthenticationService(IAuthenticationService):
-    """JWT implementation of IAuthenticationService."""
+class JWTAuthenticationService:
+    """JWT authentication service implementation."""
     
     def __init__(
         self,

@@ -1,9 +1,34 @@
 """Handler for direct data sampling."""
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 from dataclasses import dataclass
-from src.core.abstractions import IUnitOfWork
-from src.core.abstractions.service_interfaces import SamplingMethod, SampleConfig
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
+from enum import Enum
+
+# Sampling enums and data classes
+class SamplingMethod(Enum):
+    """Supported sampling methods."""
+    RANDOM = "random"
+    STRATIFIED = "stratified"
+    CLUSTER = "cluster"
+    SYSTEMATIC = "systematic"
+    LLM_BASED = "llm_based"
+    MULTI_ROUND = "multi_round"
+
+@dataclass
+class SampleConfig:
+    """Configuration for sampling operations."""
+    method: SamplingMethod
+    sample_size: Union[int, float]
+    random_seed: Optional[int] = None
+    stratify_columns: Optional[List[str]] = None
+    proportional: bool = True
+    cluster_column: Optional[str] = None
+    num_clusters: Optional[int] = None
+    llm_prompt: Optional[str] = None
+    relevance_threshold: Optional[float] = None
+    num_rounds: Optional[int] = None
+    round_configs: Optional[List['SampleConfig']] = None
 from src.core.services.sampling_service import SamplingService
 from ...base_handler import BaseHandler
 from src.core.decorators import requires_permission
@@ -24,7 +49,7 @@ class SamplingResultResponse:
 class SampleDataDirectHandler(BaseHandler):
     """Handler for performing direct sampling."""
     
-    def __init__(self, uow: IUnitOfWork):
+    def __init__(self, uow: PostgresUnitOfWork):
         super().__init__(uow)
     
     @requires_permission("datasets", "read")

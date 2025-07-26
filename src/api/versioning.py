@@ -24,7 +24,7 @@ from src.features.refs.handlers import ListRefsHandler, CreateBranchHandler, Del
 from src.infrastructure.postgres.database import DatabasePool, UnitOfWorkFactory
 from src.core.authorization import get_current_user_info, PermissionType, require_dataset_read, require_dataset_write
 from src.api.dependencies import get_uow, get_db_pool, get_event_bus
-from src.core.abstractions import IUnitOfWork, ITableAnalysisService
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
 
 
 router = APIRouter(tags=["versioning"])
@@ -39,8 +39,8 @@ async def get_uow_factory(
 
 
 async def get_table_analysis_service(
-    uow: IUnitOfWork = Depends(get_uow)
-) -> ITableAnalysisService:
+    uow: PostgresUnitOfWork = Depends(get_uow)
+):
     """Get table analysis service."""
     from src.infrastructure.services.table_analysis import (
         TableAnalysisService, DataTypeInferenceService, ColumnStatisticsService
@@ -59,7 +59,7 @@ async def create_commit(
     request: CreateCommitRequest,
     current_user: CurrentUser = Depends(get_current_user_info),
     _: CurrentUser = Depends(require_dataset_write),
-    uow: IUnitOfWork = Depends(get_uow),
+    uow: PostgresUnitOfWork = Depends(get_uow),
     event_bus = Depends(get_event_bus)
 ):
     """Create a new commit with direct data"""
@@ -74,7 +74,7 @@ async def import_file(
     file: UploadFile = File(...),
     commit_message: str = Form(...),
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow: IUnitOfWork = Depends(get_uow),
+    uow: PostgresUnitOfWork = Depends(get_uow),
     _: CurrentUser = Depends(require_dataset_write)
 ):
     """Upload a file to import as a new commit"""
@@ -98,7 +98,7 @@ async def get_data_at_ref(
     offset: int = Query(0, ge=0, description="Pagination offset"),
     limit: int = Query(100, ge=1, le=1000, description="Pagination limit"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow: IUnitOfWork = Depends(get_uow),
+    uow: PostgresUnitOfWork = Depends(get_uow),
     _: CurrentUser = Depends(require_dataset_read)
 ):
     """Get paginated data for a ref"""
@@ -112,7 +112,7 @@ async def get_commit_schema(
     dataset_id: int,
     commit_id: str,
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow: IUnitOfWork = Depends(get_uow),
+    uow: PostgresUnitOfWork = Depends(get_uow),
     _: CurrentUser = Depends(require_dataset_read)
 ):
     """Get schema information for a commit"""
@@ -126,7 +126,7 @@ async def list_tables(
     dataset_id: int,
     ref_name: str,
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow: IUnitOfWork = Depends(get_uow),
+    uow: PostgresUnitOfWork = Depends(get_uow),
     _: CurrentUser = Depends(require_dataset_read)
 ) -> Dict[str, List[str]]:
     """List all available tables in the dataset at the given ref"""
@@ -142,7 +142,7 @@ async def get_table_data(
     offset: int = Query(0, ge=0, description="Pagination offset"),
     limit: int = Query(100, ge=1, le=10000, description="Pagination limit"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow: IUnitOfWork = Depends(get_uow),
+    uow: PostgresUnitOfWork = Depends(get_uow),
     _: CurrentUser = Depends(require_dataset_read)
 ) -> Dict[str, Any]:
     """Get paginated data for a specific table"""
@@ -163,7 +163,7 @@ async def get_table_schema(
     ref_name: str,
     table_key: str,
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow: IUnitOfWork = Depends(get_uow),
+    uow: PostgresUnitOfWork = Depends(get_uow),
     _: CurrentUser = Depends(require_dataset_read)
 ) -> Dict[str, Any]:
     """Get schema for a specific table"""
@@ -182,8 +182,8 @@ async def get_table_analysis(
     ref_name: str,
     table_key: str,
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow: IUnitOfWork = Depends(get_uow),
-    table_analysis_service: ITableAnalysisService = Depends(get_table_analysis_service),
+    uow: PostgresUnitOfWork = Depends(get_uow),
+    table_analysis_service = Depends(get_table_analysis_service),
     _: CurrentUser = Depends(require_dataset_read)
 ) -> TableAnalysisResponse:
     """Get comprehensive table analysis including schema, statistics, and sample values"""
@@ -265,7 +265,7 @@ async def delete_branch(
     dataset_id: int = Path(..., description="Dataset ID"),
     ref_name: str = Path(..., description="Branch/ref name to delete"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow: IUnitOfWork = Depends(get_uow),
+    uow: PostgresUnitOfWork = Depends(get_uow),
     _: CurrentUser = Depends(require_dataset_write)
 ):
     """Delete a branch/ref."""
@@ -284,7 +284,7 @@ async def delete_branch(
 async def get_dataset_overview(
     dataset_id: int = Path(..., description="Dataset ID"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow: IUnitOfWork = Depends(get_uow),
+    uow: PostgresUnitOfWork = Depends(get_uow),
     _: CurrentUser = Depends(require_dataset_read)
 ) -> DatasetOverviewResponse:
     """Get overview of dataset including all refs and their tables.

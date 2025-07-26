@@ -1,15 +1,37 @@
 """Handler for SQL transformation jobs."""
 
 from uuid import UUID
-from typing import Dict, Any
+from typing import Dict, Any, List
+from dataclasses import dataclass
+from enum import Enum
 
 from ...base_handler import BaseHandler, with_error_handling, with_transaction
-from ....core.abstractions.uow import IUnitOfWork
-from ....core.abstractions.service_interfaces import IWorkbenchService, WorkbenchContext, OperationType
-from ....core.abstractions.repositories import IDatasetRepository, IJobRepository, ICommitRepository
+from ....infrastructure.postgres.uow import PostgresUnitOfWork
+from ....infrastructure.services.workbench_service import WorkbenchService
+from ....infrastructure.postgres.dataset_repo import PostgresDatasetRepository
+from ....infrastructure.postgres.job_repo import PostgresJobRepository
+from ....infrastructure.postgres.versioning_repo import PostgresCommitRepository
 # Use standard Python exceptions instead of custom error classes
 from ..models.sql_transform import SqlTransformRequest, SqlTransformResponse
 from src.core.domain_exceptions import ForbiddenException
+
+
+# Data classes for workbench context
+class OperationType(Enum):
+    """Types of operations supported by the workbench."""
+    SQL_TRANSFORM = "sql_transform"
+    PREVIEW = "preview"
+    EXPORT = "export"
+
+
+@dataclass
+class WorkbenchContext:
+    """Context for workbench operations."""
+    user_id: int
+    source_datasets: List[int]
+    source_refs: List[str]
+    operation_type: OperationType
+    parameters: Dict[str, Any]
 
 
 class TransformSqlHandler(BaseHandler[SqlTransformResponse]):
@@ -17,11 +39,11 @@ class TransformSqlHandler(BaseHandler[SqlTransformResponse]):
     
     def __init__(
         self,
-        uow: IUnitOfWork,
-        workbench_service: IWorkbenchService,
-        job_repository: IJobRepository,
-        dataset_repository: IDatasetRepository,
-        commit_repository: ICommitRepository
+        uow: PostgresUnitOfWork,
+        workbench_service: WorkbenchService,
+        job_repository: PostgresJobRepository,
+        dataset_repository: PostgresDatasetRepository,
+        commit_repository: PostgresCommitRepository
     ):
         """Initialize handler with dependencies."""
         super().__init__(uow)

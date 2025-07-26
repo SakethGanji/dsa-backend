@@ -14,7 +14,7 @@ from ..features.search.models import (
     SuggestResponse
 )
 from ..api.models import CurrentUser
-from ..core.abstractions.uow import IUnitOfWork
+from ..infrastructure.postgres.uow import PostgresUnitOfWork
 from .dependencies import get_db_pool
 
 

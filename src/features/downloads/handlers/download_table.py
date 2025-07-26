@@ -6,7 +6,8 @@ import json
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 
-from src.core.abstractions import IUnitOfWork, ITableMetadataReader, ITableDataReader
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
+from src.infrastructure.postgres.table_reader import PostgresTableReader
 from src.core.domain_exceptions import EntityNotFoundException, ValidationException
 from ..models import DownloadTableCommand
 
@@ -14,7 +15,7 @@ from ..models import DownloadTableCommand
 class DownloadTableHandler:
     """Handler for downloading table data."""
     
-    def __init__(self, uow: IUnitOfWork, metadata_reader: ITableMetadataReader, data_reader: ITableDataReader):
+    def __init__(self, uow: PostgresUnitOfWork, metadata_reader: PostgresTableReader, data_reader: PostgresTableReader):
         self._uow = uow
         self._metadata_reader = metadata_reader
         self._data_reader = data_reader
@@ -119,7 +120,7 @@ class DownloadTableHandler:
         dataset_name: str,
         table_key: str,
         commit_id: str,
-        metadata_reader: ITableMetadataReader
+        metadata_reader: PostgresTableReader
     ) -> Dict[str, Any]:
         """Format data as JSON with schema."""
         # Get schema

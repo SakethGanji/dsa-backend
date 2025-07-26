@@ -1,10 +1,10 @@
 """Password hasher implementation using passlib."""
 
 from passlib.context import CryptContext
-from src.core.abstractions.external import IPasswordManager
+# Remove interface import
 
 
-class PasswordHasher(IPasswordManager):
+class PasswordHasher:
     """Implementation of password hashing and verification using passlib."""
     
     def __init__(self, schemes: list[str] = None):

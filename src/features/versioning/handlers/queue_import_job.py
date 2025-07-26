@@ -8,7 +8,7 @@ import aiofiles
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
-from src.core.abstractions import IUnitOfWork, IJobRepository, IDatasetRepository
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
 from src.infrastructure.config import get_settings
 from src.api.models import QueueImportRequest, QueueImportResponse
 from ...base_handler import BaseHandler, with_error_handling, with_transaction
@@ -20,7 +20,7 @@ from ..models import QueueImportJobCommand
 class QueueImportJobHandler(BaseHandler[QueueImportResponse]):
     """Handler for queuing dataset import jobs from uploaded files with streaming support"""
     
-    def __init__(self, uow: IUnitOfWork):
+    def __init__(self, uow: PostgresUnitOfWork):
         super().__init__(uow)
         self.settings = get_settings()
     

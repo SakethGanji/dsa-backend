@@ -1,7 +1,8 @@
 """Handler for getting dataset details."""
 
 from typing import Dict, Any, Optional
-from src.core.abstractions import IUnitOfWork, IDatasetRepository
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
+from src.infrastructure.postgres.dataset_repo import PostgresDatasetRepository
 from src.api.models import DatasetDetailResponse
 from ...base_handler import BaseHandler
 from src.core.decorators import requires_permission
@@ -14,8 +15,8 @@ class GetDatasetHandler(BaseHandler):
     
     def __init__(
         self,
-        uow: IUnitOfWork,
-        dataset_repo: IDatasetRepository
+        uow: PostgresUnitOfWork,
+        dataset_repo: PostgresDatasetRepository
     ):
         super().__init__(uow)
         self._dataset_repo = dataset_repo

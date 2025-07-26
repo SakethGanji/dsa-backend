@@ -5,11 +5,11 @@ import json
 from pathlib import Path
 from typing import Optional, Dict, Any
 import aiofiles
-from src.core.abstractions.external import IFileStorage
+# Remove interface import
 
 
-class LocalFileStorage(IFileStorage):
-    """Local file system implementation of IFileStorage."""
+class LocalFileStorage:
+    """Local file system storage implementation."""
     
     def __init__(self, base_path: str):
         self._base_path = Path(base_path)
@@ -101,9 +101,9 @@ class LocalFileStorage(IFileStorage):
             return json.loads(content)
 
 
-class S3FileStorage(IFileStorage):
+class S3FileStorage:
     """
-    S3 implementation of IFileStorage.
+    S3 file storage implementation.
     
     This is a placeholder for S3 storage implementation.
     Would require boto3 or aioboto3 for actual implementation.

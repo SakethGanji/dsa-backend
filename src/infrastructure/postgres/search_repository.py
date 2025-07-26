@@ -5,10 +5,10 @@ from datetime import datetime
 import json
 import asyncpg
 
-from src.core.abstractions.search_repository import ISearchRepository
+# Remove interface import
 
 
-class PostgresSearchRepository(ISearchRepository):
+class PostgresSearchRepository:
     """PostgreSQL implementation of search repository using native full-text search."""
     
     def __init__(self, connection: asyncpg.Connection):

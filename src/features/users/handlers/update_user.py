@@ -3,9 +3,20 @@
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
 from datetime import datetime
-from src.core.abstractions import IUnitOfWork, IUserRepository
-from src.core.abstractions.events import IEventBus, UserUpdatedEvent
-from src.core.abstractions.external import IPasswordManager
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
+from src.infrastructure.postgres.user_repo import PostgresUserRepository
+from src.core.events.publisher import EventBus
+from src.core.events.publisher import DomainEvent
+from dataclasses import dataclass
+from typing import List
+
+
+@dataclass
+class UserUpdatedEvent(DomainEvent):
+    """Event raised when a user is updated."""
+    user_id: int
+    updated_fields: List[str]
+    updated_by: int
 from src.infrastructure.external.password_hasher import PasswordHasher
 from src.features.base_update_handler import BaseUpdateHandler
 from src.core.decorators import requires_role
@@ -25,7 +36,7 @@ class UpdateUserResponse:
 class UpdateUserHandler(BaseUpdateHandler[UpdateUserCommand, UpdateUserResponse, Dict[str, Any]]):
     """Handler for updating user information."""
     
-    def __init__(self, uow: IUnitOfWork, user_repo: IUserRepository, password_manager: IPasswordManager = None, event_bus: Optional[IEventBus] = None):
+    def __init__(self, uow: PostgresUnitOfWork, user_repo: PostgresUserRepository, password_manager: PasswordHasher = None, event_bus: Optional[EventBus] = None):
         super().__init__(uow)
         self._user_repo = user_repo
         self._password_manager = password_manager or PasswordHasher()

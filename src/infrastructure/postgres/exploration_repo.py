@@ -5,11 +5,11 @@ from uuid import UUID
 import json
 from datetime import datetime
 
-from src.core.abstractions.repositories import IExplorationRepository
+# Remove interface import
 from .base_repository import BasePostgresRepository
 
 
-class PostgresExplorationRepository(BasePostgresRepository[UUID], IExplorationRepository):
+class PostgresExplorationRepository(BasePostgresRepository[UUID]):
     """PostgreSQL implementation of exploration repository."""
     
     def __init__(self, connection):

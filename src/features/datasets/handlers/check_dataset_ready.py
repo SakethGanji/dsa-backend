@@ -1,7 +1,8 @@
 """Handler for checking if a dataset is ready for operations."""
 
 from typing import Dict, Any
-from src.core.abstractions import IUnitOfWork, IJobRepository
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
+from src.infrastructure.postgres.job_repo import PostgresJobRepository
 from ...base_handler import BaseHandler
 from src.core.decorators import requires_permission
 from ..models import CheckDatasetReadyCommand
@@ -12,8 +13,8 @@ class CheckDatasetReadyHandler(BaseHandler):
     
     def __init__(
         self,
-        uow: IUnitOfWork,
-        job_repo: IJobRepository
+        uow: PostgresUnitOfWork,
+        job_repo: PostgresJobRepository
     ):
         super().__init__(uow)
         self._job_repo = job_repo

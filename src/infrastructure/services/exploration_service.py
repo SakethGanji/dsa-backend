@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from collections import Counter
 
-from src.core.abstractions.service_interfaces import IExplorationService
-from src.core.abstractions.repositories import ITableReader
+# Base class imports
+from abc import ABC, abstractmethod
 
 
 @dataclass
@@ -57,10 +57,10 @@ class Insight:
     details: Dict[str, Any]
 
 
-class ExplorationService(IExplorationService):
+class ExplorationService:
     """Service for exploring and analyzing datasets."""
     
-    def __init__(self, table_reader: ITableReader):
+    def __init__(self, table_reader):
         self._table_reader = table_reader
     
     async def analyze_data_quality(

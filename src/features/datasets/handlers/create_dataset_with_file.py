@@ -1,13 +1,16 @@
-from typing import BinaryIO
+from typing import BinaryIO, Optional
 import os
 import tempfile
 import uuid
 
-from src.core.abstractions import IUnitOfWork, IDatasetRepository, ICommitRepository, IJobRepository
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
+from src.infrastructure.postgres.dataset_repo import PostgresDatasetRepository
+from src.infrastructure.postgres.versioning_repo import PostgresCommitRepository
+from src.infrastructure.postgres.job_repo import PostgresJobRepository
 from src.api.models import CreateDatasetWithFileRequest, CreateDatasetWithFileResponse, CreateDatasetResponse, QueueImportResponse
 from ...base_handler import BaseHandler, with_error_handling, with_transaction
 from src.core.events import EventBus, DatasetCreatedEvent, get_event_bus
-from src.core.abstractions.models.constants import JobStatus
+from src.core.constants import JobStatus
 from ..models import CreateDatasetWithFileCommand
 
 
@@ -16,10 +19,10 @@ class CreateDatasetWithFileHandler(BaseHandler[CreateDatasetWithFileResponse]):
     
     def __init__(
         self,
-        uow: IUnitOfWork,
-        dataset_repo: IDatasetRepository,
-        commit_repo: ICommitRepository,
-        job_repo: IJobRepository = None
+        uow: PostgresUnitOfWork,
+        dataset_repo: PostgresDatasetRepository,
+        commit_repo: PostgresCommitRepository,
+        job_repo: Optional[PostgresJobRepository] = None
     ):
         super().__init__(uow)
         self._dataset_repo = dataset_repo

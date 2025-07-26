@@ -3,7 +3,7 @@
 import asyncio
 from typing import Any, Optional, Dict
 from datetime import datetime, timedelta
-from src.core.abstractions.external import ICacheService
+# Remove interface import
 
 
 class CacheEntry:
@@ -23,8 +23,8 @@ class CacheEntry:
         return datetime.utcnow() > expiry_time
 
 
-class InMemoryCacheService(ICacheService):
-    """In-memory implementation of ICacheService."""
+class InMemoryCacheService:
+    """In-memory cache service implementation."""
     
     def __init__(self):
         self._cache: Dict[str, CacheEntry] = {}
@@ -87,9 +87,9 @@ class InMemoryCacheService(ICacheService):
                 del self._cache[key]
 
 
-class RedisCacheService(ICacheService):
+class RedisCacheService:
     """
-    Redis implementation of ICacheService.
+    Redis cache service implementation.
     
     This is a placeholder for Redis cache implementation.
     Would require aioredis for actual implementation.

@@ -5,13 +5,12 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 import asyncpg
 
-from src.core.abstractions.events import (
-    IEventStore, DomainEvent, EventType
-)
+from src.core.events.publisher import DomainEvent
+from src.core.events.publisher import EventType
 from src.infrastructure.postgres.database import DatabasePool
 
 
-class PostgresEventStore(IEventStore):
+class PostgresEventStore:
     """PostgreSQL-based event store implementation."""
     
     def __init__(self, db_pool: DatabasePool):

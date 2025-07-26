@@ -4,11 +4,24 @@ from typing import Dict, Any, Optional
 from dataclasses import dataclass
 from uuid import UUID
 from datetime import datetime
-from src.core.abstractions import IUnitOfWork, IJobRepository
-from src.core.abstractions.events import IEventBus, JobCreatedEvent
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
+from src.infrastructure.postgres.job_repo import PostgresJobRepository
+from src.core.events.publisher import EventBus, DomainEvent
 from ...base_handler import BaseHandler, with_transaction
 from src.core.decorators import requires_permission
 from ..models import CreateJobCommand
+
+
+@dataclass
+class JobCreatedEvent(DomainEvent):
+    """Event raised when a job is created."""
+    job_id: UUID
+    run_type: str
+    user_id: int
+    dataset_id: int
+    
+    def __post_init__(self):
+        super().__init__()
 
 
 @dataclass
@@ -23,9 +36,9 @@ class CreateJobHandler(BaseHandler):
     
     def __init__(
         self,
-        uow: IUnitOfWork,
-        job_repo: IJobRepository,
-        event_bus: Optional[IEventBus] = None
+        uow: PostgresUnitOfWork,
+        job_repo: PostgresJobRepository,
+        event_bus: Optional[EventBus] = None
     ):
         super().__init__(uow)
         self._job_repo = job_repo

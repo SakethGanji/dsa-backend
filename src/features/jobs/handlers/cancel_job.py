@@ -3,12 +3,24 @@
 from dataclasses import dataclass
 from uuid import UUID
 from typing import Optional
-from src.core.abstractions import IUnitOfWork, IJobRepository
-from src.core.abstractions.events import IEventBus, JobCancelledEvent
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
+from src.infrastructure.postgres.job_repo import PostgresJobRepository
+from src.core.events.publisher import EventBus, DomainEvent
 from ...base_handler import BaseHandler, with_transaction
 from src.core.decorators import requires_permission
 from src.core.domain_exceptions import EntityNotFoundException, ForbiddenException, BusinessRuleViolation
 from ..models import CancelJobCommand, Job, JobParameters, JobType, JobStatus
+
+
+@dataclass
+class JobCancelledEvent(DomainEvent):
+    """Event raised when a job is cancelled."""
+    job_id: UUID
+    cancelled_by: int
+    reason: Optional[str] = None
+    
+    def __post_init__(self):
+        super().__init__()
 
 
 @dataclass
@@ -23,9 +35,9 @@ class CancelJobHandler(BaseHandler):
     
     def __init__(
         self,
-        uow: IUnitOfWork,
-        job_repo: IJobRepository,
-        event_bus: Optional[IEventBus] = None
+        uow: PostgresUnitOfWork,
+        job_repo: PostgresJobRepository,
+        event_bus: Optional[EventBus] = None
     ):
         super().__init__(uow)
         self._job_repo = job_repo

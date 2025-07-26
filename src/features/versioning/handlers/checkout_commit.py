@@ -1,8 +1,7 @@
 """Handler for checking out a specific commit."""
 
 from typing import Optional
-from ....core.abstractions.uow import IUnitOfWork
-from ....core.abstractions.repositories import ITableReader
+from ....infrastructure.postgres.uow import PostgresUnitOfWork
 from ....api.models.responses import GetDataResponse
 from ...base_handler import BaseHandler, with_error_handling
 from ....core.common.pagination import PaginationMixin
@@ -12,7 +11,7 @@ from ....core.domain_exceptions import EntityNotFoundException
 class CheckoutCommitHandler(BaseHandler[GetDataResponse], PaginationMixin):
     """Handler for retrieving data at a specific commit."""
     
-    def __init__(self, uow: IUnitOfWork):
+    def __init__(self, uow: PostgresUnitOfWork):
         super().__init__(uow)
         
     @with_error_handling

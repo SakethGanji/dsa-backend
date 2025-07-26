@@ -5,16 +5,15 @@ from typing import List, Dict, Any
 from datetime import datetime
 import json
 
-from src.core.abstractions.events import (
-    IEventHandler, DomainEvent, EventType
-)
+from src.core.events.publisher import DomainEvent
+from src.core.events.publisher import EventType
 from src.infrastructure.postgres.database import DatabasePool
 
 
 logger = logging.getLogger(__name__)
 
 
-class CacheInvalidationHandler(IEventHandler):
+class CacheInvalidationHandler:
     """Handler for invalidating caches based on domain events."""
     
     def __init__(self, cache_client=None):
@@ -79,7 +78,7 @@ class CacheInvalidationHandler(IEventHandler):
         return "CacheInvalidationHandler"
 
 
-class AuditLogHandler(IEventHandler):
+class AuditLogHandler:
     """Handler for creating audit logs from domain events."""
     
     def __init__(self, db_pool: DatabasePool):
@@ -168,7 +167,7 @@ class AuditLogHandler(IEventHandler):
         return "AuditLogHandler"
 
 
-class NotificationHandler(IEventHandler):
+class NotificationHandler:
     """Handler for sending notifications based on domain events."""
     
     def __init__(self, notification_service=None):

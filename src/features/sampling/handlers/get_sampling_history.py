@@ -3,7 +3,7 @@
 from typing import Dict, Any, Optional
 from datetime import datetime
 
-from src.core.abstractions.uow import IUnitOfWork
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
 from ...base_handler import BaseHandler, with_error_handling
 from src.core.common.pagination import PaginationMixin
 from fastapi import HTTPException

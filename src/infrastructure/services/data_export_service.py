@@ -10,8 +10,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from openpyxl import Workbook
 
-from src.core.abstractions.service_interfaces import IDataExportService
-from src.core.abstractions.repositories import ITableReader
+from src.infrastructure.postgres.table_reader import PostgresTableReader
 
 
 @dataclass
@@ -33,10 +32,10 @@ class ExportResult:
     file_size: int
 
 
-class DataExportService(IDataExportService):
+class DataExportService:
     """Service for exporting data to various formats."""
     
-    def __init__(self, table_reader: ITableReader):
+    def __init__(self, table_reader: PostgresTableReader):
         self._table_reader = table_reader
         
     async def export_to_csv(
@@ -199,12 +198,10 @@ class DataExportService(IDataExportService):
     
     async def _get_columns(self, dataset_id: str, commit_id: str, table_name: str) -> List[str]:
         """Get column names for the table."""
-        schema = await self._table_reader.get_table_schema(
-            dataset_id=dataset_id,
-            commit_id=commit_id,
-            table_name=table_name
-        )
-        return [col.name for col in schema.columns]
+        schema = await self._table_reader.get_table_schema(commit_id, table_name)
+        if schema and 'columns' in schema:
+            return [col['name'] for col in schema['columns']]
+        return []
     
     async def _read_batches(
         self,
@@ -217,23 +214,37 @@ class DataExportService(IDataExportService):
         offset = 0
         
         while True:
-            # Build query with filters if provided
-            query = f"SELECT * FROM {table_name}"
-            if options.filters:
-                conditions = [f"{k} = %s" for k in options.filters.keys()]
-                query += f" WHERE {' AND '.join(conditions)}"
-            query += f" LIMIT {options.batch_size} OFFSET {offset}"
-            
-            # Execute query
-            result = await self._table_reader.execute_query(
-                dataset_id=dataset_id,
+            # Get data using table reader
+            data = await self._table_reader.get_table_data(
                 commit_id=commit_id,
-                query=query,
-                params=list(options.filters.values()) if options.filters else None
+                table_key=table_name,
+                offset=offset,
+                limit=options.batch_size
             )
             
-            if not result.rows:
+            if not data:
                 break
-                
-            yield result.rows
+            
+            # Apply filters if provided
+            if options.filters:
+                filtered_data = []
+                for row in data:
+                    include = True
+                    for key, value in options.filters.items():
+                        if row.get(key) != value:
+                            include = False
+                            break
+                    if include:
+                        filtered_data.append(row)
+                data = filtered_data
+            
+            # Convert to tuples for export
+            columns = options.columns or (list(data[0].keys()) if data else [])
+            rows = [[row.get(col) for col in columns] for row in data]
+            
+            yield rows
             offset += options.batch_size
+            
+            # If we got less than batch_size, we're done
+            if len(data) < options.batch_size:
+                break

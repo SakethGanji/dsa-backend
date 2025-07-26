@@ -3,7 +3,7 @@
 from typing import TypeVar, Generic, Optional, Callable, Any
 from functools import wraps
 import logging
-from ..core.abstractions.uow import IUnitOfWork
+from ..infrastructure.postgres.uow import PostgresUnitOfWork
 from ..core.common.pagination import PaginationMixin
 from ..core.domain_exceptions import (
     DomainException, 
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class BaseHandler(Generic[TResult]):
     """Base handler class with common initialization and error handling."""
     
-    def __init__(self, uow: IUnitOfWork):
+    def __init__(self, uow: PostgresUnitOfWork):
         """Initialize handler with unit of work."""
         self._uow = uow
     

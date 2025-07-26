@@ -1,6 +1,7 @@
 from typing import Optional, List, Dict, Any
 
-from src.core.abstractions import IUnitOfWork, ITableReader
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
+from src.infrastructure.postgres.table_reader import PostgresTableReader
 from src.api.models import GetDataRequest, GetDataResponse, DataRow
 from ...base_handler import BaseHandler, with_error_handling
 from src.core.common.pagination import PaginationMixin
@@ -12,8 +13,8 @@ class GetDataAtRefHandler(BaseHandler[GetDataResponse], PaginationMixin):
     
     def __init__(
         self,
-        uow: IUnitOfWork,
-        table_reader: ITableReader
+        uow: PostgresUnitOfWork,
+        table_reader: PostgresTableReader
     ):
         super().__init__(uow)
         self._table_reader = table_reader

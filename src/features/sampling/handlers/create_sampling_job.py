@@ -2,7 +2,7 @@
 
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
-from src.core.abstractions import IUnitOfWork
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
 from src.core.services.sampling_service import SamplingJobManager
 from ...base_handler import BaseHandler
 from src.core.decorators import requires_permission
@@ -20,7 +20,7 @@ class SamplingJobResponse:
 class CreateSamplingJobHandler(BaseHandler):
     """Handler for creating sampling jobs."""
     
-    def __init__(self, uow: IUnitOfWork):
+    def __init__(self, uow: PostgresUnitOfWork):
         super().__init__(uow)
     
     @requires_permission("datasets", "read")

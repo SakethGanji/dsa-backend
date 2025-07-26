@@ -8,21 +8,59 @@ from typing import Dict, Any, List, Tuple, Optional
 from datetime import datetime
 import asyncpg
 
-from src.core.abstractions.service_interfaces import (
-    ISqlValidationService,
-    ISqlExecutionService,
-    IQueryOptimizationService,
-    SqlSource,
-    SqlTarget,
-    SqlExecutionPlan,
-    SqlExecutionResult,
-    TableSchema
-)
-from src.core.abstractions import ITableReader, IUnitOfWork
+from dataclasses import dataclass
+from typing import Optional
+
+# Data classes for SQL execution
+@dataclass
+class SqlSource:
+    """Represents a source table for SQL execution."""
+    dataset_id: int
+    ref: str
+    table_key: str
+    alias: str
+
+@dataclass
+class SqlTarget:
+    """Represents the target for SQL results."""
+    dataset_id: int
+    ref: str
+    table_key: str
+    message: str
+    output_branch_name: Optional[str] = None
+
+@dataclass
+class SqlExecutionPlan:
+    """Execution plan for SQL transformation."""
+    sources: List[SqlSource]
+    sql_query: str
+    target: SqlTarget
+    estimated_rows: Optional[int] = None
+    estimated_memory_mb: Optional[float] = None
+    optimization_hints: Optional[List[str]] = None
+
+@dataclass
+class SqlExecutionResult:
+    """Result of SQL execution."""
+    new_commit_id: str
+    rows_processed: int
+    execution_time_ms: int
+    table_key: str
+    output_branch_name: str
+    memory_used_mb: Optional[float] = None
+    optimization_applied: Optional[List[str]] = None
+
+@dataclass
+class TableSchema:
+    """Schema information for a table."""
+    columns: List[Dict[str, Any]]
+    primary_key: Optional[List[str]] = None
+    row_count: int = 0
+    size_bytes: Optional[int] = None
 from src.infrastructure.postgres.database import DatabasePool
 
 
-class SqlValidationService(ISqlValidationService):
+class SqlValidationService:
     """Service for validating SQL queries."""
     
     # Disallowed SQL keywords for security
@@ -76,7 +114,7 @@ class SqlValidationService(ISqlValidationService):
         self,
         sql: str,
         sources: List[SqlSource],
-        table_reader: ITableReader
+        table_reader
     ) -> Dict[str, Any]:
         """Estimate memory and time requirements for the query."""
         total_rows = 0
@@ -140,14 +178,14 @@ class SqlValidationService(ISqlValidationService):
         return sql
 
 
-class SqlExecutionService(ISqlExecutionService):
+class SqlExecutionService:
     """Service for executing SQL transformations."""
     
     def __init__(
         self,
         db_pool: DatabasePool,
-        validation_service: ISqlValidationService,
-        table_reader: ITableReader
+        validation_service,
+        table_reader
     ):
         self._db_pool = db_pool
         self._validation_service = validation_service
@@ -504,7 +542,7 @@ class SqlExecutionService(ISqlExecutionService):
         return hints
 
 
-class QueryOptimizationService(IQueryOptimizationService):
+class QueryOptimizationService:
     """Service for optimizing SQL queries."""
     
     def optimize_query(

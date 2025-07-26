@@ -2,11 +2,11 @@
 
 from typing import Optional, Dict, Any, List
 from asyncpg import Connection
-from src.core.abstractions.repositories import IUserRepository
+# Remove interface import
 from .base_repository import BasePostgresRepository
 
 
-class PostgresUserRepository(BasePostgresRepository[int], IUserRepository):
+class PostgresUserRepository(BasePostgresRepository[int]):
     """PostgreSQL implementation for user management."""
     
     def __init__(self, connection: Connection):

@@ -3,8 +3,6 @@
 from typing import Optional, Union
 import asyncpg
 
-from src.core.abstractions import IUnitOfWork
-from src.core.abstractions.database import IDatabaseConnection
 from .adapters import AsyncpgConnectionAdapter
 from .user_repo import PostgresUserRepository
 from .dataset_repo import PostgresDatasetRepository
@@ -15,12 +13,12 @@ from .search_repository import PostgresSearchRepository
 from .exploration_repo import PostgresExplorationRepository
 
 
-class PostgresUnitOfWork(IUnitOfWork):
+class PostgresUnitOfWork:
     """PostgreSQL implementation of Unit of Work pattern."""
     
     def __init__(self, pool):
         self._pool = pool
-        self._connection: Optional[Union[asyncpg.Connection, IDatabaseConnection]] = None
+        self._connection: Optional[asyncpg.Connection] = None
         self._is_adapted = False
         self._transaction = None
         self._users = None
@@ -85,7 +83,7 @@ class PostgresUnitOfWork(IUnitOfWork):
             self._transaction = None
     
     @property
-    def connection(self) -> Union[asyncpg.Connection, IDatabaseConnection]:
+    def connection(self):
         """Get the current database connection."""
         if not self._connection:
             raise RuntimeError("No active connection in unit of work")

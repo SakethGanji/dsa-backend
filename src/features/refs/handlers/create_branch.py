@@ -1,6 +1,6 @@
 """Handler for creating a new branch."""
 
-from src.core.abstractions import IUnitOfWork
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
 from src.api.models import CreateBranchRequest, CreateBranchResponse, PermissionType
 from ...base_handler import BaseHandler, with_error_handling, with_transaction
 from src.core.domain_exceptions import EntityNotFoundException, ForbiddenException, ValidationException
@@ -9,7 +9,7 @@ from src.core.domain_exceptions import EntityNotFoundException, ForbiddenExcepti
 class CreateBranchHandler(BaseHandler[CreateBranchResponse]):
     """Handler for creating a new branch from an existing ref."""
     
-    def __init__(self, uow: IUnitOfWork):
+    def __init__(self, uow: PostgresUnitOfWork):
         super().__init__(uow)
     
     @with_transaction

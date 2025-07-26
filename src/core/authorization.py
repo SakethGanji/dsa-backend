@@ -3,7 +3,7 @@
 from typing import Dict, Any, Optional
 from fastapi import Depends, HTTPException, status
 from .auth import get_current_user
-from .abstractions import IDatasetRepository, IUserRepository
+# Removed interface imports - repositories will be accessed via connection
 from ..api.models import CurrentUser, PermissionType
 from ..infrastructure.postgres.database import DatabasePool
 from .domain_exceptions import PermissionDeniedError, permission_denied, unauthorized

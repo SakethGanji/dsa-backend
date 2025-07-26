@@ -1,4 +1,4 @@
-"""Constants and enums used across the system."""
+"""Core constants and enums used across the system."""
 
 from enum import Enum
 

@@ -4,13 +4,13 @@ from typing import Optional, Dict, Any
 from uuid import UUID
 import json
 
-from src.core.abstractions import IUnitOfWork
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
 
 
 class GetJobByIdHandler:
     """Handler for fetching job details by ID."""
     
-    def __init__(self, uow: IUnitOfWork):
+    def __init__(self, uow: PostgresUnitOfWork):
         self._uow = uow
     
     async def handle(

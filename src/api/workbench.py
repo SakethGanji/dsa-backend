@@ -4,9 +4,12 @@ from fastapi import APIRouter, Depends
 from typing import Dict
 
 from ..infrastructure.postgres.database import DatabasePool
-from ..core.abstractions.uow import IUnitOfWork
-from ..core.abstractions.service_interfaces import IWorkbenchService
-from ..core.abstractions.repositories import ITableReader, IDatasetRepository, IJobRepository, ICommitRepository
+from ..infrastructure.postgres.uow import PostgresUnitOfWork
+from ..infrastructure.services.workbench_service import WorkbenchService
+from ..infrastructure.postgres.table_reader import PostgresTableReader
+from ..infrastructure.postgres.dataset_repo import PostgresDatasetRepository
+from ..infrastructure.postgres.job_repo import PostgresJobRepository
+from ..infrastructure.postgres.versioning_repo import PostgresCommitRepository
 from ..core.authorization import get_current_user_info
 # Custom exception classes will be handled as standard Python exceptions
 from ..api.models import CurrentUser
@@ -21,38 +24,37 @@ router = APIRouter(prefix="/workbench", tags=["workbench"])
 
 # Local dependency helpers
 async def get_workbench_service(
-    uow: IUnitOfWork = Depends(get_uow)
-) -> IWorkbenchService:
+    uow: PostgresUnitOfWork = Depends(get_uow)
+) -> WorkbenchService:
     """Get workbench service."""
-    from ..core.services.workbench_service import WorkbenchService
+    from ..infrastructure.services.workbench_service import WorkbenchService
     return WorkbenchService()
 
 
 async def get_table_reader(
-    uow: IUnitOfWork = Depends(get_uow)
-) -> ITableReader:
+    uow: PostgresUnitOfWork = Depends(get_uow)
+) -> PostgresTableReader:
     """Get table reader."""
-    from ..infrastructure.postgres.table_reader import PostgresTableReader
     return PostgresTableReader(uow.connection)
 
 
 async def get_dataset_repository(
-    uow: IUnitOfWork = Depends(get_uow)
-) -> IDatasetRepository:
+    uow: PostgresUnitOfWork = Depends(get_uow)
+) -> PostgresDatasetRepository:
     """Get dataset repository."""
     return uow.datasets
 
 
 async def get_job_repository(
-    uow: IUnitOfWork = Depends(get_uow)
-) -> IJobRepository:
+    uow: PostgresUnitOfWork = Depends(get_uow)
+) -> PostgresJobRepository:
     """Get job repository."""
     return uow.jobs
 
 
 async def get_commit_repository(
-    uow: IUnitOfWork = Depends(get_uow)
-) -> ICommitRepository:
+    uow: PostgresUnitOfWork = Depends(get_uow)
+) -> PostgresCommitRepository:
     """Get commit repository."""
     return uow.commits
 
@@ -61,10 +63,10 @@ async def get_commit_repository(
 async def preview_sql(
     request: SqlPreviewRequest,
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow: IUnitOfWork = Depends(get_uow),
-    workbench_service: IWorkbenchService = Depends(get_workbench_service),
-    table_reader: ITableReader = Depends(get_table_reader),
-    dataset_repository: IDatasetRepository = Depends(get_dataset_repository)
+    uow: PostgresUnitOfWork = Depends(get_uow),
+    workbench_service: WorkbenchService = Depends(get_workbench_service),
+    table_reader: PostgresTableReader = Depends(get_table_reader),
+    dataset_repository: PostgresDatasetRepository = Depends(get_dataset_repository)
 ):
     """
     Preview SQL query results on sample data.
@@ -90,11 +92,11 @@ async def preview_sql(
 async def transform_sql(
     request: SqlTransformRequest,
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow: IUnitOfWork = Depends(get_uow),
-    workbench_service: IWorkbenchService = Depends(get_workbench_service),
-    job_repository: IJobRepository = Depends(get_job_repository),
-    dataset_repository: IDatasetRepository = Depends(get_dataset_repository),
-    commit_repository: ICommitRepository = Depends(get_commit_repository)
+    uow: PostgresUnitOfWork = Depends(get_uow),
+    workbench_service: WorkbenchService = Depends(get_workbench_service),
+    job_repository: PostgresJobRepository = Depends(get_job_repository),
+    dataset_repository: PostgresDatasetRepository = Depends(get_dataset_repository),
+    commit_repository: PostgresCommitRepository = Depends(get_commit_repository)
 ):
     """
     Create a SQL transformation job.

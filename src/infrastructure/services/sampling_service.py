@@ -5,8 +5,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from dataclasses import dataclass
 from collections import defaultdict
 
-from src.core.abstractions.service_interfaces import ISamplingService
-from src.core.abstractions.repositories import ITableReader
+# Remove interface imports
 
 
 @dataclass
@@ -19,10 +18,10 @@ class SampleResult:
     metadata: Dict[str, Any]
 
 
-class SamplingService(ISamplingService):
+class SamplingService:
     """Service for sampling data using various strategies."""
     
-    def __init__(self, table_reader: ITableReader):
+    def __init__(self, table_reader):
         self._table_reader = table_reader
     
     async def sample_random(

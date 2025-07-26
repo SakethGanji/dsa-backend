@@ -5,13 +5,12 @@ from contextlib import asynccontextmanager
 from typing import Optional, AsyncContextManager, Dict, Any, List
 import asyncpg
 from asyncpg import Pool, Connection
-from src.core.abstractions import IUnitOfWork
-from src.core.abstractions.database import IDatabasePool, IDatabaseConnection
+# Remove interface imports
 from .uow import PostgresUnitOfWork
 from .adapters import AsyncpgPoolAdapter, AsyncpgConnectionAdapter
 
 
-class DatabasePool(IDatabasePool):
+class DatabasePool:
     """Manages the PostgreSQL connection pool."""
     
     def __init__(self, dsn: str):
@@ -42,7 +41,7 @@ class DatabasePool(IDatabasePool):
             self._pool = None
     
     @asynccontextmanager
-    async def acquire(self) -> AsyncContextManager[IDatabaseConnection]:
+    async def acquire(self) -> AsyncContextManager:
         """Acquire a connection from the pool."""
         if not self._pool:
             raise RuntimeError("Database pool not initialized")
@@ -50,7 +49,7 @@ class DatabasePool(IDatabasePool):
         async with self._pool.acquire() as connection:
             yield AsyncpgConnectionAdapter(connection)
     
-    async def release(self, connection: IDatabaseConnection) -> None:
+    async def release(self, connection) -> None:
         """Release a connection back to the pool."""
         # Connection release is handled by context manager
         pass
@@ -83,6 +82,6 @@ class UnitOfWorkFactory:
     def __init__(self, pool: DatabasePool):
         self._pool = pool
     
-    def create(self) -> IUnitOfWork:
+    def create(self):
         """Create a new Unit of Work instance."""
         return PostgresUnitOfWork(self._pool)

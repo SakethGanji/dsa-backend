@@ -16,7 +16,7 @@ import pyarrow.parquet as pq
 from src.workers.job_worker import JobExecutor
 from src.infrastructure.postgres.database import DatabasePool
 from src.infrastructure.postgres.event_store import PostgresEventStore
-from src.core.abstractions.events import JobStartedEvent, JobCompletedEvent, JobFailedEvent
+from src.core.events.publisher import JobStartedEvent, JobCompletedEvent, JobFailedEvent
 from src.core.events.registry import InMemoryEventBus
 from src.infrastructure.config import get_settings
 

@@ -4,15 +4,10 @@ from typing import Optional, Dict, Any, List, Tuple, Set
 import json
 import hashlib
 from asyncpg import Connection
-from src.core.abstractions.repositories import ICommitRepository
-from src.core.abstractions.commit_interfaces import (
-    ICommitOperations,
-    IRefOperations,
-    IManifestOperations
-)
+# Remove interface imports
 
 
-class PostgresCommitRepository(ICommitRepository, ICommitOperations, IRefOperations, IManifestOperations):
+class PostgresCommitRepository:
     """PostgreSQL implementation for versioning engine operations."""
     
     def __init__(self, connection: Connection):

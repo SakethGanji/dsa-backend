@@ -5,9 +5,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from datetime import datetime
 
-from src.core.abstractions.service_interfaces import IWorkbenchService, ISqlValidationService
-from src.core.abstractions.repositories import ITableReader
-from src.core.abstractions.uow import IUnitOfWork
+from src.infrastructure.postgres.table_reader import PostgresTableReader
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
 
 
 @dataclass
@@ -38,14 +37,14 @@ class PreviewResult:
     execution_time_ms: float
 
 
-class WorkbenchService(IWorkbenchService):
+class WorkbenchService:
     """Service for SQL workbench operations."""
     
     def __init__(
         self,
-        table_reader: ITableReader,
-        sql_validator: ISqlValidationService,
-        uow: IUnitOfWork
+        table_reader: PostgresTableReader = None,
+        sql_validator = None,
+        uow: PostgresUnitOfWork = None
     ):
         self._table_reader = table_reader
         self._sql_validator = sql_validator

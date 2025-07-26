@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
 
 from src.features.base_handler import BaseHandler
-from src.core.abstractions import IUnitOfWork
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
 from ..models import GetExplorationHistoryCommand
 
 
@@ -35,7 +35,7 @@ class ExplorationHistoryResponse:
 class GetExplorationHistoryHandler(BaseHandler[ExplorationHistoryResponse]):
     """Handler for getting exploration history."""
     
-    def __init__(self, uow: IUnitOfWork):
+    def __init__(self, uow: PostgresUnitOfWork):
         super().__init__(uow)
     
     async def handle(self, command: GetExplorationHistoryCommand) -> ExplorationHistoryResponse:

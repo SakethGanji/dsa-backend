@@ -3,7 +3,8 @@
 from typing import Dict, Any, List, Optional
 from fastapi import HTTPException
 
-from src.core.abstractions import IUnitOfWork, ITableReader
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
+from src.infrastructure.postgres.table_reader import PostgresTableReader
 from ...base_handler import BaseHandler, with_error_handling
 from src.core.common.pagination import PaginationMixin
 
@@ -11,7 +12,7 @@ from src.core.common.pagination import PaginationMixin
 class GetTableDataHandler(BaseHandler[Dict[str, Any]], PaginationMixin):
     """Handler for retrieving paginated data from a specific table within a dataset."""
     
-    def __init__(self, uow: IUnitOfWork, table_reader: ITableReader):
+    def __init__(self, uow: PostgresUnitOfWork, table_reader: PostgresTableReader):
         super().__init__(uow)
         self._table_reader = table_reader
     
@@ -87,7 +88,7 @@ class GetTableDataHandler(BaseHandler[Dict[str, Any]], PaginationMixin):
 class ListTablesHandler(BaseHandler[Dict[str, Any]]):
     """Handler for listing all available tables in a dataset."""
     
-    def __init__(self, uow: IUnitOfWork, table_reader: ITableReader):
+    def __init__(self, uow: PostgresUnitOfWork, table_reader: PostgresTableReader):
         super().__init__(uow)
         self._table_reader = table_reader
     
@@ -134,7 +135,7 @@ class ListTablesHandler(BaseHandler[Dict[str, Any]]):
 class GetTableSchemaHandler(BaseHandler[Dict[str, Any]]):
     """Handler for retrieving schema information for a specific table."""
     
-    def __init__(self, uow: IUnitOfWork, table_reader: ITableReader):
+    def __init__(self, uow: PostgresUnitOfWork, table_reader: PostgresTableReader):
         super().__init__(uow)
         self._table_reader = table_reader
     

@@ -5,8 +5,7 @@ import json
 from datetime import datetime
 from uuid import UUID
 
-from src.core.abstractions.base_repository import IBaseRepository
-from src.core.abstractions.database import IDatabaseConnection
+# Remove interface imports
 from .adapters import AsyncpgConnectionAdapter
 
 # Type for entities (PostgreSQL returns Dict[str, Any])
@@ -14,12 +13,12 @@ TEntity = Dict[str, Any]
 TId = TypeVar('TId', int, str, UUID)
 
 
-class BasePostgresRepository(IBaseRepository[TEntity, int], Generic[TId]):
+class BasePostgresRepository(Generic[TId]):
     """Base PostgreSQL repository with common implementations."""
     
     def __init__(
         self, 
-        connection: Union[IDatabaseConnection, 'asyncpg.Connection'], 
+        connection: Union['asyncpg.Connection', Any], 
         table_name: str, 
         id_column: str = "id",
         id_type: type = int

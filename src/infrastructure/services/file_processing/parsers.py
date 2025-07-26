@@ -4,10 +4,26 @@ import os
 from typing import List
 import pandas as pd
 
-from src.core.abstractions.service_interfaces import IFileParser, ParsedData, TableData
+from dataclasses import dataclass
+import pandas as pd
+from typing import List
+
+# Data classes for file processing
+@dataclass
+class TableData:
+    """Represents data from a single table/sheet."""
+    table_key: str  # 'primary' for single-table formats, sheet name for Excel
+    dataframe: pd.DataFrame
+    
+@dataclass
+class ParsedData:
+    """Result of parsing a file containing one or more tables."""
+    tables: List[TableData]
+    file_type: str
+    filename: str
 
 
-class CSVParser(IFileParser):
+class CSVParser:
     """Parser for CSV files."""
     
     def can_parse(self, filename: str) -> bool:
@@ -33,7 +49,7 @@ class CSVParser(IFileParser):
         return ['.csv']
 
 
-class ParquetParser(IFileParser):
+class ParquetParser:
     """Parser for Parquet files."""
     
     def can_parse(self, filename: str) -> bool:
@@ -59,7 +75,7 @@ class ParquetParser(IFileParser):
         return ['.parquet']
 
 
-class ExcelParser(IFileParser):
+class ExcelParser:
     """Parser for Excel files (both .xlsx and .xls)."""
     
     def can_parse(self, filename: str) -> bool:

@@ -1,22 +1,22 @@
 """File parser factory implementation."""
 
 from typing import Dict, List
-from src.core.abstractions.service_interfaces import IFileParser, IFileProcessingService
+# Remove interface imports
 from .parsers import CSVParser, ParquetParser, ExcelParser
 
 
-class FileParserFactory(IFileProcessingService):
+class FileParserFactory:
     """Factory for creating appropriate file parsers."""
     
     def __init__(self):
-        self._parsers: List[IFileParser] = []
+        self._parsers: List = []
         
         # Register default parsers
         self.register_parser(CSVParser())
         self.register_parser(ParquetParser())
         self.register_parser(ExcelParser())
     
-    def get_parser(self, filename: str) -> IFileParser:
+    def get_parser(self, filename: str):
         """
         Get the appropriate parser for the given filename.
         
@@ -39,7 +39,7 @@ class FileParserFactory(IFileProcessingService):
             f"Supported formats: {supported}"
         )
     
-    def register_parser(self, parser: IFileParser) -> None:
+    def register_parser(self, parser) -> None:
         """Register a new parser with the factory."""
         self._parsers.append(parser)
     

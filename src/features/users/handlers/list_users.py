@@ -3,7 +3,8 @@
 from typing import List, Tuple, Optional
 from dataclasses import dataclass
 from datetime import datetime
-from src.core.abstractions import IUnitOfWork, IUserRepository
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
+from src.infrastructure.postgres.user_repo import PostgresUserRepository
 from ...base_handler import BaseHandler
 from src.core.decorators import requires_role
 from src.core.common.pagination import PaginationMixin
@@ -24,7 +25,7 @@ class UserListItem:
 class ListUsersHandler(BaseHandler, PaginationMixin):
     """Handler for listing users (admin only)."""
     
-    def __init__(self, uow: IUnitOfWork, user_repo: IUserRepository):
+    def __init__(self, uow: PostgresUnitOfWork, user_repo: PostgresUserRepository):
         super().__init__(uow)
         self._user_repo = user_repo
     

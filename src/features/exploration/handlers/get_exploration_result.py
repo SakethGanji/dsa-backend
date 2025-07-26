@@ -6,7 +6,7 @@ from uuid import UUID
 import json
 
 from src.features.base_handler import BaseHandler
-from src.core.abstractions import IUnitOfWork
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
 from src.core.domain_exceptions import EntityNotFoundException, ValidationException, BusinessRuleViolation
 from ..models import GetExplorationResultCommand
 
@@ -14,7 +14,7 @@ from ..models import GetExplorationResultCommand
 class GetExplorationResultHandler(BaseHandler[Dict[str, Any]]):
     """Handler for getting exploration results."""
     
-    def __init__(self, uow: IUnitOfWork):
+    def __init__(self, uow: PostgresUnitOfWork):
         super().__init__(uow)
     
     async def handle(self, command: GetExplorationResultCommand) -> Dict[str, Any]:

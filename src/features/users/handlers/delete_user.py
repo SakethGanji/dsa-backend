@@ -2,8 +2,19 @@
 
 from dataclasses import dataclass
 from typing import Optional
-from src.core.abstractions import IUnitOfWork, IUserRepository
-from src.core.abstractions.events import IEventBus, UserDeletedEvent
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
+from src.infrastructure.postgres.user_repo import PostgresUserRepository
+from src.core.events.publisher import EventBus
+from src.core.events.publisher import DomainEvent
+from dataclasses import dataclass
+
+
+@dataclass
+class UserDeletedEvent(DomainEvent):
+    """Event raised when a user is deleted."""
+    user_id: int
+    deleted_by: int
+    user_soeid: str
 from ...base_handler import BaseHandler, with_transaction
 from src.core.decorators import requires_role
 from src.core.domain_exceptions import EntityNotFoundException, BusinessRuleViolation
@@ -26,7 +37,7 @@ class DeleteUserResponse:
 class DeleteUserHandler(BaseHandler):
     """Handler for deleting users."""
     
-    def __init__(self, uow: IUnitOfWork, user_repo: IUserRepository, event_bus: Optional[IEventBus] = None):
+    def __init__(self, uow: PostgresUnitOfWork, user_repo: PostgresUserRepository, event_bus: Optional[EventBus] = None):
         super().__init__(uow)
         self._user_repo = user_repo
         self._event_bus = event_bus

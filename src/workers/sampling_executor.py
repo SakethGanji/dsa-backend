@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 from asyncpg import Connection
 from src.infrastructure.postgres.database import DatabasePool
 from src.infrastructure.postgres.event_store import PostgresEventStore
-from src.core.abstractions.events import JobStartedEvent, JobCompletedEvent, JobFailedEvent
+from src.core.events.publisher import JobStartedEvent, JobCompletedEvent, JobFailedEvent
 from src.core.events.registry import InMemoryEventBus
 from .job_worker import JobExecutor
 

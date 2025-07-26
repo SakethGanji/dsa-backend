@@ -6,13 +6,45 @@ from typing import Dict, Any
 from .job_worker import JobExecutor
 from ..infrastructure.postgres.database import DatabasePool
 from ..infrastructure.postgres.event_store import PostgresEventStore
-from ..core.abstractions.events import JobStartedEvent, JobCompletedEvent, JobFailedEvent
 from ..core.events.registry import InMemoryEventBus
 from ..infrastructure.services.sql_execution import (
-    SqlValidationService, SqlExecutionService, QueryOptimizationService
+    SqlValidationService, SqlExecutionService, QueryOptimizationService,
+    SqlSource, SqlTarget
 )
-from ..core.abstractions.service_interfaces import SqlSource, SqlTarget
+from dataclasses import dataclass
+from typing import Optional
+from uuid import UUID
 from ..infrastructure.postgres.table_reader import PostgresTableReader
+
+
+# Job event classes
+@dataclass
+class JobStartedEvent:
+    """Event raised when a job starts."""
+    job_id: str
+    job_type: str
+    dataset_id: int
+    user_id: int
+
+
+@dataclass
+class JobCompletedEvent:
+    """Event raised when a job completes successfully."""
+    job_id: str
+    job_type: str
+    dataset_id: int
+    user_id: int
+    result: Dict[str, Any]
+
+
+@dataclass
+class JobFailedEvent:
+    """Event raised when a job fails."""
+    job_id: str
+    job_type: str
+    dataset_id: Optional[int]
+    user_id: int
+    error_message: str
 
 
 class SqlTransformExecutor(JobExecutor):

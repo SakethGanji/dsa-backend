@@ -4,14 +4,36 @@ from typing import Dict, Any
 import pandas as pd
 import numpy as np
 
-from src.core.abstractions.service_interfaces import (
-    IStatisticsService,
-    TableStatistics,
-    ColumnStatistics
-)
+from dataclasses import dataclass
+from typing import Optional
+
+# Data classes for statistics
+@dataclass
+class ColumnStatistics:
+    """Statistics for a single column."""
+    name: str
+    dtype: str
+    null_count: int
+    null_percentage: float
+    unique_count: int
+    min_value: Optional[Any] = None
+    max_value: Optional[Any] = None
+    mean_value: Optional[float] = None
+    median_value: Optional[float] = None
+    std_dev: Optional[float] = None
+
+@dataclass 
+class TableStatistics:
+    """Statistics for an entire table."""
+    row_count: int
+    column_count: int
+    columns: Dict[str, ColumnStatistics]
+    memory_usage_bytes: int
+    unique_row_count: Optional[int] = None
+    duplicate_row_count: Optional[int] = None
 
 
-class DefaultStatisticsCalculator(IStatisticsService):
+class DefaultStatisticsCalculator:
     """Default implementation for calculating table statistics."""
     
     async def calculate_table_statistics(

@@ -1,17 +1,16 @@
 """Handler for downloading datasets in various formats."""
 from typing import Dict, Any
 
-from src.core.abstractions import IUnitOfWork
-from src.core.abstractions.service_interfaces import IDataExportService
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
+from src.infrastructure.services.data_export_service import DataExportService, ExportOptions
 from src.core.domain_exceptions import EntityNotFoundException, ValidationException
-from src.infrastructure.services.data_export_service import ExportOptions
 from ..models import DownloadDatasetCommand
 
 
 class DownloadDatasetHandler:
     """Handler for downloading dataset data."""
     
-    def __init__(self, uow: IUnitOfWork, export_service: IDataExportService):
+    def __init__(self, uow: PostgresUnitOfWork, export_service: DataExportService):
         self._uow = uow
         self._export_service = export_service
     

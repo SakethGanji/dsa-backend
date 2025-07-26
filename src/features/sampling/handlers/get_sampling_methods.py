@@ -2,8 +2,18 @@
 
 from typing import Dict, Any, List
 from dataclasses import dataclass
-from src.core.abstractions import IUnitOfWork
-from src.core.abstractions.service_interfaces import SamplingMethod
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
+from enum import Enum
+
+# Sampling method enum
+class SamplingMethod(Enum):
+    """Supported sampling methods."""
+    RANDOM = "random"
+    STRATIFIED = "stratified"
+    CLUSTER = "cluster"
+    SYSTEMATIC = "systematic"
+    LLM_BASED = "llm_based"
+    MULTI_ROUND = "multi_round"
 from src.core.services.sampling_service import SamplingService
 from ...base_handler import BaseHandler
 from src.core.decorators import requires_permission
@@ -14,7 +24,7 @@ from ..models import GetSamplingMethodsCommand
 class GetSamplingMethodsHandler(BaseHandler):
     """Handler for retrieving available sampling methods."""
     
-    def __init__(self, uow: IUnitOfWork):
+    def __init__(self, uow: PostgresUnitOfWork):
         super().__init__(uow)
     
     @requires_permission("datasets", "read")

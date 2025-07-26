@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Optional, List
 from pydantic_settings import BaseSettings
-from src.core.abstractions.config import ISettings
+# Remove interface import
 
 
 class Settings(BaseSettings):

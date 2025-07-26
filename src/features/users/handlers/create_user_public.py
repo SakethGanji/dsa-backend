@@ -3,8 +3,8 @@
 from dataclasses import dataclass
 from typing import Optional
 from datetime import datetime
-from src.core.abstractions import IUnitOfWork
-from src.core.abstractions.external import IPasswordManager
+# No longer importing IUnitOfWork as we're using PostgresUnitOfWork directly
+# No longer importing IPasswordManager as we're using PasswordHasher directly
 from src.core.domain_exceptions import ConflictException
 from src.infrastructure.postgres.database import DatabasePool
 from src.infrastructure.postgres.uow import PostgresUnitOfWork
@@ -26,7 +26,7 @@ class CreateUserPublicResponse:
 class CreateUserPublicHandler:
     """Handler for creating users via public endpoint (testing only)."""
     
-    def __init__(self, pool: DatabasePool, password_manager: IPasswordManager = None):
+    def __init__(self, pool: DatabasePool, password_manager: PasswordHasher = None):
         self._pool = pool
         self._password_manager = password_manager or PasswordHasher()
     

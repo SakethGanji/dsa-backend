@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Optional, Dict, Any
 from uuid import UUID
 
-from src.core.abstractions import IUnitOfWork
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
 from src.core.domain_exceptions import EntityNotFoundException
 from ..models import CreateExplorationJobCommand, ProfileConfig
 
@@ -20,7 +20,7 @@ class ExplorationJobResponse:
 class CreateExplorationJobHandler:
     """Handler for creating exploration jobs."""
     
-    def __init__(self, uow: IUnitOfWork):
+    def __init__(self, uow: PostgresUnitOfWork):
         self._uow = uow
     
     async def handle(self, command: CreateExplorationJobCommand) -> ExplorationJobResponse:

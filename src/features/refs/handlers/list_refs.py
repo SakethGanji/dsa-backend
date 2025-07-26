@@ -1,7 +1,7 @@
 """Handler for listing all refs/branches for a dataset."""
 
 from typing import List, Dict, Any
-from src.core.abstractions import IUnitOfWork
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
 from src.api.models import ListRefsResponse, RefInfo, PermissionType
 from ...base_handler import BaseHandler, with_error_handling
 from src.core.domain_exceptions import ForbiddenException
@@ -10,7 +10,7 @@ from src.core.domain_exceptions import ForbiddenException
 class ListRefsHandler(BaseHandler[ListRefsResponse]):
     """Handler for listing all refs/branches for a dataset."""
     
-    def __init__(self, uow: IUnitOfWork):
+    def __init__(self, uow: PostgresUnitOfWork):
         super().__init__(uow)
     
     @with_error_handling

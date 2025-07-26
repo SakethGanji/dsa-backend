@@ -11,10 +11,9 @@ from openpyxl import Workbook
 from ..api.models import CurrentUser
 from ..core.authorization import get_current_user_info, require_dataset_read
 from ..core.domain_exceptions import resource_not_found
-from .dependencies import get_uow, get_db_pool
-from ..core.abstractions import IUnitOfWork
-from ..core.abstractions import ITableReader
-from ..infrastructure.postgres.database import DatabasePool
+from .dependencies import get_uow
+from ..infrastructure.postgres.uow import PostgresUnitOfWork
+from ..infrastructure.postgres.table_reader import PostgresTableReader
 
 
 router = APIRouter(prefix="/datasets", tags=["downloads"])
@@ -22,8 +21,8 @@ router = APIRouter(prefix="/datasets", tags=["downloads"])
 
 # Local dependency helpers
 async def get_table_reader(
-    uow: IUnitOfWork = Depends(get_uow)
-) -> ITableReader:
+    uow: PostgresUnitOfWork = Depends(get_uow)
+) -> PostgresTableReader:
     """Get table reader."""
     return uow.table_reader
 
@@ -34,8 +33,7 @@ async def download_dataset(
     ref_name: str = Path(..., description="Ref/branch name"),
     format: str = Query("csv", description="Export format (csv, excel, json)"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow: IUnitOfWork = Depends(get_uow),
-    db_pool: DatabasePool = Depends(get_db_pool),
+    uow: PostgresUnitOfWork = Depends(get_uow),
     _: CurrentUser = Depends(require_dataset_read)
 ):
     """Download entire dataset in specified format."""
@@ -51,7 +49,7 @@ async def download_dataset(
     
     # Create handler and execute  
     from ..infrastructure.services.data_export_service import DataExportService
-    export_service = DataExportService(db_pool)
+    export_service = DataExportService(uow.table_reader)
     handler = DownloadDatasetHandler(uow, export_service)
     result = await handler.handle(command)
     
@@ -73,8 +71,8 @@ async def download_table(
     format: str = Query("csv", description="Export format (csv, json)"),
     columns: Optional[str] = Query(None, description="Comma-separated column names"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow: IUnitOfWork = Depends(get_uow),
-    table_reader: ITableReader = Depends(get_table_reader),
+    uow: PostgresUnitOfWork = Depends(get_uow),
+    table_reader: PostgresTableReader = Depends(get_table_reader),
     _: CurrentUser = Depends(require_dataset_read)
 ):
     """Download a specific table in specified format."""

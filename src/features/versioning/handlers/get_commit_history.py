@@ -1,7 +1,7 @@
 """Handler for retrieving commit history."""
 
 from typing import List
-from ....core.abstractions.uow import IUnitOfWork
+from ....infrastructure.postgres.uow import PostgresUnitOfWork
 from ....api.models.responses import GetCommitHistoryResponse
 from ....api.models.common import CommitInfo
 from ...base_handler import BaseHandler, with_error_handling
@@ -11,7 +11,7 @@ from ....core.common.pagination import PaginationMixin
 class GetCommitHistoryHandler(BaseHandler[GetCommitHistoryResponse], PaginationMixin):
     """Handler for getting commit history of a dataset."""
     
-    def __init__(self, uow: IUnitOfWork):
+    def __init__(self, uow: PostgresUnitOfWork):
         super().__init__(uow)
     
     @with_error_handling

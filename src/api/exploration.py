@@ -9,7 +9,7 @@ from uuid import UUID
 from datetime import datetime
 
 from ..infrastructure.postgres.database import DatabasePool
-from ..core.abstractions.uow import IUnitOfWork
+from ..infrastructure.postgres.uow import PostgresUnitOfWork
 from ..core.authorization import get_current_user_info, require_dataset_read
 from ..core.domain_exceptions import resource_not_found
 from ..core.domain_exceptions import ValidationException, BusinessRuleViolation
@@ -73,7 +73,7 @@ async def create_exploration_job(
     request: CreateExplorationRequest = ...,
     current_user: CurrentUser = Depends(get_current_user_info),
     _: CurrentUser = Depends(require_dataset_read),
-    uow: IUnitOfWork = Depends(get_uow),
+    uow: PostgresUnitOfWork = Depends(get_uow),
     pool: DatabasePool = Depends(get_db_pool)
 ) -> ExplorationJobResponse:
     """Create a new exploration/profiling job."""
@@ -116,7 +116,7 @@ async def get_dataset_exploration_history(
     limit: int = Query(20, ge=1, le=100, description="Items per page"),
     current_user: CurrentUser = Depends(get_current_user_info),
     _: CurrentUser = Depends(require_dataset_read),
-    uow: IUnitOfWork = Depends(get_uow)
+    uow: PostgresUnitOfWork = Depends(get_uow)
 ) -> ExplorationHistoryResponse:
     """Get exploration history for a dataset."""
     from ..features.exploration.handlers.get_exploration_history import (
@@ -165,7 +165,7 @@ async def get_user_exploration_history(
     offset: int = Query(0, ge=0, description="Pagination offset"),
     limit: int = Query(20, ge=1, le=100, description="Items per page"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow: IUnitOfWork = Depends(get_uow)
+    uow: PostgresUnitOfWork = Depends(get_uow)
 ) -> ExplorationHistoryResponse:
     """Get exploration history for a user."""
     from ..features.exploration.handlers.get_exploration_history import (
@@ -219,7 +219,7 @@ async def get_exploration_result(
     job_id: UUID = Path(..., description="Job ID"),
     format: str = Query("html", description="Output format (html, json, info)"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow: IUnitOfWork = Depends(get_uow)
+    uow: PostgresUnitOfWork = Depends(get_uow)
 ):
     """Get the result of a completed exploration job."""
     from ..features.exploration.handlers.get_exploration_result import (

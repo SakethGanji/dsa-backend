@@ -3,8 +3,8 @@ import time
 from typing import List
 
 from ...base_handler import BaseHandler, with_error_handling
-from ....core.abstractions.uow import IUnitOfWork
-from ....core.abstractions.service_interfaces import IWorkbenchService
+from ....infrastructure.postgres.uow import PostgresUnitOfWork
+from ....infrastructure.services.workbench_service import WorkbenchService
 from ....core.domain_exceptions import ForbiddenException
 from ..models.sql_preview import SqlPreviewRequest, SqlPreviewResponse, SqlSource
 
@@ -12,7 +12,7 @@ from ..models.sql_preview import SqlPreviewRequest, SqlPreviewResponse, SqlSourc
 class PreviewSqlHandler(BaseHandler[SqlPreviewResponse]):
     """Handler for executing SQL preview queries."""
     
-    def __init__(self, uow: IUnitOfWork, workbench_service: IWorkbenchService):
+    def __init__(self, uow: PostgresUnitOfWork, workbench_service: WorkbenchService):
         super().__init__(uow)
         self._workbench_service = workbench_service
     

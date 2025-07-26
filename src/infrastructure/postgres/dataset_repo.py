@@ -2,10 +2,10 @@
 
 from typing import Optional, Dict, Any, List
 from asyncpg import Connection
-from src.core.abstractions.repositories import IDatasetRepository
+# Remove interface import
 
 
-class PostgresDatasetRepository(IDatasetRepository):
+class PostgresDatasetRepository:
     """PostgreSQL implementation for dataset and permission management."""
     
     def __init__(self, connection: Connection):

@@ -6,8 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 import pandas as pd
 
-from src.core.abstractions.service_interfaces import ICommitPreparationService
-from src.core.abstractions.repositories import ITableReader
+from src.infrastructure.postgres.table_reader import PostgresTableReader
 
 
 @dataclass
@@ -30,10 +29,10 @@ class TableSchema:
     indexes: List[Dict[str, Any]]
 
 
-class CommitPreparationService(ICommitPreparationService):
+class CommitPreparationService:
     """Service for preparing data for commits."""
     
-    def __init__(self, table_reader: ITableReader):
+    def __init__(self, table_reader: PostgresTableReader):
         self._table_reader = table_reader
     
     async def prepare_commit_data(

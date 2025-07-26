@@ -2,8 +2,7 @@
 
 from typing import Dict, Any
 from datetime import timedelta
-from ....core.abstractions.repositories import IUserRepository
-from ....core.abstractions.external import IPasswordManager
+from ....infrastructure.postgres.user_repo import PostgresUserRepository
 from ....infrastructure.external.password_hasher import PasswordHasher
 from ....api.models.requests import LoginRequest
 from ....api.models.responses import LoginResponse
@@ -15,7 +14,7 @@ from ..models import User
 class LoginUserHandler:
     """Handler for user login and token generation."""
     
-    def __init__(self, user_repo: IUserRepository, password_manager: IPasswordManager = None):
+    def __init__(self, user_repo: PostgresUserRepository, password_manager: PasswordHasher = None):
         self._user_repo = user_repo
         self._password_manager = password_manager or PasswordHasher()
     

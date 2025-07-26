@@ -5,7 +5,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 
 from ..infrastructure.postgres.database import DatabasePool
-from ..core.abstractions import IUnitOfWork, IEventBus
+from ..core.events.publisher import EventBus
 from ..infrastructure.postgres.uow import PostgresUnitOfWork
 from ..infrastructure.services import FileParserFactory, DefaultStatisticsCalculator
 
@@ -16,7 +16,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 _db_pool: Optional[DatabasePool] = None
 _parser_factory: Optional[FileParserFactory] = None
 _stats_calculator: Optional[DefaultStatisticsCalculator] = None
-_event_bus: Optional[IEventBus] = None
+_event_bus: Optional[EventBus] = None
 
 
 def set_database_pool(pool: DatabasePool) -> None:
@@ -37,7 +37,7 @@ def set_stats_calculator(calculator: DefaultStatisticsCalculator) -> None:
     _stats_calculator = calculator
 
 
-def set_event_bus(event_bus: IEventBus) -> None:
+def set_event_bus(event_bus: EventBus) -> None:
     """Set the global event bus instance."""
     global _event_bus
     _event_bus = event_bus
@@ -50,7 +50,7 @@ async def get_db_pool() -> DatabasePool:
     return _db_pool
 
 
-async def get_uow() -> AsyncGenerator[IUnitOfWork, None]:
+async def get_uow() -> AsyncGenerator[PostgresUnitOfWork, None]:
     """Get unit of work dependency."""
     pool = await get_db_pool()
     uow = PostgresUnitOfWork(pool)
@@ -72,14 +72,14 @@ async def get_stats_calculator() -> DefaultStatisticsCalculator:
     return _stats_calculator
 
 
-async def get_event_bus() -> Optional[IEventBus]:
+async def get_event_bus() -> Optional[EventBus]:
     """Get event bus dependency."""
     return _event_bus  # Can be None if events not configured
 
 
 async def get_current_user(
     token: str = Depends(oauth2_scheme),
-    uow: IUnitOfWork = Depends(get_uow)
+    uow: PostgresUnitOfWork = Depends(get_uow)
 ) -> dict:
     """
     Get current authenticated user from JWT token.

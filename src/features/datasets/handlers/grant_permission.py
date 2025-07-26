@@ -1,6 +1,7 @@
 from typing import Optional
-from ....core.abstractions import IUnitOfWork, IDatasetRepository
-from ....core.abstractions.events import IEventBus, PermissionGrantedEvent
+from ....infrastructure.postgres.uow import PostgresUnitOfWork
+from ....infrastructure.postgres.dataset_repo import PostgresDatasetRepository
+from ....core.events.publisher import EventBus, PermissionGrantedEvent
 from ....api.models.requests import GrantPermissionRequest
 from ....api.models.responses import GrantPermissionResponse
 from ....features.base_handler import BaseHandler, with_transaction
@@ -13,9 +14,9 @@ class GrantPermissionHandler(BaseHandler):
     
     def __init__(
         self,
-        uow: IUnitOfWork,
-        dataset_repo: IDatasetRepository,
-        event_bus: Optional[IEventBus] = None
+        uow: PostgresUnitOfWork,
+        dataset_repo: PostgresDatasetRepository,
+        event_bus: Optional[EventBus] = None
     ):
         super().__init__(uow)
         self._dataset_repo = dataset_repo
@@ -52,9 +53,9 @@ class GrantPermissionHandler(BaseHandler):
         if self._event_bus:
             await self._event_bus.publish(PermissionGrantedEvent(
                 dataset_id=command.dataset_id,
-                user_id=command.target_user_id,
-                permission_type=command.permission_type,
-                granted_by=command.granting_user_id
+                user_id=command.granting_user_id,
+                target_user_id=command.target_user_id,
+                permission_type=command.permission_type
             ))
         
         # Refresh search index to reflect permission changes

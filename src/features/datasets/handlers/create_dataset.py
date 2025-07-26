@@ -1,6 +1,8 @@
 from typing import Optional
-from src.core.abstractions import IUnitOfWork, IDatasetRepository, ICommitRepository
-from src.core.abstractions.events import IEventBus, DatasetCreatedEvent
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
+from src.infrastructure.postgres.dataset_repo import PostgresDatasetRepository
+from src.infrastructure.postgres.versioning_repo import PostgresCommitRepository
+from src.core.events.publisher import EventBus, DatasetCreatedEvent
 from src.api.models import CreateDatasetResponse
 from ...base_handler import BaseHandler, with_transaction
 from ..models import CreateDatasetCommand, Dataset, DatasetMetadata
@@ -12,10 +14,10 @@ class CreateDatasetHandler(BaseHandler):
     
     def __init__(
         self,
-        uow: IUnitOfWork,
-        dataset_repo: IDatasetRepository,
-        commit_repo: ICommitRepository,
-        event_bus: Optional[IEventBus] = None
+        uow: PostgresUnitOfWork,
+        dataset_repo: PostgresDatasetRepository,
+        commit_repo: PostgresCommitRepository,
+        event_bus: Optional[EventBus] = None
     ):
         super().__init__(uow)
         self._dataset_repo = dataset_repo
@@ -96,10 +98,11 @@ class CreateDatasetHandler(BaseHandler):
         
         # Publish domain event
         if self._event_bus:
-            event = DatasetCreatedEvent.from_dataset(
+            event = DatasetCreatedEvent(
                 dataset_id=dataset_id,
+                user_id=command.created_by,
                 name=dataset.name,
-                created_by=command.created_by,
+                description=dataset.description,
                 tags=[tag.value for tag in dataset.tags]
             )
             await self._event_bus.publish(event)

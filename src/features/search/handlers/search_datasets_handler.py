@@ -4,7 +4,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 
 from ...base_handler import BaseHandler
-from ....core.abstractions.uow import IUnitOfWork
+from ....infrastructure.postgres.uow import PostgresUnitOfWork
 from ..models.search_request import SearchRequest
 from ..models.search_response import SearchResponse
 from src.core.domain_exceptions import ValidationException
@@ -13,7 +13,7 @@ from src.core.domain_exceptions import ValidationException
 class SearchDatasetsHandler(BaseHandler[SearchResponse]):
     """Handler for executing dataset searches."""
     
-    def __init__(self, unit_of_work: IUnitOfWork):
+    def __init__(self, unit_of_work: PostgresUnitOfWork):
         """Initialize the handler with a unit of work."""
         super().__init__(unit_of_work)
 

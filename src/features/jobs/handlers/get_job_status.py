@@ -1,14 +1,14 @@
 from uuid import UUID
 
-from src.core.abstractions import IJobRepository
+from src.infrastructure.postgres.job_repo import PostgresJobRepository
 from src.api.models import JobStatusResponse
-from src.core.domain_exceptions import EntityNotFoundException
+from src.core.domain_exceptions import EntityNotFoundException, ForbiddenException
 
 
 class GetJobStatusHandler:
     """Handler for retrieving job status"""
     
-    def __init__(self, job_repo: IJobRepository):
+    def __init__(self, job_repo: PostgresJobRepository):
         self._job_repo = job_repo
     
     async def handle(self, job_id: UUID, user_id: int) -> JobStatusResponse:

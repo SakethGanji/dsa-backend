@@ -5,8 +5,8 @@ from uuid import UUID
 import io
 import csv
 
-from src.core.abstractions.uow import IUnitOfWork
-from src.core.abstractions.repositories import ITableReader
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
+from src.infrastructure.postgres.table_reader import PostgresTableReader
 from ...base_handler import BaseHandler, with_error_handling
 from src.core.common.pagination import PaginationMixin
 from fastapi import HTTPException
@@ -15,7 +15,7 @@ from fastapi import HTTPException
 class GetSamplingJobDataHandler(BaseHandler[Dict[str, Any]], PaginationMixin):
     """Handler for retrieving sampled data from a completed sampling job."""
     
-    def __init__(self, uow: IUnitOfWork, table_reader: ITableReader):
+    def __init__(self, uow: PostgresUnitOfWork, table_reader: PostgresTableReader):
         super().__init__(uow)
         self._table_reader = table_reader
     

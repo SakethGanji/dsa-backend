@@ -3,23 +3,23 @@
 from typing import Optional, AsyncContextManager, Dict, Any, List
 import asyncpg
 from contextlib import asynccontextmanager
-from src.core.abstractions.database import IDatabasePool, IDatabaseConnection
+# Remove interface imports
 from ..postgres.adapters import AsyncpgConnectionAdapter
 
 
-class PostgresConnectionPool(IDatabasePool):
+class PostgresConnectionPool:
     """PostgreSQL implementation of IDatabasePool."""
     
     def __init__(self, pool: asyncpg.Pool):
         self._pool = pool
     
     @asynccontextmanager
-    async def acquire(self) -> AsyncContextManager[IDatabaseConnection]:
+    async def acquire(self) -> AsyncContextManager:
         """Acquire a connection from the pool."""
         async with self._pool.acquire() as connection:
             yield AsyncpgConnectionAdapter(connection)
     
-    async def release(self, connection: IDatabaseConnection) -> None:
+    async def release(self, connection) -> None:
         """Release a connection back to the pool."""
         # Connection release is handled by context manager
         pass

@@ -5,10 +5,10 @@ from uuid import UUID, uuid4
 import json
 from datetime import datetime
 from asyncpg import Connection
-from src.core.abstractions.repositories import IJobRepository
+# Remove interface import
 
 
-class PostgresJobRepository(IJobRepository):
+class PostgresJobRepository:
     """PostgreSQL implementation for job queue management."""
     
     def __init__(self, connection: Connection):

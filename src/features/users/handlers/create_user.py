@@ -1,9 +1,20 @@
 """Handler for creating new users."""
 
 from typing import Dict, Any, Optional
-from ....core.abstractions import IUnitOfWork, IUserRepository
-from ....core.abstractions.events import IEventBus, UserCreatedEvent
-from ....core.abstractions.external import IPasswordManager
+from ....infrastructure.postgres.uow import PostgresUnitOfWork
+from ....infrastructure.postgres.user_repo import PostgresUserRepository
+from ....core.events.publisher import EventBus
+from ....core.events.publisher import DomainEvent
+from dataclasses import dataclass
+
+
+@dataclass
+class UserCreatedEvent(DomainEvent):
+    """Event raised when a user is created."""
+    user_id: int
+    soeid: str
+    role: str
+    created_by: int
 from ....infrastructure.external.password_hasher import PasswordHasher
 from ....api.models.requests import CreateUserRequest
 from ....api.models.responses import CreateUserResponse
@@ -16,7 +27,7 @@ from ..models import CreateUserCommand, User, UserRole, UserCredentials
 class CreateUserHandler(BaseHandler):
     """Handler for creating new users with proper password hashing."""
     
-    def __init__(self, uow: IUnitOfWork, user_repo: IUserRepository, password_manager: IPasswordManager = None, event_bus: Optional[IEventBus] = None):
+    def __init__(self, uow: PostgresUnitOfWork, user_repo: PostgresUserRepository, password_manager: PasswordHasher = None, event_bus: Optional[EventBus] = None):
         super().__init__(uow)
         self._user_repo = user_repo
         self._password_manager = password_manager or PasswordHasher()

@@ -4,13 +4,13 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 from uuid import UUID
 
-from src.core.abstractions import IUnitOfWork
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
 
 
 class GetJobsHandler:
     """Handler for fetching jobs with various filters."""
     
-    def __init__(self, uow: IUnitOfWork):
+    def __init__(self, uow: PostgresUnitOfWork):
         self._uow = uow
     
     async def handle(

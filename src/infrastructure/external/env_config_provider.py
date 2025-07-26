@@ -2,10 +2,10 @@
 
 import os
 from typing import Any, Optional, Dict
-from src.core.abstractions.external import IConfigurationProvider
+# Remove interface import
 
 
-class EnvConfigurationProvider(IConfigurationProvider):
+class EnvConfigurationProvider:
     """Environment variables implementation of IConfigurationProvider."""
     
     def __init__(self, prefix: str = "DSA_"):
@@ -92,7 +92,7 @@ class EnvConfigurationProvider(IConfigurationProvider):
                 self._cache[key] = value
 
 
-class FileConfigurationProvider(IConfigurationProvider):
+class FileConfigurationProvider:
     """
     File-based configuration provider.
     
