@@ -3,13 +3,15 @@ from uuid import UUID
 from src.infrastructure.postgres.job_repo import PostgresJobRepository
 from src.api.models import JobStatusResponse
 from src.core.domain_exceptions import EntityNotFoundException, ForbiddenException
+from src.core.permissions import PermissionService
 
 
 class GetJobStatusHandler:
     """Handler for retrieving job status"""
     
-    def __init__(self, job_repo: PostgresJobRepository):
+    def __init__(self, job_repo: PostgresJobRepository, permissions: PermissionService):
         self._job_repo = job_repo
+        self._permissions = permissions
     
     async def handle(self, job_id: UUID, user_id: int) -> JobStatusResponse:
         """
@@ -25,10 +27,14 @@ class GetJobStatusHandler:
         if not job:
             raise EntityNotFoundException("Job", job_id)
         
-        # Verify user owns the job or has permission
-        if job['user_id'] != user_id:
-            # In production, might want to check if user has admin permission
-            raise ForbiddenException()
+        # Check if user owns the job OR has read permission on the dataset
+        is_job_owner = job['user_id'] == user_id
+        if not is_job_owner and job.get('dataset_id'):
+            has_permission = await self._permissions.has_permission(
+                "dataset", job['dataset_id'], user_id, "read"
+            )
+            if not has_permission:
+                raise ForbiddenException()
         
         return JobStatusResponse(
             job_id=job['id'],

@@ -6,6 +6,7 @@ from src.infrastructure.services.commit_preparation_service import CommitPrepara
 from src.core.events.publisher import EventBus, CommitCreatedEvent
 from src.api.models import CreateCommitRequest, CreateCommitResponse
 from ...base_handler import BaseHandler, with_error_handling, with_transaction
+from src.core.permissions import PermissionService
 
 
 class CreateCommitHandler(BaseHandler[CreateCommitResponse]):
@@ -15,10 +16,12 @@ class CreateCommitHandler(BaseHandler[CreateCommitResponse]):
         self,
         uow: PostgresUnitOfWork,
         commit_service: CommitPreparationService,
+        permissions: PermissionService,
         event_bus: Optional[EventBus] = None
     ):
         super().__init__(uow)
         self._commit_service = commit_service
+        self._permissions = permissions
         self._event_bus = event_bus
     
     @with_error_handling
@@ -31,6 +34,9 @@ class CreateCommitHandler(BaseHandler[CreateCommitResponse]):
         user_id: int
     ) -> CreateCommitResponse:
         """Create a new commit with provided data."""
+        # Check write permission
+        await self._permissions.require("dataset", dataset_id, user_id, "write")
+        
         # Get current commit
         current = await self._uow.commits.get_current_commit_for_ref(dataset_id, ref_name)
         

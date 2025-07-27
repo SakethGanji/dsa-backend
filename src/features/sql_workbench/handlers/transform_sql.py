@@ -11,6 +11,7 @@ from ....infrastructure.services.workbench_service import WorkbenchService
 from ....infrastructure.postgres.dataset_repo import PostgresDatasetRepository
 from ....infrastructure.postgres.job_repo import PostgresJobRepository
 from ....infrastructure.postgres.versioning_repo import PostgresCommitRepository
+from ....core.permissions import PermissionService, PermissionCheck
 # Use standard Python exceptions instead of custom error classes
 from ..models.sql_transform import SqlTransformRequest, SqlTransformResponse
 from src.core.domain_exceptions import ForbiddenException
@@ -43,7 +44,8 @@ class TransformSqlHandler(BaseHandler[SqlTransformResponse]):
         workbench_service: WorkbenchService,
         job_repository: PostgresJobRepository,
         dataset_repository: PostgresDatasetRepository,
-        commit_repository: PostgresCommitRepository
+        commit_repository: PostgresCommitRepository,
+        permissions: PermissionService
     ):
         """Initialize handler with dependencies."""
         super().__init__(uow)
@@ -51,6 +53,7 @@ class TransformSqlHandler(BaseHandler[SqlTransformResponse]):
         self._job_repository = job_repository
         self._dataset_repository = dataset_repository
         self._commit_repository = commit_repository
+        self._permissions = permissions
     
     @with_error_handling
     @with_transaction
@@ -144,23 +147,14 @@ class TransformSqlHandler(BaseHandler[SqlTransformResponse]):
     async def _validate_permissions(self, request: SqlTransformRequest, user_id: int):
         """Validate user permissions for the transformation."""
         # Check read permissions for all sources
-        for source in request.sources:
-            has_read = await self._dataset_repository.check_user_permission(
-                dataset_id=source.dataset_id,
-                user_id=user_id,
-                required_permission='read'
-            )
-            if not has_read:
-                raise ForbiddenException()
+        checks = [
+            PermissionCheck("dataset", source.dataset_id, user_id, "read")
+            for source in request.sources
+        ]
+        await self._permissions.require_all(checks)
         
         # Check write permission for target
-        has_write = await self._dataset_repository.check_user_permission(
-            dataset_id=request.target.dataset_id,
-            user_id=user_id,
-            required_permission='write'
-        )
-        if not has_write:
-            raise ForbiddenException()
+        await self._permissions.require("dataset", request.target.dataset_id, user_id, "write")
         
         # If creating new dataset, check create permission
         if request.target.create_new_dataset:

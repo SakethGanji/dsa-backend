@@ -7,10 +7,10 @@ from src.infrastructure.postgres.dataset_repo import PostgresDatasetRepository
 from src.core.events.publisher import EventBus, DatasetUpdatedEvent
 from src.api.models import UpdateDatasetResponse
 from ...base_update_handler import BaseUpdateHandler
-from src.core.decorators import requires_permission
 from src.core.domain_exceptions import EntityNotFoundException, ErrorMessages, ValidationException
-from src.api.factories import ResponseFactory
+from src.api.models import ResponseFactory
 from ..models import UpdateDatasetCommand
+from src.core.permissions import PermissionService
 
 
 class UpdateDatasetHandler(BaseUpdateHandler[UpdateDatasetCommand, UpdateDatasetResponse, Dict[str, Any]]):
@@ -20,10 +20,12 @@ class UpdateDatasetHandler(BaseUpdateHandler[UpdateDatasetCommand, UpdateDataset
         self,
         uow: PostgresUnitOfWork,
         dataset_repo: PostgresDatasetRepository,
+        permissions: PermissionService,
         event_bus: Optional[EventBus] = None
     ):
         super().__init__(uow)
         self._dataset_repo = dataset_repo
+        self._permissions = permissions
         self._event_bus = event_bus
     
     def get_entity_id(self, command: UpdateDatasetCommand) -> int:
@@ -47,15 +49,8 @@ class UpdateDatasetHandler(BaseUpdateHandler[UpdateDatasetCommand, UpdateDataset
         - Name uniqueness
         - Valid field values
         """
-        # Check user has write permission
-        has_permission = await self._dataset_repo.check_user_permission(
-            command.dataset_id, command.user_id, "write"
-        )
-        if not has_permission:
-            from src.core.domain_exceptions import PermissionDeniedError
-            raise PermissionDeniedError(
-                f"User {command.user_id} does not have write permission on dataset {command.dataset_id}"
-            )
+        # Check user has write permission using PermissionService
+        await self._permissions.require("dataset", command.dataset_id, command.user_id, "write")
         
         # Validate name length if provided
         if command.name is not None and len(command.name) < 3:

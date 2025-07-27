@@ -6,7 +6,7 @@ from datetime import datetime
 from src.infrastructure.postgres.uow import PostgresUnitOfWork
 from src.infrastructure.postgres.user_repo import PostgresUserRepository
 from ...base_handler import BaseHandler
-from src.core.decorators import requires_role
+from src.core.permissions import PermissionService
 from src.core.common.pagination import PaginationMixin
 from ..models.commands import ListUsersCommand
 
@@ -25,11 +25,11 @@ class UserListItem:
 class ListUsersHandler(BaseHandler, PaginationMixin):
     """Handler for listing users (admin only)."""
     
-    def __init__(self, uow: PostgresUnitOfWork, user_repo: PostgresUserRepository):
+    def __init__(self, uow: PostgresUnitOfWork, user_repo: PostgresUserRepository, permissions: PermissionService):
         super().__init__(uow)
         self._user_repo = user_repo
+        self._permissions = permissions
     
-    @requires_role("admin")  # Only admins can list all users
     async def handle(self, command: ListUsersCommand) -> Tuple[List[UserListItem], int]:
         """
         List all users in the system.
@@ -37,6 +37,9 @@ class ListUsersHandler(BaseHandler, PaginationMixin):
         Returns:
             Tuple of (users, total_count)
         """
+        # Check permissions - only admins can list all users
+        await self._permissions.require_role(command.user_id, "admin")
+        
         # Validate pagination
         offset, limit = self.validate_pagination(command.offset, command.limit)
         

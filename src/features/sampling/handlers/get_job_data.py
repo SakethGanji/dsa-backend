@@ -9,15 +9,17 @@ from src.infrastructure.postgres.uow import PostgresUnitOfWork
 from src.infrastructure.postgres.table_reader import PostgresTableReader
 from ...base_handler import BaseHandler, with_error_handling
 from src.core.common.pagination import PaginationMixin
+from src.core.permissions import PermissionService
 from fastapi import HTTPException
 
 
 class GetSamplingJobDataHandler(BaseHandler[Dict[str, Any]], PaginationMixin):
     """Handler for retrieving sampled data from a completed sampling job."""
     
-    def __init__(self, uow: PostgresUnitOfWork, table_reader: PostgresTableReader):
+    def __init__(self, uow: PostgresUnitOfWork, table_reader: PostgresTableReader, permissions: PermissionService):
         super().__init__(uow)
         self._table_reader = table_reader
+        self._permissions = permissions
     
     @with_error_handling
     async def handle(
@@ -65,12 +67,7 @@ class GetSamplingJobDataHandler(BaseHandler[Dict[str, Any]], PaginationMixin):
         
         # Check user permissions on the dataset
         dataset_id = job.get('dataset_id')
-        has_permission = await self._uow.datasets.check_user_permission(
-            dataset_id, user_id, "read"
-        )
-        
-        if not has_permission:
-            raise HTTPException(status_code=404, detail=f"Job {job_id} not found")  # Don't reveal existence
+        await self._permissions.require("dataset", dataset_id, user_id, "read")
         
         # Extract output commit ID from job output summary
         output_summary = job.get('output_summary', {})

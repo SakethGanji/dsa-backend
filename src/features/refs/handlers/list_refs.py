@@ -2,16 +2,18 @@
 
 from typing import List, Dict, Any
 from src.infrastructure.postgres.uow import PostgresUnitOfWork
-from src.api.models import ListRefsResponse, RefInfo, PermissionType
+from src.api.models import ListRefsResponse, RefInfo
 from ...base_handler import BaseHandler, with_error_handling
+from src.core.permissions import PermissionService
 from src.core.domain_exceptions import ForbiddenException
 
 
 class ListRefsHandler(BaseHandler[ListRefsResponse]):
     """Handler for listing all refs/branches for a dataset."""
     
-    def __init__(self, uow: PostgresUnitOfWork):
+    def __init__(self, uow: PostgresUnitOfWork, permissions: PermissionService):
         super().__init__(uow)
+        self._permissions = permissions
     
     @with_error_handling
     async def handle(self, dataset_id: int, user_id: int) -> ListRefsResponse:
@@ -27,17 +29,7 @@ class ListRefsHandler(BaseHandler[ListRefsResponse]):
         """
         async with self._uow:
             # Check read permission
-            has_permission = await self._uow.datasets.check_user_permission(
-                dataset_id=dataset_id,
-                user_id=user_id,
-                required_permission=PermissionType.READ.value
-            )
-            
-            if not has_permission:
-                # Check if user is admin
-                user = await self._uow.users.get_by_id(user_id)
-                if not user or user.get('role_name') != 'admin':
-                    raise ForbiddenException()
+            await self._permissions.require("dataset", dataset_id, user_id, "read")
             
             # Get all refs for the dataset
             refs = await self._uow.commits.list_refs(dataset_id)

@@ -12,6 +12,7 @@ from ...base_handler import BaseHandler, with_error_handling, with_transaction
 from src.core.events import EventBus, DatasetCreatedEvent, get_event_bus
 from src.core.constants import JobStatus
 from ..models import CreateDatasetWithFileCommand
+from src.core.permissions import PermissionService
 
 
 class CreateDatasetWithFileHandler(BaseHandler[CreateDatasetWithFileResponse]):
@@ -22,11 +23,13 @@ class CreateDatasetWithFileHandler(BaseHandler[CreateDatasetWithFileResponse]):
         uow: PostgresUnitOfWork,
         dataset_repo: PostgresDatasetRepository,
         commit_repo: PostgresCommitRepository,
+        permissions: PermissionService,
         job_repo: Optional[PostgresJobRepository] = None
     ):
         super().__init__(uow)
         self._dataset_repo = dataset_repo
         self._commit_repo = commit_repo
+        self._permissions = permissions
         self._job_repo = job_repo
     
     @with_error_handling
@@ -46,6 +49,8 @@ class CreateDatasetWithFileHandler(BaseHandler[CreateDatasetWithFileResponse]):
         2. Queue import job for the file
         3. Return combined response
         """
+        # For dataset creation, we might want to check if user has appropriate role
+        # But for now, we'll allow any authenticated user to create datasets
         
         # Create dataset
         dataset_id = await self._dataset_repo.create_dataset(

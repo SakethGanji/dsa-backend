@@ -4,9 +4,8 @@ from dataclasses import dataclass
 from typing import Optional
 from src.infrastructure.postgres.uow import PostgresUnitOfWork
 from src.core.events.publisher import EventBus, DomainEvent
-from src.api.models import PermissionType
 from ...base_handler import BaseHandler, with_transaction
-from src.core.decorators import requires_permission
+from src.core.permissions import PermissionService
 from src.core.domain_exceptions import EntityNotFoundException, BusinessRuleViolation
 from ..models import DeleteBranchCommand
 
@@ -38,12 +37,12 @@ class DeleteBranchResponse:
 class DeleteBranchHandler(BaseHandler):
     """Handler for deleting a branch/ref."""
     
-    def __init__(self, uow: PostgresUnitOfWork, event_bus: Optional[EventBus] = None):
+    def __init__(self, uow: PostgresUnitOfWork, permissions: PermissionService, event_bus: Optional[EventBus] = None):
         super().__init__(uow)
+        self._permissions = permissions
         self._event_bus = event_bus
     
     @with_transaction
-    @requires_permission("datasets", "write")
     async def handle(self, command: DeleteBranchCommand) -> DeleteBranchResponse:
         """
         Delete a branch/ref.
@@ -55,6 +54,9 @@ class DeleteBranchHandler(BaseHandler):
         Returns:
             DeleteBranchResponse with standardized delete information
         """
+        # Check write permission
+        await self._permissions.require("dataset", command.dataset_id, command.user_id, "write")
+        
         # Get default branch
         default_branch = await self._uow.commits.get_default_branch(command.dataset_id)
         

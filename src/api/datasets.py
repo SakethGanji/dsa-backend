@@ -21,7 +21,7 @@ from ..core.authorization import (
     PermissionType
 )
 from ..core.domain_exceptions import resource_not_found, ConflictException
-from .dependencies import get_db_pool, get_event_bus
+from .dependencies import get_db_pool, get_event_bus, get_permission_service
 
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
@@ -48,7 +48,8 @@ async def create_dataset(
     request: CreateDatasetRequest,
     current_user: CurrentUser = Depends(get_current_user_info),
     uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
-    event_bus = Depends(get_event_bus)
+    event_bus = Depends(get_event_bus),
+    permission_service = Depends(get_permission_service)
 ) -> CreateDatasetResponse:
     """Create a new dataset with optional tags."""
     from ..features.datasets.handlers.create_dataset import CreateDatasetHandler, CreateDatasetCommand
@@ -67,6 +68,7 @@ async def create_dataset(
             uow=uow,
             dataset_repo=uow.datasets,
             commit_repo=uow.commits,
+            permissions=permission_service,
             event_bus=event_bus
         )
         
@@ -83,7 +85,8 @@ async def create_dataset_with_file(
     default_branch: str = Form("main"),
     commit_message: str = Form("Initial import"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory)
+    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+    permission_service = Depends(get_permission_service)
 ) -> CreateDatasetWithFileResponse:
     """Create a new dataset and import a file in one operation."""
     from ..features.datasets.handlers.create_dataset_with_file import CreateDatasetWithFileHandler
@@ -106,7 +109,8 @@ async def create_dataset_with_file(
             uow=uow,
             dataset_repo=uow.datasets,
             commit_repo=uow.commits,
-            job_repo=uow.jobs
+            job_repo=uow.jobs,
+            permissions=permission_service
         )
         
         # Execute handler
@@ -125,11 +129,12 @@ async def grant_permission(
     current_user: CurrentUser = Depends(get_current_user_info),
     uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
     dataset_repo: PostgresDatasetRepository = Depends(get_dataset_repo),
+    permission_service = Depends(get_permission_service),
     _: CurrentUser = Depends(require_dataset_admin)
 ) -> GrantPermissionResponse:
     """Grant permission to a user on a dataset (admin only)."""
     uow = uow_factory.create()
-    handler = GrantPermissionHandler(uow, dataset_repo)
+    handler = GrantPermissionHandler(uow, dataset_repo, permissions=permission_service)
     
     # Handler expects granting_user_id parameter
     return await handler.handle(dataset_id, request, current_user.user_id)
@@ -141,7 +146,8 @@ async def list_datasets(
     limit: int = 100,
     current_user: CurrentUser = Depends(get_current_user_info),
     uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
-    pool: DatabasePool = Depends(get_db_pool)
+    pool: DatabasePool = Depends(get_db_pool),
+    permission_service = Depends(get_permission_service)
 ) -> ListDatasetsResponse:
     """List all datasets accessible to the current user with pagination."""
     from ..features.datasets.handlers.list_datasets import ListDatasetsHandler, ListDatasetsCommand
@@ -157,7 +163,8 @@ async def list_datasets(
     async with uow_factory.create() as uow:
         handler = ListDatasetsHandler(
             uow=uow,
-            dataset_repo=uow.datasets
+            dataset_repo=uow.datasets,
+            permissions=permission_service
         )
         
         # Execute handler
@@ -206,7 +213,8 @@ async def get_dataset(
     dataset_id: int = Path(..., description="Dataset ID"),
     current_user: CurrentUser = Depends(get_current_user_info),
     uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
-    pool: DatabasePool = Depends(get_db_pool)
+    pool: DatabasePool = Depends(get_db_pool),
+    permission_service = Depends(get_permission_service)
 ) -> DatasetDetailResponse:
     """Get detailed information about a specific dataset."""
     from ..features.datasets.handlers.get_dataset import GetDatasetHandler, GetDatasetCommand
@@ -221,7 +229,8 @@ async def get_dataset(
     async with uow_factory.create() as uow:
         handler = GetDatasetHandler(
             uow=uow,
-            dataset_repo=uow.datasets
+            dataset_repo=uow.datasets,
+            permissions=permission_service
         )
         
         # Execute handler
@@ -246,7 +255,8 @@ async def update_dataset(
     request: UpdateDatasetRequest = ...,
     current_user: CurrentUser = Depends(get_current_user_info),
     uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
-    event_bus = Depends(get_event_bus)
+    event_bus = Depends(get_event_bus),
+    permission_service = Depends(get_permission_service)
 ) -> UpdateDatasetResponse:
     """Update dataset metadata (name, description, tags)."""
     from ..features.datasets.handlers.update_dataset import UpdateDatasetHandler, UpdateDatasetCommand
@@ -265,7 +275,8 @@ async def update_dataset(
         handler = UpdateDatasetHandler(
             uow=uow,
             dataset_repo=uow.datasets,
-            event_bus=event_bus
+            event_bus=event_bus,
+            permissions=permission_service
         )
         
         # Execute handler
@@ -278,6 +289,7 @@ async def delete_dataset(
     current_user: CurrentUser = Depends(get_current_user_info),
     uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
     event_bus = Depends(get_event_bus),
+    permission_service = Depends(get_permission_service),
     _: CurrentUser = Depends(require_dataset_admin)
 ) -> DeleteDatasetResponse:
     """Delete a dataset and all its related data."""
@@ -294,7 +306,8 @@ async def delete_dataset(
         handler = DeleteDatasetHandler(
             uow=uow,
             dataset_repo=uow.datasets,
-            event_bus=event_bus
+            event_bus=event_bus,
+            permissions=permission_service
         )
         
         # Execute handler - returns the handler's DeleteDatasetResponse
@@ -312,6 +325,7 @@ async def check_dataset_ready(
     dataset_id: int = Path(..., description="Dataset ID"),
     current_user: CurrentUser = Depends(get_current_user_info),
     uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+    permission_service = Depends(get_permission_service),
     _: CurrentUser = Depends(require_dataset_read)
 ) -> Dict[str, Any]:
     """Check if a dataset is ready for operations (import completed)."""
@@ -327,7 +341,8 @@ async def check_dataset_ready(
     async with uow_factory.create() as uow:
         handler = CheckDatasetReadyHandler(
             uow=uow,
-            job_repo=uow.jobs
+            job_repo=uow.jobs,
+            permissions=permission_service
         )
         
         # Execute handler

@@ -23,7 +23,7 @@ from ..features.sampling.handlers import (
     GetDatasetSamplingHistoryHandler,
     GetUserSamplingHistoryHandler
 )
-from .dependencies import get_db_pool, get_uow
+from .dependencies import get_db_pool, get_uow, get_permission_service
 
 
 # Sampling method enum
@@ -201,7 +201,8 @@ async def create_sampling_job(
     request: CreateSamplingJobRequest = ...,
     current_user: CurrentUser = Depends(get_current_user_info),
     _: CurrentUser = Depends(require_dataset_read),
-    uow: PostgresUnitOfWork = Depends(get_uow)
+    uow: PostgresUnitOfWork = Depends(get_uow),
+    permission_service = Depends(get_permission_service)
 ) -> SamplingJobResponse:
     """Create a sampling job for asynchronous processing."""
     from ..features.sampling.handlers.create_sampling_job import CreateSamplingJobHandler, CreateSamplingJobCommand
@@ -239,7 +240,7 @@ async def create_sampling_job(
     )
     
     # Create handler and execute
-    handler = CreateSamplingJobHandler(uow)
+    handler = CreateSamplingJobHandler(uow, permissions=permission_service)
     return await handler.handle(command)
 
 
@@ -251,7 +252,8 @@ async def sample_data_direct(
     request: DirectSamplingRequest = ...,
     current_user: CurrentUser = Depends(get_current_user_info),
     _: CurrentUser = Depends(require_dataset_read),
-    uow: PostgresUnitOfWork = Depends(get_uow)
+    uow: PostgresUnitOfWork = Depends(get_uow),
+    permission_service = Depends(get_permission_service)
 ) -> SamplingResultResponse:
     """Perform direct sampling and return results immediately."""
     from ..features.sampling.handlers.sample_data_direct import SampleDataDirectHandler, DirectSamplingCommand
@@ -274,7 +276,7 @@ async def sample_data_direct(
     )
     
     # Create handler and execute
-    handler = SampleDataDirectHandler(uow)
+    handler = SampleDataDirectHandler(uow, permissions=permission_service)
     return await handler.handle(command)
 
 
@@ -286,7 +288,8 @@ async def get_column_samples(
     request: ColumnSamplesRequest = ...,
     current_user: CurrentUser = Depends(get_current_user_info),
     _: CurrentUser = Depends(require_dataset_read),
-    uow: PostgresUnitOfWork = Depends(get_uow)
+    uow: PostgresUnitOfWork = Depends(get_uow),
+    permission_service = Depends(get_permission_service)
 ) -> ColumnSamplesResponse:
     """Get unique value samples for specified columns."""
     from ..features.sampling.handlers.get_column_samples import GetColumnSamplesHandler, GetColumnSamplesCommand
@@ -302,7 +305,7 @@ async def get_column_samples(
     )
     
     # Create handler and execute
-    handler = GetColumnSamplesHandler(uow)
+    handler = GetColumnSamplesHandler(uow, permissions=permission_service)
     return await handler.handle(command)
 
 
@@ -310,7 +313,8 @@ async def get_column_samples(
 async def get_sampling_methods(
     dataset_id: int = Path(..., description="Dataset ID"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow: PostgresUnitOfWork = Depends(get_uow)
+    uow: PostgresUnitOfWork = Depends(get_uow),
+    permission_service = Depends(get_permission_service)
 ) -> Dict[str, Any]:
     """Get available sampling methods and their parameters."""
     from ..features.sampling.handlers.get_sampling_methods import GetSamplingMethodsHandler, GetSamplingMethodsCommand
@@ -322,7 +326,7 @@ async def get_sampling_methods(
     )
     
     # Create handler and execute
-    handler = GetSamplingMethodsHandler(uow)
+    handler = GetSamplingMethodsHandler(uow, permissions=permission_service)
     return await handler.handle(command)
 
 
@@ -340,14 +344,15 @@ async def get_sampling_job_data(
     format: str = Query("json", description="Output format (json or csv)"),
     current_user: CurrentUser = Depends(get_current_user_info),
     uow: PostgresUnitOfWork = Depends(get_uow),
-    table_reader: PostgresTableReader = Depends(get_table_reader)
+    table_reader: PostgresTableReader = Depends(get_table_reader),
+    permission_service = Depends(get_permission_service)
 ):
     """Get sampled data from a completed sampling job."""
     
     # Parse columns if provided
     column_list = columns.split(",") if columns else None
     
-    handler = GetSamplingJobDataHandler(uow, table_reader)
+    handler = GetSamplingJobDataHandler(uow, table_reader, permissions=permission_service)
     result = await handler.handle(
         job_id=job_id,
         user_id=current_user.user_id,
@@ -413,7 +418,8 @@ async def get_sampling_job_residual(
     format: str = Query("json", description="Output format (json or csv)"),
     current_user: CurrentUser = Depends(get_current_user_info),
     uow: PostgresUnitOfWork = Depends(get_uow),
-    table_reader: PostgresTableReader = Depends(get_table_reader)
+    table_reader: PostgresTableReader = Depends(get_table_reader),
+    permission_service = Depends(get_permission_service)
 ):
     """Get residual (unsampled) data from a sampling job."""
     
@@ -441,11 +447,12 @@ async def get_dataset_sampling_history(
     offset: int = Query(0, ge=0, description="Pagination offset"),
     limit: int = Query(20, ge=1, le=100, description="Items per page"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow: PostgresUnitOfWork = Depends(get_uow)
+    uow: PostgresUnitOfWork = Depends(get_uow),
+    permission_service = Depends(get_permission_service)
 ):
     """Get sampling job history for a dataset."""
     
-    handler = GetDatasetSamplingHistoryHandler(uow)
+    handler = GetDatasetSamplingHistoryHandler(uow, permissions=permission_service)
     return await handler.handle(
         dataset_id=dataset_id,
         user_id=current_user.user_id,
@@ -468,11 +475,12 @@ async def get_user_sampling_history(
     offset: int = Query(0, ge=0, description="Pagination offset"),
     limit: int = Query(20, ge=1, le=100, description="Items per page"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow: PostgresUnitOfWork = Depends(get_uow)
+    uow: PostgresUnitOfWork = Depends(get_uow),
+    permission_service = Depends(get_permission_service)
 ):
     """Get sampling job history for a user."""
     
-    handler = GetUserSamplingHistoryHandler(uow)
+    handler = GetUserSamplingHistoryHandler(uow, permissions=permission_service)
     return await handler.handle(
         target_user_id=user_id,
         current_user_id=current_user.user_id,

@@ -7,6 +7,7 @@ from src.api.models import CreateDatasetResponse
 from ...base_handler import BaseHandler, with_transaction
 from ..models import CreateDatasetCommand, Dataset, DatasetMetadata
 from datetime import datetime
+from src.core.permissions import PermissionService
 
 
 class CreateDatasetHandler(BaseHandler):
@@ -17,11 +18,13 @@ class CreateDatasetHandler(BaseHandler):
         uow: PostgresUnitOfWork,
         dataset_repo: PostgresDatasetRepository,
         commit_repo: PostgresCommitRepository,
+        permissions: PermissionService,
         event_bus: Optional[EventBus] = None
     ):
         super().__init__(uow)
         self._dataset_repo = dataset_repo
         self._commit_repo = commit_repo
+        self._permissions = permissions
         self._event_bus = event_bus
     
     @with_transaction
@@ -40,6 +43,8 @@ class CreateDatasetHandler(BaseHandler):
         5. Create ref pointing to initial commit
         6. Publish domain event
         """
+        # For dataset creation, we might want to check if user has appropriate role
+        # But for now, we'll allow any authenticated user to create datasets
         # Create dataset domain model
         dataset = Dataset(
             name=command.name,

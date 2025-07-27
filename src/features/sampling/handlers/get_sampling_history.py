@@ -6,11 +6,16 @@ from datetime import datetime
 from src.infrastructure.postgres.uow import PostgresUnitOfWork
 from ...base_handler import BaseHandler, with_error_handling
 from src.core.common.pagination import PaginationMixin
+from src.core.permissions import PermissionService
 from fastapi import HTTPException
 
 
 class GetDatasetSamplingHistoryHandler(BaseHandler[Dict[str, Any]], PaginationMixin):
     """Handler for retrieving sampling job history for a dataset."""
+    
+    def __init__(self, uow: PostgresUnitOfWork, permissions: PermissionService):
+        super().__init__(uow)
+        self._permissions = permissions
     
     @with_error_handling
     async def handle(
@@ -45,11 +50,7 @@ class GetDatasetSamplingHistoryHandler(BaseHandler[Dict[str, Any]], PaginationMi
         if not dataset:
             raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")
         
-        has_permission = await self._uow.datasets.check_user_permission(
-            dataset_id, user_id, "read"
-        )
-        if not has_permission:
-            raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found")  # Don't reveal existence
+        await self._permissions.require("dataset", dataset_id, user_id, "read")
         
         # Get sampling jobs
         jobs, total_count = await self._uow.jobs.get_sampling_jobs_by_dataset(
@@ -78,6 +79,10 @@ class GetDatasetSamplingHistoryHandler(BaseHandler[Dict[str, Any]], PaginationMi
 
 class GetUserSamplingHistoryHandler(BaseHandler[Dict[str, Any]], PaginationMixin):
     """Handler for retrieving sampling job history for a user."""
+    
+    def __init__(self, uow: PostgresUnitOfWork, permissions: PermissionService):
+        super().__init__(uow)
+        self._permissions = permissions
     
     @with_error_handling
     async def handle(

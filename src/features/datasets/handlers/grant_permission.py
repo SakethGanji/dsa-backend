@@ -5,8 +5,8 @@ from ....core.events.publisher import EventBus, PermissionGrantedEvent
 from ....api.models.requests import GrantPermissionRequest
 from ....api.models.responses import GrantPermissionResponse
 from ....features.base_handler import BaseHandler, with_transaction
-from ....core.decorators import requires_permission
 from ..models import GrantPermissionCommand
+from ....core.permissions import PermissionService
 
 
 class GrantPermissionHandler(BaseHandler):
@@ -16,14 +16,15 @@ class GrantPermissionHandler(BaseHandler):
         self,
         uow: PostgresUnitOfWork,
         dataset_repo: PostgresDatasetRepository,
+        permissions: PermissionService,
         event_bus: Optional[EventBus] = None
     ):
         super().__init__(uow)
         self._dataset_repo = dataset_repo
+        self._permissions = permissions
         self._event_bus = event_bus
     
     @with_transaction
-    @requires_permission("datasets", "admin")
     async def handle(
         self,
         command: GrantPermissionCommand
@@ -32,10 +33,11 @@ class GrantPermissionHandler(BaseHandler):
         Grant permission to a user on a dataset
         
         Steps:
-        1. Verify granting user has admin permission (handled by decorator)
+        1. Verify granting user has admin permission
         2. Grant requested permission to target user
         """
-        # Transaction and permission check handled by decorators
+        # Check that the granting user has admin permission on the dataset
+        await self._permissions.require("dataset", command.dataset_id, command.granting_user_id, "admin")
         
         # Validate permission type
         valid_permissions = ['read', 'write', 'admin']

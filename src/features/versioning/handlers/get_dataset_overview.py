@@ -4,19 +4,23 @@ from src.infrastructure.postgres.table_reader import PostgresTableReader
 from src.api.models import DatasetOverviewResponse, RefWithTables, TableInfo
 from ...base_handler import BaseHandler, with_error_handling
 from src.core.domain_exceptions import EntityNotFoundException
+from src.core.permissions import PermissionService
 
 
 class GetDatasetOverviewHandler(BaseHandler):
     """Optimized handler for getting dataset overview with refs and tables."""
     
-    def __init__(self, uow: PostgresUnitOfWork, table_reader: PostgresTableReader):
+    def __init__(self, uow: PostgresUnitOfWork, table_reader: PostgresTableReader, permissions: PermissionService):
         self.uow = uow
         self.table_reader = table_reader
+        self._permissions = permissions
         
     @with_error_handling
     async def handle(self, dataset_id: int, user_id: int) -> DatasetOverviewResponse:
         """Get overview of dataset including all refs and their tables."""
         async with self.uow:
+            # Check read permission
+            await self._permissions.require("dataset", dataset_id, user_id, "read")
             # Get dataset info
             dataset = await self.uow.datasets.get_dataset_by_id(dataset_id)
             if not dataset:

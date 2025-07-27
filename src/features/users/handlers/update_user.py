@@ -19,7 +19,7 @@ class UserUpdatedEvent(DomainEvent):
     updated_by: int
 from src.infrastructure.external.password_hasher import PasswordHasher
 from src.features.base_update_handler import BaseUpdateHandler
-from src.core.decorators import requires_role
+from src.core.permissions import PermissionService
 from src.core.domain_exceptions import ConflictException, BusinessRuleViolation
 from ..models import UpdateUserCommand, User, UserRole, UserCredentials
 
@@ -36,9 +36,10 @@ class UpdateUserResponse:
 class UpdateUserHandler(BaseUpdateHandler[UpdateUserCommand, UpdateUserResponse, Dict[str, Any]]):
     """Handler for updating user information."""
     
-    def __init__(self, uow: PostgresUnitOfWork, user_repo: PostgresUserRepository, password_manager: PasswordHasher = None, event_bus: Optional[EventBus] = None):
+    def __init__(self, uow: PostgresUnitOfWork, user_repo: PostgresUserRepository, permissions: PermissionService, password_manager: PasswordHasher = None, event_bus: Optional[EventBus] = None):
         super().__init__(uow)
         self._user_repo = user_repo
+        self._permissions = permissions
         self._password_manager = password_manager or PasswordHasher()
         self._event_bus = event_bus
     
@@ -116,9 +117,11 @@ class UpdateUserHandler(BaseUpdateHandler[UpdateUserCommand, UpdateUserResponse,
             updated_at=updated_entity['updated_at']
         )
     
-    @requires_role("admin")  # Only admins can update users
     async def handle(self, command: UpdateUserCommand) -> UpdateUserResponse:
         """Update user information."""
+        # Check permissions - only admins can update users
+        await self._permissions.require_role(command.user_id, "admin")
+        
         # Call parent's handle method which implements the template
         result = await super().handle(command)
         

@@ -8,7 +8,7 @@ from src.infrastructure.postgres.uow import PostgresUnitOfWork
 from src.infrastructure.postgres.job_repo import PostgresJobRepository
 from src.core.events.publisher import EventBus, DomainEvent
 from ...base_handler import BaseHandler, with_transaction
-from src.core.decorators import requires_permission
+from src.core.permissions import PermissionService
 from ..models import CreateJobCommand
 
 
@@ -38,20 +38,24 @@ class CreateJobHandler(BaseHandler):
         self,
         uow: PostgresUnitOfWork,
         job_repo: PostgresJobRepository,
+        permissions: PermissionService,
         event_bus: Optional[EventBus] = None
     ):
         super().__init__(uow)
         self._job_repo = job_repo
+        self._permissions = permissions
         self._event_bus = event_bus
     
     @with_transaction
-    @requires_permission("datasets", "write")  # Need write permission to create jobs
     async def handle(self, command: CreateJobCommand) -> CreateJobResponse:
         """
         Create a new job for processing.
         
         Valid run_types: import, sampling, exploration, sql_transform
         """
+        # Check write permission on the dataset
+        await self._permissions.require("dataset", command.dataset_id, command.user_id, "write")
+        
         # Validate run type
         valid_run_types = ['import', 'sampling', 'exploration', 'sql_transform']
         if command.run_type not in valid_run_types:

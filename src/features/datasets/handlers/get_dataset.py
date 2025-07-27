@@ -5,7 +5,7 @@ from src.infrastructure.postgres.uow import PostgresUnitOfWork
 from src.infrastructure.postgres.dataset_repo import PostgresDatasetRepository
 from src.api.models import DatasetDetailResponse
 from ...base_handler import BaseHandler
-from src.core.decorators import requires_permission
+from src.core.permissions import PermissionService
 from src.core.domain_exceptions import EntityNotFoundException
 from ..models import GetDatasetCommand
 
@@ -16,12 +16,13 @@ class GetDatasetHandler(BaseHandler):
     def __init__(
         self,
         uow: PostgresUnitOfWork,
-        dataset_repo: PostgresDatasetRepository
+        dataset_repo: PostgresDatasetRepository,
+        permissions: PermissionService
     ):
         super().__init__(uow)
         self._dataset_repo = dataset_repo
+        self._permissions = permissions
     
-    @requires_permission("datasets", "read")
     async def handle(self, command: GetDatasetCommand) -> DatasetDetailResponse:
         """
         Get detailed information about a dataset.
@@ -29,6 +30,9 @@ class GetDatasetHandler(BaseHandler):
         Returns:
             DatasetDetailResponse with full dataset details
         """
+        # Check read permission
+        await self._permissions.require("dataset", command.dataset_id, command.user_id, "read")
+        
         # Get dataset details
         dataset = await self._dataset_repo.get_dataset_by_id(command.dataset_id)
         if not dataset:

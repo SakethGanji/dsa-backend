@@ -6,7 +6,7 @@ from src.infrastructure.postgres.uow import PostgresUnitOfWork
 from uuid import uuid4
 import json
 from ...base_handler import BaseHandler
-from src.core.decorators import requires_permission
+from src.core.permissions import PermissionService
 from src.core.domain_exceptions import EntityNotFoundException
 from ..models import CreateSamplingJobCommand
 
@@ -21,10 +21,10 @@ class SamplingJobResponse:
 class CreateSamplingJobHandler(BaseHandler):
     """Handler for creating sampling jobs."""
     
-    def __init__(self, uow: PostgresUnitOfWork):
+    def __init__(self, uow: PostgresUnitOfWork, permissions: PermissionService):
         super().__init__(uow)
+        self._permissions = permissions
     
-    @requires_permission("datasets", "read")
     async def handle(self, command: CreateSamplingJobCommand) -> SamplingJobResponse:
         """
         Create a sampling job for asynchronous processing.
@@ -32,6 +32,9 @@ class CreateSamplingJobHandler(BaseHandler):
         Returns:
             SamplingJobResponse with job details
         """
+        # Check permissions - write permission needed to create sampling job
+        await self._permissions.require("dataset", command.dataset_id, command.user_id, "write")
+        
         async with self._uow:
             # Get current commit for ref
             ref = await self._uow.commits.get_ref(command.dataset_id, command.source_ref)

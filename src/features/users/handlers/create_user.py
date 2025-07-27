@@ -19,7 +19,7 @@ from ....infrastructure.external.password_hasher import PasswordHasher
 from ....api.models.requests import CreateUserRequest
 from ....api.models.responses import CreateUserResponse
 from ....features.base_handler import BaseHandler, with_transaction
-from ....core.decorators import requires_role
+from ....core.permissions import PermissionService
 from ....core.domain_exceptions import ConflictException
 from ..models import CreateUserCommand, User, UserRole, UserCredentials
 
@@ -27,16 +27,19 @@ from ..models import CreateUserCommand, User, UserRole, UserCredentials
 class CreateUserHandler(BaseHandler):
     """Handler for creating new users with proper password hashing."""
     
-    def __init__(self, uow: PostgresUnitOfWork, user_repo: PostgresUserRepository, password_manager: PasswordHasher = None, event_bus: Optional[EventBus] = None):
+    def __init__(self, uow: PostgresUnitOfWork, user_repo: PostgresUserRepository, permissions: PermissionService, password_manager: PasswordHasher = None, event_bus: Optional[EventBus] = None):
         super().__init__(uow)
         self._user_repo = user_repo
+        self._permissions = permissions
         self._password_manager = password_manager or PasswordHasher()
         self._event_bus = event_bus
     
     @with_transaction
-    @requires_role("admin")  # Only admins can create users
     async def handle(self, command: CreateUserCommand) -> CreateUserResponse:
         """Create a new user with hashed password."""
+        # Check permissions - only admins can create users
+        await self._permissions.require_role(command.created_by, "admin")
+        
         # Check if user already exists
         existing_user = await self._user_repo.get_by_soeid(command.soeid)
         if existing_user:

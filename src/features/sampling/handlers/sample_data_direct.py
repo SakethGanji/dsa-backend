@@ -24,7 +24,7 @@ class SampleConfig:
     round_configs: Optional[List['SampleConfig']] = None
 from src.infrastructure.services.sampling_service import SamplingService
 from ...base_handler import BaseHandler
-from src.core.decorators import requires_permission
+from src.core.permissions import PermissionService
 from src.core.domain_exceptions import EntityNotFoundException
 from ..models import DirectSamplingCommand
 
@@ -42,10 +42,10 @@ class SamplingResultResponse:
 class SampleDataDirectHandler(BaseHandler):
     """Handler for performing direct sampling."""
     
-    def __init__(self, uow: PostgresUnitOfWork):
+    def __init__(self, uow: PostgresUnitOfWork, permissions: PermissionService):
         super().__init__(uow)
+        self._permissions = permissions
     
-    @requires_permission("datasets", "read")
     async def handle(self, command: DirectSamplingCommand) -> SamplingResultResponse:
         """
         Perform direct sampling and return results immediately.
@@ -53,6 +53,9 @@ class SampleDataDirectHandler(BaseHandler):
         Returns:
             SamplingResultResponse with sampled data
         """
+        # Check permissions - read permission needed
+        await self._permissions.require("dataset", command.dataset_id, command.user_id, "read")
+        
         # Get current commit for ref
         ref = await self._uow.commits.get_ref(command.dataset_id, command.ref_name)
         if not ref:

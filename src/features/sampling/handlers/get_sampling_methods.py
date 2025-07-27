@@ -16,7 +16,7 @@ class SamplingMethod(Enum):
     MULTI_ROUND = "multi_round"
 from src.core.services.sampling_service import SamplingService
 from ...base_handler import BaseHandler
-from src.core.decorators import requires_permission
+from src.core.permissions import PermissionService
 from src.core.domain_exceptions import EntityNotFoundException
 from ..models import GetSamplingMethodsCommand
 
@@ -24,10 +24,10 @@ from ..models import GetSamplingMethodsCommand
 class GetSamplingMethodsHandler(BaseHandler):
     """Handler for retrieving available sampling methods."""
     
-    def __init__(self, uow: PostgresUnitOfWork):
+    def __init__(self, uow: PostgresUnitOfWork, permissions: PermissionService):
         super().__init__(uow)
+        self._permissions = permissions
     
-    @requires_permission("datasets", "read")
     async def handle(self, command: GetSamplingMethodsCommand) -> Dict[str, Any]:
         """
         Get available sampling methods and their parameters.
@@ -35,6 +35,9 @@ class GetSamplingMethodsHandler(BaseHandler):
         Returns:
             Dict with methods and supported operators
         """
+        # Check permissions - read permission needed
+        await self._permissions.require("dataset", command.dataset_id, command.user_id, "read")
+        
         # Check dataset exists
         dataset = await self._uow.datasets.get_dataset_by_id(command.dataset_id)
         if not dataset:

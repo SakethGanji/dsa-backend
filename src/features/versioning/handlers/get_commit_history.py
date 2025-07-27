@@ -6,21 +6,25 @@ from ....api.models.responses import GetCommitHistoryResponse
 from ....api.models.common import CommitInfo
 from ...base_handler import BaseHandler, with_error_handling
 from ....core.common.pagination import PaginationMixin
+from ....core.permissions import PermissionService
 
 
 class GetCommitHistoryHandler(BaseHandler[GetCommitHistoryResponse], PaginationMixin):
     """Handler for getting commit history of a dataset."""
     
-    def __init__(self, uow: PostgresUnitOfWork):
+    def __init__(self, uow: PostgresUnitOfWork, permissions: PermissionService):
         super().__init__(uow)
+        self._permissions = permissions
     
     @with_error_handling
-    async def handle(self, dataset_id: int, ref_name: str = "main", offset: int = 0, limit: int = 50) -> GetCommitHistoryResponse:
+    async def handle(self, dataset_id: int, ref_name: str = "main", offset: int = 0, limit: int = 50, user_id: int = None) -> GetCommitHistoryResponse:
         """Get paginated commit history for a specific ref."""
         # Validate pagination parameters
         offset, limit = self.validate_pagination(offset, limit)
         
         async with self._uow:
+            # Check read permission
+            await self._permissions.require("dataset", dataset_id, user_id, "read")
             # Get commits from repository
             commits = await self._uow.commits.get_commit_history(
                 dataset_id=dataset_id,

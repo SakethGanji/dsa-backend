@@ -4,7 +4,7 @@ from typing import Dict, Any, List
 from dataclasses import dataclass
 from src.infrastructure.postgres.uow import PostgresUnitOfWork
 from ...base_handler import BaseHandler
-from src.core.decorators import requires_permission
+from src.core.permissions import PermissionService
 from src.core.domain_exceptions import EntityNotFoundException
 
 
@@ -27,10 +27,10 @@ class ColumnSamplesResponse:
 class GetColumnSamplesHandler(BaseHandler):
     """Handler for retrieving unique value samples for columns."""
     
-    def __init__(self, uow: PostgresUnitOfWork):
+    def __init__(self, uow: PostgresUnitOfWork, permissions: PermissionService):
         super().__init__(uow)
+        self._permissions = permissions
     
-    @requires_permission("datasets", "read")
     async def handle(self, command: GetColumnSamplesCommand) -> ColumnSamplesResponse:
         """
         Get unique value samples for specified columns.
@@ -38,6 +38,9 @@ class GetColumnSamplesHandler(BaseHandler):
         Returns:
             ColumnSamplesResponse with samples
         """
+        # Check permissions - read permission needed
+        await self._permissions.require("dataset", command.dataset_id, command.user_id, "read")
+        
         async with self._uow:
             # Get current commit for ref
             ref = await self._uow.commits.get_ref(command.dataset_id, command.ref_name)

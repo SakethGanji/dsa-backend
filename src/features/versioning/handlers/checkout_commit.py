@@ -6,23 +6,27 @@ from ....api.models.responses import GetDataResponse
 from ...base_handler import BaseHandler, with_error_handling
 from ....core.common.pagination import PaginationMixin
 from ....core.domain_exceptions import EntityNotFoundException
+from ....core.permissions import PermissionService
 
 
 class CheckoutCommitHandler(BaseHandler[GetDataResponse], PaginationMixin):
     """Handler for retrieving data at a specific commit."""
     
-    def __init__(self, uow: PostgresUnitOfWork):
+    def __init__(self, uow: PostgresUnitOfWork, permissions: PermissionService):
         super().__init__(uow)
+        self._permissions = permissions
         
     @with_error_handling
     async def handle(self, dataset_id: int, commit_id: str, 
                     table_key: Optional[str] = None,
-                    offset: int = 0, limit: int = 100) -> GetDataResponse:
+                    offset: int = 0, limit: int = 100, user_id: int = None) -> GetDataResponse:
         """Get data as it existed at a specific commit."""
         # Validate pagination parameters
         offset, limit = self.validate_pagination(offset, limit)
         
         async with self._uow:
+            # Check write permission (checkout is a write operation)
+            await self._permissions.require("dataset", dataset_id, user_id, "write")
             # Verify commit belongs to dataset
             commit = await self._uow.commits.get_commit_by_id(commit_id)
             if not commit or commit['dataset_id'] != dataset_id:

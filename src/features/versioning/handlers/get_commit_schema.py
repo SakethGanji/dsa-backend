@@ -5,6 +5,7 @@ from src.infrastructure.postgres.dataset_repo import PostgresDatasetRepository
 from src.api.models import CommitSchemaResponse, SheetSchema, ColumnSchema
 from ...base_handler import BaseHandler, with_error_handling
 from src.core.domain_exceptions import EntityNotFoundException
+from src.core.permissions import PermissionService
 
 
 class GetCommitSchemaHandler(BaseHandler[CommitSchemaResponse]):
@@ -13,12 +14,14 @@ class GetCommitSchemaHandler(BaseHandler[CommitSchemaResponse]):
     def __init__(
         self,
         commit_repo: PostgresCommitRepository,
-        dataset_repo: PostgresDatasetRepository
+        dataset_repo: PostgresDatasetRepository,
+        permissions: PermissionService
     ):
         # Note: We don't have UoW here, so we pass None to BaseHandler
         super().__init__(None)
         self._commit_repo = commit_repo
         self._dataset_repo = dataset_repo
+        self._permissions = permissions
     
     @with_error_handling
     async def handle(
@@ -35,7 +38,8 @@ class GetCommitSchemaHandler(BaseHandler[CommitSchemaResponse]):
         2. Fetch schema from commit_schemas table
         3. Transform to response format
         """
-        # Permission check removed - handled by authorization middleware
+        # Check read permission
+        await self._permissions.require("dataset", dataset_id, user_id, "read")
         
         # Get schema definition
         schema_data = await self._commit_repo.get_commit_schema(commit_id)

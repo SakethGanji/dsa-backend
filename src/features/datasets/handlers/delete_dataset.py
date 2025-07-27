@@ -6,7 +6,7 @@ from src.infrastructure.postgres.uow import PostgresUnitOfWork
 from src.infrastructure.postgres.dataset_repo import PostgresDatasetRepository
 from src.core.events.publisher import EventBus, DatasetDeletedEvent
 from ...base_handler import BaseHandler, with_transaction
-from src.core.decorators import requires_permission
+from src.core.permissions import PermissionService
 from src.core.domain_exceptions import EntityNotFoundException
 from ..models import DeleteDatasetCommand
 
@@ -31,14 +31,15 @@ class DeleteDatasetHandler(BaseHandler):
         self,
         uow: PostgresUnitOfWork,
         dataset_repo: PostgresDatasetRepository,
+        permissions: PermissionService,
         event_bus: Optional[EventBus] = None
     ):
         super().__init__(uow)
         self._dataset_repo = dataset_repo
+        self._permissions = permissions
         self._event_bus = event_bus
     
     @with_transaction
-    @requires_permission("datasets", "admin")  # Only admins can delete datasets
     async def handle(self, command: DeleteDatasetCommand) -> DeleteDatasetResponse:
         """
         Delete a dataset and all its associated data.
@@ -50,6 +51,9 @@ class DeleteDatasetHandler(BaseHandler):
         - All commits and refs
         - All rows and manifests
         """
+        # Check admin permission (only admins can delete datasets)
+        await self._permissions.require("dataset", command.dataset_id, command.user_id, "admin")
+        
         # Check if dataset exists
         dataset = await self._dataset_repo.get_dataset_by_id(command.dataset_id)
         if not dataset:

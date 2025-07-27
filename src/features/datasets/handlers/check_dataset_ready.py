@@ -4,8 +4,8 @@ from typing import Dict, Any
 from src.infrastructure.postgres.uow import PostgresUnitOfWork
 from src.infrastructure.postgres.job_repo import PostgresJobRepository
 from ...base_handler import BaseHandler
-from src.core.decorators import requires_permission
 from ..models import CheckDatasetReadyCommand
+from src.core.permissions import PermissionService
 
 
 class CheckDatasetReadyHandler(BaseHandler):
@@ -14,12 +14,13 @@ class CheckDatasetReadyHandler(BaseHandler):
     def __init__(
         self,
         uow: PostgresUnitOfWork,
-        job_repo: PostgresJobRepository
+        job_repo: PostgresJobRepository,
+        permissions: PermissionService
     ):
         super().__init__(uow)
         self._job_repo = job_repo
+        self._permissions = permissions
     
-    @requires_permission("datasets", "read")
     async def handle(self, command: CheckDatasetReadyCommand) -> Dict[str, Any]:
         """
         Check if a dataset is ready for operations by examining import job status.
@@ -27,6 +28,8 @@ class CheckDatasetReadyHandler(BaseHandler):
         Returns:
             Dict with ready status and details
         """
+        # Check that the user has read permission on the dataset
+        await self._permissions.require("dataset", command.dataset_id, command.user_id, "read")
         # Check for latest import job
         latest_import_job = await self._job_repo.get_latest_import_job(command.dataset_id)
         

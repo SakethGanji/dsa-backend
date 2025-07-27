@@ -23,7 +23,7 @@ from src.features.versioning.handlers.get_dataset_overview import GetDatasetOver
 from src.features.refs.handlers import ListRefsHandler, CreateBranchHandler, DeleteBranchHandler
 from src.infrastructure.postgres.database import DatabasePool, UnitOfWorkFactory
 from src.core.authorization import get_current_user_info, PermissionType, require_dataset_read, require_dataset_write
-from src.api.dependencies import get_uow, get_db_pool, get_event_bus
+from src.api.dependencies import get_uow, get_db_pool, get_event_bus, get_permission_service
 from src.infrastructure.postgres.uow import PostgresUnitOfWork
 
 
@@ -60,10 +60,11 @@ async def create_commit(
     current_user: CurrentUser = Depends(get_current_user_info),
     _: CurrentUser = Depends(require_dataset_write),
     uow: PostgresUnitOfWork = Depends(get_uow),
-    event_bus = Depends(get_event_bus)
+    event_bus = Depends(get_event_bus),
+    permission_service = Depends(get_permission_service)
 ):
     """Create a new commit with direct data"""
-    handler = CreateCommitHandler(uow, uow.commits, uow.datasets, event_bus=event_bus)
+    handler = CreateCommitHandler(uow, uow.commits, uow.datasets, permissions=permission_service, event_bus=event_bus)
     return await handler.handle(dataset_id, ref_name, request, current_user.user_id)
 
 
@@ -75,10 +76,11 @@ async def import_file(
     commit_message: str = Form(...),
     current_user: CurrentUser = Depends(get_current_user_info),
     uow: PostgresUnitOfWork = Depends(get_uow),
+    permission_service = Depends(get_permission_service),
     _: CurrentUser = Depends(require_dataset_write)
 ):
     """Upload a file to import as a new commit"""
-    handler = QueueImportJobHandler(uow)
+    handler = QueueImportJobHandler(uow, permissions=permission_service)
     request = QueueImportRequest(commit_message=commit_message)
     return await handler.handle(
         dataset_id=dataset_id,
@@ -99,10 +101,11 @@ async def get_data_at_ref(
     limit: int = Query(100, ge=1, le=1000, description="Pagination limit"),
     current_user: CurrentUser = Depends(get_current_user_info),
     uow: PostgresUnitOfWork = Depends(get_uow),
+    permission_service = Depends(get_permission_service),
     _: CurrentUser = Depends(require_dataset_read)
 ):
     """Get paginated data for a ref"""
-    handler = GetDataAtRefHandler(uow, uow.table_reader)
+    handler = GetDataAtRefHandler(uow, uow.table_reader, permissions=permission_service)
     request = GetDataRequest(sheet_name=table_key, offset=offset, limit=limit)
     return await handler.handle(dataset_id, ref_name, request, current_user.user_id)
 
@@ -113,10 +116,11 @@ async def get_commit_schema(
     commit_id: str,
     current_user: CurrentUser = Depends(get_current_user_info),
     uow: PostgresUnitOfWork = Depends(get_uow),
+    permission_service = Depends(get_permission_service),
     _: CurrentUser = Depends(require_dataset_read)
 ):
     """Get schema information for a commit"""
-    handler = GetCommitSchemaHandler(uow.commits, uow.datasets)
+    handler = GetCommitSchemaHandler(uow.commits, uow.datasets, permissions=permission_service)
     return await handler.handle(dataset_id, commit_id, current_user.user_id)
 
 
@@ -127,10 +131,11 @@ async def list_tables(
     ref_name: str,
     current_user: CurrentUser = Depends(get_current_user_info),
     uow: PostgresUnitOfWork = Depends(get_uow),
+    permission_service = Depends(get_permission_service),
     _: CurrentUser = Depends(require_dataset_read)
 ) -> Dict[str, List[str]]:
     """List all available tables in the dataset at the given ref"""
-    handler = ListTablesHandler(uow, uow.table_reader)
+    handler = ListTablesHandler(uow, uow.table_reader, permissions=permission_service)
     return await handler.handle(dataset_id, ref_name, current_user.user_id)
 
 
@@ -143,10 +148,11 @@ async def get_table_data(
     limit: int = Query(100, ge=1, le=10000, description="Pagination limit"),
     current_user: CurrentUser = Depends(get_current_user_info),
     uow: PostgresUnitOfWork = Depends(get_uow),
+    permission_service = Depends(get_permission_service),
     _: CurrentUser = Depends(require_dataset_read)
 ) -> Dict[str, Any]:
     """Get paginated data for a specific table"""
-    handler = GetTableDataHandler(uow, uow.table_reader)
+    handler = GetTableDataHandler(uow, uow.table_reader, permissions=permission_service)
     return await handler.handle(
         dataset_id=dataset_id,
         ref_name=ref_name,
@@ -164,10 +170,11 @@ async def get_table_schema(
     table_key: str,
     current_user: CurrentUser = Depends(get_current_user_info),
     uow: PostgresUnitOfWork = Depends(get_uow),
+    permission_service = Depends(get_permission_service),
     _: CurrentUser = Depends(require_dataset_read)
 ) -> Dict[str, Any]:
     """Get schema for a specific table"""
-    handler = GetTableSchemaHandler(uow, uow.table_reader)
+    handler = GetTableSchemaHandler(uow, uow.table_reader, permissions=permission_service)
     return await handler.handle(
         dataset_id=dataset_id,
         ref_name=ref_name,
@@ -184,10 +191,11 @@ async def get_table_analysis(
     current_user: CurrentUser = Depends(get_current_user_info),
     uow: PostgresUnitOfWork = Depends(get_uow),
     table_analysis_service = Depends(get_table_analysis_service),
+    permission_service = Depends(get_permission_service),
     _: CurrentUser = Depends(require_dataset_read)
 ) -> TableAnalysisResponse:
     """Get comprehensive table analysis including schema, statistics, and sample values"""
-    handler = GetTableAnalysisHandler(uow, table_analysis_service)
+    handler = GetTableAnalysisHandler(uow, table_analysis_service, permissions=permission_service)
     return await handler.handle(
         dataset_id=dataset_id,
         ref_name=ref_name,
@@ -205,12 +213,13 @@ async def get_commit_history(
     limit: int = Query(50, ge=1, le=100, description="Number of commits to return"),
     current_user: CurrentUser = Depends(get_current_user_info),
     uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+    permission_service = Depends(get_permission_service),
     _: CurrentUser = Depends(require_dataset_read)
 ) -> GetCommitHistoryResponse:
     """Get the chronological commit history for a dataset."""
     # Get commit history
     uow = uow_factory.create()
-    handler = GetCommitHistoryHandler(uow)
+    handler = GetCommitHistoryHandler(uow, permissions=permission_service)
     return await handler.handle(dataset_id, ref_name, offset, limit)
 
 
@@ -223,12 +232,13 @@ async def checkout_commit(
     limit: int = Query(100, ge=1, le=1000, description="Number of rows to return"),
     current_user: CurrentUser = Depends(get_current_user_info),
     uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+    permission_service = Depends(get_permission_service),
     _: CurrentUser = Depends(require_dataset_read)
 ) -> GetDataResponse:
     """Get the data as it existed at a specific commit."""
     # Checkout commit
     uow = uow_factory.create()
-    handler = CheckoutCommitHandler(uow)
+    handler = CheckoutCommitHandler(uow, permissions=permission_service)
     return await handler.handle(dataset_id, commit_id, table_key, offset, limit)
 
 
@@ -238,11 +248,12 @@ async def list_refs(
     dataset_id: int = Path(..., description="Dataset ID"),
     current_user: CurrentUser = Depends(get_current_user_info),
     uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+    permission_service = Depends(get_permission_service),
     _: CurrentUser = Depends(require_dataset_read)
 ) -> ListRefsResponse:
     """List all branches/refs for a dataset."""
     uow = uow_factory.create()
-    handler = ListRefsHandler(uow)
+    handler = ListRefsHandler(uow, permissions=permission_service)
     return await handler.handle(dataset_id, current_user.user_id)
 
 
@@ -252,11 +263,12 @@ async def create_branch(
     request: CreateBranchRequest = ...,
     current_user: CurrentUser = Depends(get_current_user_info),
     uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+    permission_service = Depends(get_permission_service),
     _: CurrentUser = Depends(require_dataset_write)
 ) -> CreateBranchResponse:
     """Create a new branch from an existing ref."""
     uow = uow_factory.create()
-    handler = CreateBranchHandler(uow)
+    handler = CreateBranchHandler(uow, permissions=permission_service)
     return await handler.handle(dataset_id, request, current_user.user_id)
 
 
@@ -266,11 +278,12 @@ async def delete_branch(
     ref_name: str = Path(..., description="Branch/ref name to delete"),
     current_user: CurrentUser = Depends(get_current_user_info),
     uow: PostgresUnitOfWork = Depends(get_uow),
+    permission_service = Depends(get_permission_service),
     _: CurrentUser = Depends(require_dataset_write)
 ):
     """Delete a branch/ref."""
     from src.features.refs.handlers.delete_branch import DeleteBranchCommand, DeleteBranchResponse
-    handler = DeleteBranchHandler(uow)
+    handler = DeleteBranchHandler(uow, permissions=permission_service)
     command = DeleteBranchCommand(
         user_id=current_user.user_id,
         dataset_id=dataset_id,
@@ -285,6 +298,7 @@ async def get_dataset_overview(
     dataset_id: int = Path(..., description="Dataset ID"),
     current_user: CurrentUser = Depends(get_current_user_info),
     uow: PostgresUnitOfWork = Depends(get_uow),
+    permission_service = Depends(get_permission_service),
     _: CurrentUser = Depends(require_dataset_read)
 ) -> DatasetOverviewResponse:
     """Get overview of dataset including all refs and their tables.
@@ -293,5 +307,5 @@ async def get_dataset_overview(
     dropdowns for the columns endpoint.
     """
     # Use optimized handler that does bulk fetching
-    handler = GetDatasetOverviewHandler(uow, uow.table_reader)
+    handler = GetDatasetOverviewHandler(uow, uow.table_reader, permissions=permission_service)
     return await handler.handle(dataset_id, current_user.user_id)

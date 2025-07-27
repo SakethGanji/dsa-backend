@@ -6,6 +6,7 @@ from src.api.models import GetDataRequest, GetDataResponse, DataRow
 from ...base_handler import BaseHandler, with_error_handling
 from src.core.common.pagination import PaginationMixin
 from src.core.domain_exceptions import EntityNotFoundException
+from src.core.permissions import PermissionService
 
 
 class GetDataAtRefHandler(BaseHandler[GetDataResponse], PaginationMixin):
@@ -14,10 +15,12 @@ class GetDataAtRefHandler(BaseHandler[GetDataResponse], PaginationMixin):
     def __init__(
         self,
         uow: PostgresUnitOfWork,
-        table_reader: PostgresTableReader
+        table_reader: PostgresTableReader,
+        permissions: PermissionService
     ):
         super().__init__(uow)
         self._table_reader = table_reader
+        self._permissions = permissions
     
     @with_error_handling
     async def handle(
@@ -39,7 +42,8 @@ class GetDataAtRefHandler(BaseHandler[GetDataResponse], PaginationMixin):
         # Validate pagination parameters
         offset, limit = self.validate_pagination(request.offset, request.limit)
         
-        # Permission check removed - handled by authorization middleware
+        # Check read permission
+        await self._permissions.require("dataset", dataset_id, user_id, "read")
         
         async with self._uow:
             # Get current commit for ref

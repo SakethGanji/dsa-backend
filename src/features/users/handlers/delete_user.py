@@ -16,7 +16,7 @@ class UserDeletedEvent(DomainEvent):
     deleted_by: int
     user_soeid: str
 from ...base_handler import BaseHandler, with_transaction
-from src.core.decorators import requires_role
+from src.core.permissions import PermissionService
 from src.core.domain_exceptions import EntityNotFoundException, BusinessRuleViolation
 from ..models.commands import DeleteUserCommand
 
@@ -37,13 +37,13 @@ class DeleteUserResponse:
 class DeleteUserHandler(BaseHandler):
     """Handler for deleting users."""
     
-    def __init__(self, uow: PostgresUnitOfWork, user_repo: PostgresUserRepository, event_bus: Optional[EventBus] = None):
+    def __init__(self, uow: PostgresUnitOfWork, user_repo: PostgresUserRepository, permissions: PermissionService, event_bus: Optional[EventBus] = None):
         super().__init__(uow)
         self._user_repo = user_repo
+        self._permissions = permissions
         self._event_bus = event_bus
     
     @with_transaction
-    @requires_role("admin")  # Only admins can delete users
     async def handle(self, command: DeleteUserCommand) -> DeleteUserResponse:
         """
         Delete a user and handle related cleanup.
@@ -51,6 +51,9 @@ class DeleteUserHandler(BaseHandler):
         Note: This may leave orphaned data if the user created datasets.
         Consider implementing soft delete or ownership transfer instead.
         """
+        # Check permissions - only admins can delete users
+        await self._permissions.require_role(command.user_id, "admin")
+        
         # Prevent self-deletion
         if command.user_id == command.target_user_id:
             raise BusinessRuleViolation("Cannot delete your own user account", rule="no_self_deletion")

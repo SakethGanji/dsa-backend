@@ -5,13 +5,15 @@ from datetime import datetime
 from uuid import UUID
 
 from src.infrastructure.postgres.uow import PostgresUnitOfWork
+from src.core.permissions import PermissionService
 
 
 class GetJobsHandler:
     """Handler for fetching jobs with various filters."""
     
-    def __init__(self, uow: PostgresUnitOfWork):
+    def __init__(self, uow: PostgresUnitOfWork, permissions: PermissionService):
         self._uow = uow
+        self._permissions = permissions
     
     async def handle(
         self,

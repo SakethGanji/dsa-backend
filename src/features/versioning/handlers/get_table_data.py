@@ -7,14 +7,16 @@ from src.infrastructure.postgres.uow import PostgresUnitOfWork
 from src.infrastructure.postgres.table_reader import PostgresTableReader
 from ...base_handler import BaseHandler, with_error_handling
 from src.core.common.pagination import PaginationMixin
+from src.core.permissions import PermissionService
 
 
 class GetTableDataHandler(BaseHandler[Dict[str, Any]], PaginationMixin):
     """Handler for retrieving paginated data from a specific table within a dataset."""
     
-    def __init__(self, uow: PostgresUnitOfWork, table_reader: PostgresTableReader):
+    def __init__(self, uow: PostgresUnitOfWork, table_reader: PostgresTableReader, permissions: PermissionService):
         super().__init__(uow)
         self._table_reader = table_reader
+        self._permissions = permissions
     
     @with_error_handling
     async def handle(
@@ -44,7 +46,8 @@ class GetTableDataHandler(BaseHandler[Dict[str, Any]], PaginationMixin):
         offset, limit = self.validate_pagination(offset, limit)
         
         async with self._uow:
-            # Permission check removed - handled by authorization middleware
+            # Check read permission
+            await self._permissions.require("dataset", dataset_id, user_id, "read")
             
             # Get the current commit for the ref
             ref = await self._uow.commits.get_ref(dataset_id, ref_name)
@@ -88,9 +91,10 @@ class GetTableDataHandler(BaseHandler[Dict[str, Any]], PaginationMixin):
 class ListTablesHandler(BaseHandler[Dict[str, Any]]):
     """Handler for listing all available tables in a dataset."""
     
-    def __init__(self, uow: PostgresUnitOfWork, table_reader: PostgresTableReader):
+    def __init__(self, uow: PostgresUnitOfWork, table_reader: PostgresTableReader, permissions: PermissionService):
         super().__init__(uow)
         self._table_reader = table_reader
+        self._permissions = permissions
     
     @with_error_handling
     async def handle(
@@ -111,7 +115,8 @@ class ListTablesHandler(BaseHandler[Dict[str, Any]]):
             Dict containing list of table keys
         """
         async with self._uow:
-            # Permission check removed - handled by authorization middleware
+            # Check read permission
+            await self._permissions.require("dataset", dataset_id, user_id, "read")
             
             # Get the current commit for the ref
             ref = await self._uow.commits.get_ref(dataset_id, ref_name)
@@ -135,9 +140,10 @@ class ListTablesHandler(BaseHandler[Dict[str, Any]]):
 class GetTableSchemaHandler(BaseHandler[Dict[str, Any]]):
     """Handler for retrieving schema information for a specific table."""
     
-    def __init__(self, uow: PostgresUnitOfWork, table_reader: PostgresTableReader):
+    def __init__(self, uow: PostgresUnitOfWork, table_reader: PostgresTableReader, permissions: PermissionService):
         super().__init__(uow)
         self._table_reader = table_reader
+        self._permissions = permissions
     
     @with_error_handling
     async def handle(
@@ -160,7 +166,8 @@ class GetTableSchemaHandler(BaseHandler[Dict[str, Any]]):
             Dict containing schema information
         """
         async with self._uow:
-            # Permission check removed - handled by authorization middleware
+            # Check read permission
+            await self._permissions.require("dataset", dataset_id, user_id, "read")
             
             # Get the current commit for the ref
             ref = await self._uow.commits.get_ref(dataset_id, ref_name)

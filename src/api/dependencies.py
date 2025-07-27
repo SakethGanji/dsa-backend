@@ -8,6 +8,7 @@ from ..infrastructure.postgres.database import DatabasePool
 from ..core.events.publisher import EventBus
 from ..infrastructure.postgres.uow import PostgresUnitOfWork
 from ..infrastructure.services import FileParserFactory, DefaultStatisticsCalculator
+from ..core.permissions import PermissionService
 
 # OAuth2 scheme for token authentication
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
@@ -58,6 +59,13 @@ async def get_uow() -> AsyncGenerator[PostgresUnitOfWork, None]:
         yield uow
 
 
+async def get_permission_service(
+    uow: PostgresUnitOfWork = Depends(get_uow)
+) -> PermissionService:
+    """Get permission service dependency with request-scoped caching."""
+    return PermissionService(uow)
+
+
 async def get_parser_factory() -> FileParserFactory:
     """Get file parser factory dependency."""
     if _parser_factory is None:
@@ -97,14 +105,13 @@ async def get_current_user(
     )
     
     # Mock implementation - replace with real JWT validation
-    if not token:
-        raise credentials_exception
-    
-    # For testing, accept any token and return admin user
+    # For testing, accept any token (even empty) and return admin user
+    # This is ONLY for POC testing - remove in production!
     return {
-        "id": 2,
+        "sub": "bg54677",  # This should be soeid
         "soeid": "bg54677",
-        "role": "admin"
+        "role_id": 1,  # Admin role
+        "role_name": "admin"
     }
 
 

@@ -9,7 +9,7 @@ from src.features.jobs.handlers.get_jobs import GetJobsHandler
 from src.features.jobs.handlers.get_job_by_id import GetJobByIdHandler
 from src.core.authorization import get_current_user_info
 from src.core.domain_exceptions import resource_not_found
-from src.api.dependencies import get_uow
+from src.api.dependencies import get_uow, get_permission_service
 from src.infrastructure.postgres.uow import PostgresUnitOfWork
 from src.api.models import CurrentUser
 
@@ -27,10 +27,11 @@ async def get_jobs(
     offset: int = Query(0, ge=0, description="Pagination offset"),
     limit: int = Query(100, ge=1, le=1000, description="Pagination limit"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow: PostgresUnitOfWork = Depends(get_uow)
+    uow: PostgresUnitOfWork = Depends(get_uow),
+    permission_service = Depends(get_permission_service)
 ):
     """Get list of jobs with optional filters"""
-    handler = GetJobsHandler(uow)
+    handler = GetJobsHandler(uow, permissions=permission_service)
     
     # Convert SOEID to user_id if provided
     filter_user_id = user_id
@@ -83,10 +84,11 @@ async def get_jobs(
 async def get_job_by_id(
     job_id: UUID,
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow: PostgresUnitOfWork = Depends(get_uow)
+    uow: PostgresUnitOfWork = Depends(get_uow),
+    permission_service = Depends(get_permission_service)
 ):
     """Get detailed information about a specific job"""
-    handler = GetJobByIdHandler(uow)
+    handler = GetJobByIdHandler(uow, permissions=permission_service)
     
     job = await handler.handle(
         job_id=job_id,

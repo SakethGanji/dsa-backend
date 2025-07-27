@@ -12,17 +12,18 @@ from src.infrastructure.postgres.uow import PostgresUnitOfWork
 from src.infrastructure.config import get_settings
 from src.api.models import QueueImportRequest, QueueImportResponse
 from ...base_handler import BaseHandler, with_error_handling, with_transaction
-from src.core.decorators import requires_permission
 from fastapi import HTTPException
 from ..models import QueueImportJobCommand
+from src.core.permissions import PermissionService
 
 
 class QueueImportJobHandler(BaseHandler[QueueImportResponse]):
     """Handler for queuing dataset import jobs from uploaded files with streaming support"""
     
-    def __init__(self, uow: PostgresUnitOfWork):
+    def __init__(self, uow: PostgresUnitOfWork, permissions: PermissionService):
         super().__init__(uow)
         self.settings = get_settings()
+        self._permissions = permissions
     
     @asynccontextmanager
     async def save_upload_file_tmp(
@@ -89,7 +90,6 @@ class QueueImportJobHandler(BaseHandler[QueueImportResponse]):
     
     @with_error_handling
     @with_transaction
-    @requires_permission("dataset", "write")
     async def handle(
         self,
         dataset_id: int,
@@ -108,7 +108,8 @@ class QueueImportJobHandler(BaseHandler[QueueImportResponse]):
         3. Create job record with parameters
         4. Return job_id for status polling
         """
-        # Permission check handled by @requires_permission decorator
+        # Check write permission
+        await self._permissions.require("dataset", dataset_id, user_id, "write")
         
         # Get current commit for the ref
         current_commit = await self._uow.commits.get_current_commit_for_ref(

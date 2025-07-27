@@ -5,14 +5,16 @@ from src.infrastructure.services.table_analysis import TableAnalysisService
 from src.api.models import TableAnalysisResponse
 from ...base_handler import BaseHandler, with_error_handling
 from fastapi import HTTPException
+from src.core.permissions import PermissionService
 
 
 class GetTableAnalysisHandler(BaseHandler[TableAnalysisResponse]):
     """Handler for retrieving comprehensive table analysis."""
     
-    def __init__(self, uow: PostgresUnitOfWork, table_analysis_service: TableAnalysisService):
+    def __init__(self, uow: PostgresUnitOfWork, table_analysis_service: TableAnalysisService, permissions: PermissionService):
         super().__init__(uow)
         self._table_analysis_service = table_analysis_service
+        self._permissions = permissions
     
     @with_error_handling
     async def handle(
@@ -24,6 +26,9 @@ class GetTableAnalysisHandler(BaseHandler[TableAnalysisResponse]):
     ) -> TableAnalysisResponse:
         """Get comprehensive table analysis using table analysis service."""
         async with self._uow:
+            # Check read permission
+            await self._permissions.require("dataset", dataset_id, user_id, "read")
+            
             # Get the current commit for the ref
             ref = await self._uow.commits.get_ref(dataset_id, ref_name)
             if not ref:

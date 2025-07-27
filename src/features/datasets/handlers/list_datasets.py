@@ -6,6 +6,7 @@ from src.infrastructure.postgres.dataset_repo import PostgresDatasetRepository
 from src.api.models import DatasetSummary
 from ...base_handler import BaseHandler
 from ..models import ListDatasetsCommand
+from src.core.permissions import PermissionService
 
 
 class ListDatasetsHandler(BaseHandler):
@@ -14,10 +15,12 @@ class ListDatasetsHandler(BaseHandler):
     def __init__(
         self,
         uow: PostgresUnitOfWork,
-        dataset_repo: PostgresDatasetRepository
+        dataset_repo: PostgresDatasetRepository,
+        permissions: PermissionService
     ):
         super().__init__(uow)
         self._dataset_repo = dataset_repo
+        self._permissions = permissions
     
     async def handle(
         self, 
@@ -29,6 +32,8 @@ class ListDatasetsHandler(BaseHandler):
         Returns:
             Tuple of (datasets, total_count)
         """
+        # For list operations, no explicit permission check is needed
+        # as the repository already filters by user permissions
         # Validate pagination
         offset = max(0, command.offset)
         limit = min(max(1, command.limit), 1000)  # Cap at 1000

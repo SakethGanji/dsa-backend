@@ -7,8 +7,8 @@ from src.infrastructure.postgres.uow import PostgresUnitOfWork
 from src.infrastructure.postgres.job_repo import PostgresJobRepository
 from src.core.events.publisher import EventBus, DomainEvent
 from ...base_handler import BaseHandler, with_transaction
-from src.core.decorators import requires_permission
 from src.core.domain_exceptions import EntityNotFoundException, ForbiddenException, BusinessRuleViolation
+from src.core.permissions import PermissionService
 from ..models import CancelJobCommand, Job, JobParameters, JobType, JobStatus
 
 
@@ -37,14 +37,15 @@ class CancelJobHandler(BaseHandler):
         self,
         uow: PostgresUnitOfWork,
         job_repo: PostgresJobRepository,
+        permissions: PermissionService,
         event_bus: Optional[EventBus] = None
     ):
         super().__init__(uow)
         self._job_repo = job_repo
+        self._permissions = permissions
         self._event_bus = event_bus
     
     @with_transaction
-    @requires_permission("datasets", "write")  # Need write permission to cancel jobs
     async def handle(self, command: CancelJobCommand) -> CancelJobResponse:
         """
         Cancel a job if it's still pending or running.
@@ -59,6 +60,11 @@ class CancelJobHandler(BaseHandler):
         # Verify job belongs to the dataset
         if job_data['dataset_id'] != command.dataset_id:
             raise ValueError("Job does not belong to the specified dataset")
+        
+        # Check if user owns the job OR has write permission on the dataset
+        is_job_owner = job_data['user_id'] == command.user_id
+        if not is_job_owner:
+            await self._permissions.require("dataset", command.dataset_id, command.user_id, "write")
         
         # Create domain model from repository data
         job_params = JobParameters(
@@ -80,12 +86,6 @@ class CancelJobHandler(BaseHandler):
             progress_percentage=job_data.get('progress_percentage', 0)
         )
         
-        # Additional check: only job creator or admin can cancel
-        user = await self._uow.users.get_by_id(command.user_id)
-        is_admin = user and user.get('role_name') == 'admin'
-        
-        if not is_admin and job.parameters.user_id != command.user_id:
-            raise ForbiddenException("Only job creator or admin can cancel this job")
         
         # Use domain method to cancel the job
         try:

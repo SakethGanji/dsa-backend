@@ -5,13 +5,15 @@ from uuid import UUID
 import json
 
 from src.infrastructure.postgres.uow import PostgresUnitOfWork
+from src.core.permissions import PermissionService
 
 
 class GetJobByIdHandler:
     """Handler for fetching job details by ID."""
     
-    def __init__(self, uow: PostgresUnitOfWork):
+    def __init__(self, uow: PostgresUnitOfWork, permissions: PermissionService):
         self._uow = uow
+        self._permissions = permissions
     
     async def handle(
         self,
@@ -72,6 +74,17 @@ class GetJobByIdHandler:
                 logger.error(f"Job {job_id} exists but failed to fetch with joins")
             
             return None
+        
+        # Check if user has permission to view this job
+        # User can view if they own the job OR have read permission on the dataset
+        if current_user_id:
+            is_job_owner = row['user_id'] == current_user_id
+            if not is_job_owner and row['dataset_id']:
+                has_permission = await self._permissions.has_permission(
+                    "dataset", row['dataset_id'], current_user_id, "read"
+                )
+                if not has_permission:
+                    return None
         
         # Format result
         try:

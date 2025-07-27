@@ -17,7 +17,7 @@ from ..features.sql_workbench.models.sql_preview import SqlPreviewRequest, SqlPr
 from ..features.sql_workbench.models.sql_transform import SqlTransformRequest, SqlTransformResponse
 from ..features.sql_workbench.handlers.preview_sql import PreviewSqlHandler
 from ..features.sql_workbench.handlers.transform_sql import TransformSqlHandler
-from .dependencies import get_db_pool, get_uow
+from .dependencies import get_db_pool, get_uow, get_permission_service
 
 router = APIRouter(prefix="/workbench", tags=["workbench"])
 
@@ -66,7 +66,8 @@ async def preview_sql(
     uow: PostgresUnitOfWork = Depends(get_uow),
     workbench_service: WorkbenchService = Depends(get_workbench_service),
     table_reader: PostgresTableReader = Depends(get_table_reader),
-    dataset_repository: PostgresDatasetRepository = Depends(get_dataset_repository)
+    dataset_repository: PostgresDatasetRepository = Depends(get_dataset_repository),
+    permission_service = Depends(get_permission_service)
 ):
     """
     Preview SQL query results on sample data.
@@ -84,7 +85,7 @@ async def preview_sql(
     Raises:
         400 for validation errors, 403 for permission errors, 404 for not found
     """
-    handler = PreviewSqlHandler(uow, workbench_service)
+    handler = PreviewSqlHandler(uow, workbench_service, permissions=permission_service)
     return await handler.handle(request, current_user.user_id)
 
 
@@ -96,7 +97,8 @@ async def transform_sql(
     workbench_service: WorkbenchService = Depends(get_workbench_service),
     job_repository: PostgresJobRepository = Depends(get_job_repository),
     dataset_repository: PostgresDatasetRepository = Depends(get_dataset_repository),
-    commit_repository: PostgresCommitRepository = Depends(get_commit_repository)
+    commit_repository: PostgresCommitRepository = Depends(get_commit_repository),
+    permission_service = Depends(get_permission_service)
 ):
     """
     Create a SQL transformation job.
@@ -119,7 +121,8 @@ async def transform_sql(
         workbench_service, 
         job_repository, 
         dataset_repository,
-        commit_repository
+        commit_repository,
+        permissions=permission_service
     )
     return await handler.handle(request, current_user.user_id)
 
