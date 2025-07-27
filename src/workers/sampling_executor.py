@@ -448,7 +448,7 @@ class SamplingJobExecutor(JobExecutor):
         try:
             # Publish job started event
             await event_bus.publish(JobStartedEvent(
-                job_id=job_id,
+                job_id=UUID(job_id),
                 job_type='sampling',
                 dataset_id=dataset_id,
                 user_id=user_id
@@ -545,10 +545,9 @@ class SamplingJobExecutor(JobExecutor):
             
             # Publish job completed event
             await event_bus.publish(JobCompletedEvent(
-                job_id=job_id,
-                job_type='sampling',
+                job_id=UUID(job_id),
+                status='completed',
                 dataset_id=dataset_id,
-                user_id=user_id,
                 result={
                     'total_sampled': total_sampled,
                     'output_commit_id': output_commit_id
@@ -562,11 +561,9 @@ class SamplingJobExecutor(JobExecutor):
             
             # Publish job failed event
             await event_bus.publish(JobFailedEvent(
-                job_id=job_id,
-                job_type='sampling',
-                dataset_id=dataset_id,
-                user_id=user_id,
-                error_message=str(e)
+                job_id=UUID(job_id),
+                error_message=str(e),
+                dataset_id=dataset_id
             ))
             
             raise

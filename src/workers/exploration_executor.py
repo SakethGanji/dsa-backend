@@ -21,34 +21,9 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
-# Job event classes
-@dataclass
-class JobStartedEvent:
-    """Event raised when a job starts."""
-    job_id: str
-    job_type: str
-    dataset_id: int
-    user_id: int
-
-
-@dataclass
-class JobCompletedEvent:
-    """Event raised when a job completes successfully."""
-    job_id: str
-    job_type: str
-    dataset_id: int
-    user_id: int
-    result: Dict[str, Any]
-
-
-@dataclass
-class JobFailedEvent:
-    """Event raised when a job fails."""
-    job_id: str
-    job_type: str
-    dataset_id: int
-    user_id: int
-    error_message: str
+# Import event classes from core
+from src.core.events.publisher import JobStartedEvent, JobCompletedEvent, JobFailedEvent
+from uuid import UUID
 
 
 class ExplorationExecutor(JobExecutor):
@@ -88,7 +63,7 @@ class ExplorationExecutor(JobExecutor):
         try:
             # Publish job started event
             await event_bus.publish(JobStartedEvent(
-                job_id=job_id,
+                job_id=UUID(job_id),
                 job_type='exploration',
                 dataset_id=dataset_id,
                 user_id=user_id
@@ -148,10 +123,9 @@ class ExplorationExecutor(JobExecutor):
                 
                 # Publish job completed event for empty dataset
                 await event_bus.publish(JobCompletedEvent(
-                    job_id=job_id,
-                    job_type='exploration',
+                    job_id=UUID(job_id),
+                    status='completed',
                     dataset_id=dataset_id,
-                    user_id=user_id,
                     result=dataset_info
                 ))
                 
@@ -180,10 +154,9 @@ class ExplorationExecutor(JobExecutor):
             
             # Publish job completed event
             await event_bus.publish(JobCompletedEvent(
-                job_id=job_id,
-                job_type='exploration',
+                job_id=UUID(job_id),
+                status='completed',
                 dataset_id=dataset_id,
-                user_id=user_id,
                 result=result["dataset_info"]
             ))
             
@@ -194,11 +167,9 @@ class ExplorationExecutor(JobExecutor):
             
             # Publish job failed event
             await event_bus.publish(JobFailedEvent(
-                job_id=job_id,
-                job_type='exploration',
-                dataset_id=dataset_id,
-                user_id=user_id,
-                error_message=str(e)
+                job_id=UUID(job_id),
+                error_message=str(e),
+                dataset_id=dataset_id
             ))
             
             raise

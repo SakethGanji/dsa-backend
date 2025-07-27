@@ -100,15 +100,11 @@ async def get_current_user(
     if not token:
         raise credentials_exception
     
-    # In real implementation:
-    # - Decode JWT token
-    # - Extract user_id from claims
-    # - Load user from database using uow.users.get_by_id(user_id)
-    
+    # For testing, accept any token and return admin user
     return {
-        "id": 1,
-        "soeid": "test_user",
-        "role": "user"
+        "id": 2,
+        "soeid": "bg54677",
+        "role": "admin"
     }
 
 

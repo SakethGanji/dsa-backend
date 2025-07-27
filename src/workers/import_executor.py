@@ -125,9 +125,8 @@ class ImportJobExecutor(JobExecutor):
             # Publish job completed event
             await event_bus.publish(JobCompletedEvent(
                 job_id=job_id,
-                job_type='import',
+                status='completed',
                 dataset_id=dataset_id,
-                user_id=user_id,
                 result={
                     "commit_id": commit_id,
                     "rows_imported": total_rows_processed
@@ -149,10 +148,8 @@ class ImportJobExecutor(JobExecutor):
             # Publish job failed event
             await event_bus.publish(JobFailedEvent(
                 job_id=job_id,
-                job_type='import',
-                dataset_id=dataset_id,
-                user_id=user_id,
-                error_message=str(e)
+                error_message=str(e),
+                dataset_id=dataset_id
             ))
             
             async with db_pool.acquire() as conn:
@@ -221,11 +218,25 @@ class ImportJobExecutor(JobExecutor):
                     copy_data.append((logical_row_id, row_hash, row_json))
                 
                 # Use COPY to bulk insert into temp table
-                await conn.copy_records_to_table(
-                    temp_table,
-                    records=copy_data,
-                    columns=['logical_row_id', 'row_hash', 'data']
-                )
+                # Check if we have the method directly or need to use raw connection
+                if hasattr(conn, 'copy_records_to_table'):
+                    await conn.copy_records_to_table(
+                        temp_table,
+                        records=copy_data,
+                        columns=['logical_row_id', 'row_hash', 'data']
+                    )
+                elif hasattr(conn, 'raw_connection'):
+                    await conn.raw_connection.copy_records_to_table(
+                        temp_table,
+                        records=copy_data,
+                        columns=['logical_row_id', 'row_hash', 'data']
+                    )
+                else:
+                    # Fallback to executemany
+                    await conn.executemany(
+                        f"INSERT INTO {temp_table} (logical_row_id, row_hash, data) VALUES ($1, $2, $3)",
+                        copy_data
+                    )
                 
                 # Insert only new rows into dsa_core.rows
                 await conn.execute(f"""

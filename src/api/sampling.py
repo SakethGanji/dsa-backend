@@ -11,7 +11,7 @@ import csv
 
 from ..infrastructure.postgres.database import DatabasePool, UnitOfWorkFactory
 from ..infrastructure.postgres.uow import PostgresUnitOfWork
-from ..core.services.sampling_service import SamplingService, SamplingJobManager
+from ..infrastructure.services.sampling_service import SamplingService
 from ..infrastructure.postgres.table_reader import PostgresTableReader
 from enum import Enum
 from ..core.authorization import get_current_user_info, require_dataset_read

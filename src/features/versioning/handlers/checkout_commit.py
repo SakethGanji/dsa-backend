@@ -57,14 +57,21 @@ class CheckoutCommitHandler(BaseHandler[GetDataResponse], PaginationMixin):
                     data_rows = []
                     total_rows = 0
             
-            # Extract just the data portion for response
+            # Format data for response model
             data = []
             for row in data_rows:
-                # Remove internal fields starting with underscore
+                logical_row_id = row.get('_logical_row_id', '')
+                # Extract sheet name from logical_row_id (format: "sheet_name:hash")
+                sheet_name = logical_row_id.split(':')[0] if ':' in logical_row_id else table_key or 'data'
+                
+                # Remove internal fields
                 row_data = {k: v for k, v in row.items() if not k.startswith('_')}
-                # Add the logical_row_id to help identify rows
-                row_data['_logical_row_id'] = row.get('_logical_row_id', '')
-                data.append(row_data)
+                
+                data.append({
+                    'sheet_name': sheet_name,
+                    'logical_row_id': logical_row_id,
+                    'data': row_data
+                })
             
             return GetDataResponse(
                 dataset_id=dataset_id,

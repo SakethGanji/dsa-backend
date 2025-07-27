@@ -84,7 +84,7 @@ async def preview_sql(
     Raises:
         400 for validation errors, 403 for permission errors, 404 for not found
     """
-    handler = PreviewSqlHandler(uow, workbench_service, table_reader, dataset_repository)
+    handler = PreviewSqlHandler(uow, workbench_service)
     return await handler.handle(request, current_user.user_id)
 
 

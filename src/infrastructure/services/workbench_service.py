@@ -44,12 +44,69 @@ class WorkbenchService:
         self,
         table_reader: PostgresTableReader = None,
         sql_validator = None,
-        uow: PostgresUnitOfWork = None
+        uow: PostgresUnitOfWork = None,
+        db_pool = None
     ):
         self._table_reader = table_reader
         self._sql_validator = sql_validator
         self._uow = uow
+        self._db_pool = db_pool
         self._temp_views: Dict[str, str] = {}
+    
+    async def _execute_sql_with_sources(
+        self, 
+        sql: str, 
+        sources: List[Dict[str, Any]],
+        db_pool = None
+    ) -> Dict[str, Any]:
+        """Execute SQL query with source table CTEs."""
+        pool = db_pool or self._db_pool
+        if not pool:
+            raise ValueError("Database pool not available")
+        
+        async with pool.acquire() as conn:
+            try:
+                # Build CTEs for each source table
+                cte_parts = []
+                for source in sources:
+                    cte_sql = f"""
+                    {source['alias']} AS (
+                        SELECT 
+                            (r.data->>'data')::jsonb as data,
+                            cr.logical_row_id
+                        FROM dsa_core.commit_rows cr
+                        JOIN dsa_core.rows r ON cr.row_hash = r.row_hash
+                        WHERE cr.commit_id = '{source['commit_id']}'
+                        AND cr.logical_row_id LIKE '{source['table_key']}:%'
+                    )"""
+                    cte_parts.append(cte_sql)
+                
+                # Build the full query with CTEs
+                full_query = f"""
+                WITH {','.join(cte_parts)}
+                {sql}
+                """
+                
+                # Execute the query
+                rows = await conn.fetch(full_query)
+                
+                # Convert to the expected format
+                if rows:
+                    # Get column names from the first row
+                    columns = list(rows[0].keys())
+                    result_rows = [list(row.values()) for row in rows]
+                    
+                    return {
+                        'rows': result_rows,
+                        'columns': columns
+                    }
+                else:
+                    return {
+                        'rows': [],
+                        'columns': []
+                    }
+            except Exception as e:
+                raise ValueError(f"SQL execution failed: {str(e)}")
     
     async def create_transformation(
         self,
@@ -101,11 +158,12 @@ class WorkbenchService:
             if table_name and table_name not in referenced_tables:
                 referenced_tables.append(table_name)
         
-        # Use SQL validator service for deeper validation
-        try:
-            await self._sql_validator.validate_query(sql)
-        except Exception as e:
-            errors.append(str(e))
+        # Use SQL validator service for deeper validation if available
+        if self._sql_validator:
+            try:
+                await self._sql_validator.validate_query(sql)
+            except Exception as e:
+                errors.append(str(e))
         
         # Add warnings for common issues
         if 'select *' in sql_lower:
@@ -137,69 +195,12 @@ class WorkbenchService:
         if not validation.is_valid:
             raise ValueError(f"Invalid SQL: {', '.join(validation.errors)}")
         
-        # Create temporary view name
-        temp_view_name = f"temp_preview_{uuid.uuid4().hex[:8]}"
-        
-        try:
-            # Create view for the transformation
-            create_view_sql = f"CREATE TEMPORARY VIEW {temp_view_name} AS {sql}"
-            await self._table_reader.execute_query(
-                dataset_id=dataset_id,
-                commit_id=commit_id,
-                query=create_view_sql
-            )
-            
-            # Get schema of the view
-            schema = await self._table_reader.get_table_schema(
-                dataset_id=dataset_id,
-                commit_id=commit_id,
-                table_name=temp_view_name
-            )
-            
-            # Get preview data
-            preview_sql = f"SELECT * FROM {temp_view_name} LIMIT {limit}"
-            result = await self._table_reader.execute_query(
-                dataset_id=dataset_id,
-                commit_id=commit_id,
-                query=preview_sql
-            )
-            
-            # Convert rows to dictionaries
-            column_names = [col.name for col in schema.columns]
-            data = []
-            for row in result.rows:
-                row_dict = dict(zip(column_names, row))
-                data.append(row_dict)
-            
-            # Get total row count
-            count_sql = f"SELECT COUNT(*) FROM {temp_view_name}"
-            count_result = await self._table_reader.execute_query(
-                dataset_id=dataset_id,
-                commit_id=commit_id,
-                query=count_sql
-            )
-            row_count = count_result.rows[0][0] if count_result.rows else 0
-            
-            execution_time_ms = (time.time() - start_time) * 1000
-            
-            return PreviewResult(
-                data=data,
-                schema=self._schema_to_dict(schema),
-                row_count=row_count,
-                execution_time_ms=execution_time_ms
-            )
-            
-        finally:
-            # Clean up temporary view
-            try:
-                drop_view_sql = f"DROP VIEW IF EXISTS {temp_view_name}"
-                await self._table_reader.execute_query(
-                    dataset_id=dataset_id,
-                    commit_id=commit_id,
-                    query=drop_view_sql
-                )
-            except:
-                pass  # Best effort cleanup
+        # For now, return a simple error since we need source information
+        # This method seems to be for a different use case than the preview_sql endpoint
+        raise NotImplementedError(
+            "This method requires refactoring to work with the new architecture. "
+            "Use the /workbench/sql-preview endpoint instead."
+        )
     
     async def apply_transformation(
         self,
@@ -211,17 +212,19 @@ class WorkbenchService:
         # Get transformation (would normally fetch from database)
         # For now, we'll create a job directly
         
-        job = await self._uow.jobs.create_job({
-            'type': 'sql_transformation',
-            'dataset_id': dataset_id,
-            'parameters': {
-                'transformation_id': transformation_id,
-                'target_table': target_table_name
-            },
-            'created_by': 'system'  # Would come from context
-        })
-        
-        return job.id
+        if self._uow:
+            job = await self._uow.jobs.create_job({
+                'type': 'sql_transformation',
+                'dataset_id': dataset_id,
+                'parameters': {
+                    'transformation_id': transformation_id,
+                    'target_table': target_table_name
+                },
+                'created_by': 'system'  # Would come from context
+            })
+            return job.id
+        else:
+            raise ValueError("Unit of work not configured")
     
     def _schema_to_dict(self, schema) -> Dict[str, Any]:
         """Convert schema object to dictionary."""

@@ -67,6 +67,10 @@ class DomainEvent(ABC):
         self.occurred_at: datetime = datetime.utcnow()
         self.correlation_id: Optional[UUID] = None
         self.metadata: Dict[str, Any] = {}
+        # These will be set by subclasses
+        self.event_type: Optional[EventType] = None
+        self.aggregate_type: Optional[str] = None
+        self.aggregate_id: Optional[str] = None
 
 
 # Dataset Events
@@ -81,6 +85,9 @@ class DatasetCreatedEvent(DomainEvent):
     
     def __post_init__(self):
         super().__init__()
+        self.event_type = EventType.DATASET_CREATED
+        self.aggregate_type = "dataset"
+        self.aggregate_id = str(self.dataset_id)
 
 
 @dataclass
@@ -141,6 +148,24 @@ class JobCreatedEvent(DomainEvent):
     
     def __post_init__(self):
         super().__init__()
+        self.event_type = EventType.JOB_CREATED
+        self.aggregate_type = "job"
+        self.aggregate_id = str(self.job_id)
+
+
+@dataclass
+class JobStartedEvent(DomainEvent):
+    """Raised when a job starts execution."""
+    job_id: UUID
+    job_type: str
+    dataset_id: int
+    user_id: int
+    
+    def __post_init__(self):
+        super().__init__()
+        self.event_type = EventType.JOB_STARTED
+        self.aggregate_type = "job"
+        self.aggregate_id = str(self.job_id)
 
 
 @dataclass
@@ -153,6 +178,9 @@ class JobCompletedEvent(DomainEvent):
     
     def __post_init__(self):
         super().__init__()
+        self.event_type = EventType.JOB_COMPLETED
+        self.aggregate_type = "job"
+        self.aggregate_id = str(self.job_id)
 
 
 @dataclass
@@ -164,6 +192,9 @@ class JobFailedEvent(DomainEvent):
     
     def __post_init__(self):
         super().__init__()
+        self.event_type = EventType.JOB_FAILED
+        self.aggregate_type = "job"
+        self.aggregate_id = str(self.job_id)
 
 
 # Commit Events

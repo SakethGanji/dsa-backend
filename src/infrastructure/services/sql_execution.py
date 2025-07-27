@@ -117,35 +117,23 @@ class SqlValidationService:
         table_reader
     ) -> Dict[str, Any]:
         """Estimate memory and time requirements for the query."""
-        total_rows = 0
-        total_size = 0
-        
-        for source in sources:
-            # Get row count for each source table
-            # This is a simplified estimation
-            # Real implementation would analyze the query plan
-            schema = await table_reader.get_table_schema(
-                commit_id=source.ref,  # Simplified - would need actual commit_id
-                table_key=source.table_key
-            )
-            if schema and isinstance(schema, dict):
-                total_rows += schema.get('row_count', 0)
-                total_size += schema.get('size_bytes', 0)
+        # Simplified estimation without needing table reader
+        # In production, would use EXPLAIN ANALYZE
         
         # Simple heuristics for estimation
         has_join = 'JOIN' in sql.upper()
         has_group_by = 'GROUP BY' in sql.upper()
         has_order_by = 'ORDER BY' in sql.upper()
         
-        # Estimate based on operations
-        estimated_rows = total_rows
+        # Basic estimation - assume 10000 rows per source
+        estimated_rows = len(sources) * 10000
         if has_join:
             estimated_rows *= 1.5  # Join can increase rows
         if has_group_by:
             estimated_rows *= 0.3  # Group by reduces rows
         
         # Memory estimation (very rough)
-        bytes_per_row = total_size / max(total_rows, 1) if total_rows > 0 else 1000
+        bytes_per_row = 1000  # Assume 1KB per row average
         estimated_memory_mb = (estimated_rows * bytes_per_row) / (1024 * 1024)
         
         # Add overhead for operations

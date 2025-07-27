@@ -2,6 +2,7 @@
 
 import json
 from typing import Dict, Any
+from uuid import UUID
 
 from .job_worker import JobExecutor
 from ..infrastructure.postgres.database import DatabasePool
@@ -13,38 +14,8 @@ from ..infrastructure.services.sql_execution import (
 )
 from dataclasses import dataclass
 from typing import Optional
-from uuid import UUID
 from ..infrastructure.postgres.table_reader import PostgresTableReader
-
-
-# Job event classes
-@dataclass
-class JobStartedEvent:
-    """Event raised when a job starts."""
-    job_id: str
-    job_type: str
-    dataset_id: int
-    user_id: int
-
-
-@dataclass
-class JobCompletedEvent:
-    """Event raised when a job completes successfully."""
-    job_id: str
-    job_type: str
-    dataset_id: int
-    user_id: int
-    result: Dict[str, Any]
-
-
-@dataclass
-class JobFailedEvent:
-    """Event raised when a job fails."""
-    job_id: str
-    job_type: str
-    dataset_id: Optional[int]
-    user_id: int
-    error_message: str
+from ..core.events.publisher import EventType, JobStartedEvent, JobCompletedEvent, JobFailedEvent
 
 
 class SqlTransformExecutor(JobExecutor):
@@ -75,13 +46,13 @@ class SqlTransformExecutor(JobExecutor):
             
             user_id = job['user_id']
         
-        # Create services
+        # Create services - table reader needs a connection, not pool
         validation_service = SqlValidationService()
-        table_reader = PostgresTableReader(db_pool)
+        # We'll create table reader with proper connection in the execution service
         execution_service = SqlExecutionService(
             db_pool=db_pool,
             validation_service=validation_service,
-            table_reader=table_reader
+            table_reader=None  # Will be created with connection in service
         )
         
         # Convert parameters to service models
@@ -106,7 +77,7 @@ class SqlTransformExecutor(JobExecutor):
         try:
             # Publish job started event
             await event_bus.publish(JobStartedEvent(
-                job_id=job_id,
+                job_id=UUID(job_id),
                 job_type='sql_transform',
                 dataset_id=target.dataset_id,
                 user_id=user_id
@@ -132,10 +103,9 @@ class SqlTransformExecutor(JobExecutor):
             
             # Publish job completed event
             await event_bus.publish(JobCompletedEvent(
-                job_id=job_id,
-                job_type='sql_transform',
+                job_id=UUID(job_id),
+                status='completed',
                 dataset_id=target.dataset_id,
-                user_id=user_id,
                 result={
                     "rows_processed": result.rows_processed,
                     "new_commit_id": result.new_commit_id,
@@ -157,11 +127,9 @@ class SqlTransformExecutor(JobExecutor):
             
             # Publish job failed event
             await event_bus.publish(JobFailedEvent(
-                job_id=job_id,
-                job_type='sql_transform',
-                dataset_id=target.dataset_id if 'target' in locals() else None,
-                user_id=user_id,
-                error_message=str(e)
+                job_id=UUID(job_id),
+                error_message=str(e),
+                dataset_id=target.dataset_id if 'target' in locals() else None
             ))
             
             raise

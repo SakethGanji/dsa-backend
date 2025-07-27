@@ -64,12 +64,12 @@ class CreateBranchHandler(BaseHandler[CreateBranchResponse]):
                 commit_id=commit_id
             )
             
-            # Get the created ref to get its timestamp
-            created_ref = await self._uow.commits.get_ref(dataset_id, request.ref_name)
+            # Get commit details for timestamp
+            commit = await self._uow.commits.get_commit_by_id(commit_id)
             
             return CreateBranchResponse(
                 dataset_id=dataset_id,
                 ref_name=request.ref_name,
                 commit_id=commit_id,
-                created_at=created_ref['created_at'] if created_ref else None
+                created_at=commit.get('created_at') if commit else None
             )

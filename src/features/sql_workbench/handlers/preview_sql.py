@@ -22,34 +22,59 @@ class PreviewSqlHandler(BaseHandler[SqlPreviewResponse]):
         # Validate permissions
         await self._validate_permissions(request.sources, user_id)
         
-        # Get primary source and ref
-        primary = request.sources[0]
-        ref = await self._uow.commits.get_ref(primary.dataset_id, primary.ref)
-        if not ref:
-            raise ValueError(f"Ref '{primary.ref}' not found")
-        
-        # Build SQL with proper table references
-        sql = request.sql
+        # Build source information for SQL execution
+        sources = []
         for source in request.sources:
-            sql = sql.replace(source.alias, source.table_key)
+            ref = await self._uow.commits.get_ref(source.dataset_id, source.ref)
+            if not ref:
+                raise ValueError(f"Ref '{source.ref}' not found")
+            
+            sources.append({
+                'alias': source.alias,
+                'dataset_id': source.dataset_id,
+                'commit_id': ref['commit_id'],
+                'table_key': source.table_key
+            })
         
-        # Execute preview
+        # Add LIMIT to the SQL for preview
+        limited_sql = f"SELECT * FROM ({request.sql}) AS preview_result LIMIT {request.limit}"
+        
+        # Execute preview using the new method
         start = time.time()
-        result = await self._workbench_service.preview_transformation(
-            dataset_id=primary.dataset_id,
-            commit_id=ref['commit_id'],
-            sql=sql,
-            limit=request.limit
+        
+        # Set db_pool on workbench service if needed
+        if not self._workbench_service._db_pool:
+            self._workbench_service._db_pool = self._uow._pool
+        
+        result = await self._workbench_service._execute_sql_with_sources(
+            sql=limited_sql,
+            sources=sources,
+            db_pool=self._uow._pool
         )
+        
+        execution_time_ms = int((time.time() - start) * 1000)
+        
+        # Convert result format
+        data = []
+        columns = []
+        
+        if result['rows']:
+            # Convert column names to the expected format
+            columns = [{"name": col, "type": "UNKNOWN"} for col in result['columns']]
+            
+            # Convert rows to dictionaries
+            for row in result['rows']:
+                row_dict = dict(zip(result['columns'], row))
+                data.append(row_dict)
         
         # Return response
         return SqlPreviewResponse(
-            data=result.data,
-            row_count=len(result.data),
-            total_row_count=result.row_count,
-            execution_time_ms=int((time.time() - start) * 1000),
-            columns=[{"name": c["name"], "type": c["type"]} for c in result.schema.get("columns", [])],
-            truncated=len(result.data) < result.row_count
+            data=data,
+            row_count=len(data),
+            total_row_count=None,  # We don't know the total without running a count query
+            execution_time_ms=execution_time_ms,
+            columns=columns,
+            truncated=len(data) == request.limit
         )
     
     async def _validate_permissions(self, sources: List[SqlSource], user_id: int):

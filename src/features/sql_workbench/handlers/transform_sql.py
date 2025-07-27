@@ -86,10 +86,10 @@ class TransformSqlHandler(BaseHandler[SqlTransformResponse]):
             }
         )
         
-        # Validate operation
-        errors = await self._workbench_service.validate_operation(context, self._uow)
-        if errors:
-            raise ValueError(f"SQL transformation validation failed: {'; '.join(errors)}")
+        # Validate SQL syntax
+        validation = await self._workbench_service.validate_transformation(request.sql)
+        if not validation.is_valid:
+            raise ValueError(f"SQL transformation validation failed: {'; '.join(validation.errors)}")
         
         # If dry run, return without creating job
         if request.dry_run:

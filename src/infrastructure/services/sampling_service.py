@@ -38,11 +38,11 @@ class SamplingService:
             random.seed(seed)
         
         # Get total row count
-        count_result = await self._table_reader.execute_query(
-            dataset_id, commit_id,
-            f"SELECT COUNT(*) FROM {table_name}"
-        )
-        total_rows = count_result.rows[0][0] if count_result.rows else 0
+        total_rows = await self._table_reader.count_table_rows(commit_id, table_name)
+        
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Sampling from table {table_name} in commit {commit_id}: total_rows={total_rows}")
         
         if total_rows == 0:
             return SampleResult(
@@ -58,42 +58,24 @@ class SamplingService:
         
         # For small datasets, just get all rows and sample in memory
         if total_rows <= sample_size * 2:
-            query = f"SELECT * FROM {table_name}"
-            result = await self._table_reader.execute_query(dataset_id, commit_id, query)
+            # Get all data from the table
+            all_data = await self._table_reader.get_table_data(commit_id, table_name)
             
-            # Get schema for column names
-            schema = await self._table_reader.get_table_schema(dataset_id, commit_id, table_name)
-            column_names = [col.name for col in schema.columns]
-            
-            # Convert to dictionaries
-            all_data = [
-                dict(zip(column_names, row))
-                for row in result.rows
-            ]
+            # Data is already in dictionary format from get_table_data
             
             # Random sample
             sampled_data = random.sample(all_data, actual_sample_size)
         else:
-            # For large datasets, use database-level sampling
-            # Using TABLESAMPLE for PostgreSQL (adjust for other databases)
-            sample_percentage = (sample_size / total_rows) * 100
-            query = f"""
-                SELECT * FROM {table_name}
-                TABLESAMPLE BERNOULLI ({sample_percentage})
-                LIMIT {sample_size}
-            """
+            # For large datasets, get a random sample by selecting random offsets
+            random_offsets = sorted(random.sample(range(total_rows), actual_sample_size))
+            sampled_data = []
             
-            result = await self._table_reader.execute_query(dataset_id, commit_id, query)
-            
-            # Get schema for column names
-            schema = await self._table_reader.get_table_schema(dataset_id, commit_id, table_name)
-            column_names = [col.name for col in schema.columns]
-            
-            # Convert to dictionaries
-            sampled_data = [
-                dict(zip(column_names, row))
-                for row in result.rows
-            ]
+            # Get data in batches for efficiency
+            for offset in random_offsets:
+                # Get one row at the random offset
+                rows = await self._table_reader.get_table_data(commit_id, table_name, offset=offset, limit=1)
+                if rows:
+                    sampled_data.append(rows[0])
         
         return SampleResult(
             data=sampled_data,
@@ -205,11 +187,7 @@ class SamplingService:
     ) -> SampleResult:
         """Perform systematic sampling (every nth row)."""
         # Get total row count
-        count_result = await self._table_reader.execute_query(
-            dataset_id, commit_id,
-            f"SELECT COUNT(*) FROM {table_name}"
-        )
-        total_rows = count_result.rows[0][0] if count_result.rows else 0
+        total_rows = await self._table_reader.count_table_rows(commit_id, table_name)
         
         if total_rows == 0 or sample_size == 0:
             return SampleResult(
@@ -327,11 +305,7 @@ class SamplingService:
                 sampled_data.append(row_dict)
         
         # Get total row count
-        count_result = await self._table_reader.execute_query(
-            dataset_id, commit_id,
-            f"SELECT COUNT(*) FROM {table_name}"
-        )
-        total_rows = count_result.rows[0][0] if count_result.rows else 0
+        total_rows = await self._table_reader.count_table_rows(commit_id, table_name)
         
         return SampleResult(
             data=sampled_data,
