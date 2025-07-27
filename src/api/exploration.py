@@ -77,8 +77,8 @@ async def create_exploration_job(
     pool: DatabasePool = Depends(get_db_pool)
 ) -> ExplorationJobResponse:
     """Create a new exploration/profiling job."""
-    from ..features.exploration.handlers.create_exploration_job import (
-        CreateExplorationJobHandler, 
+    from ..features.exploration.services import ExplorationService
+    from ..features.exploration.models import (
         CreateExplorationJobCommand,
         ProfileConfig as HandlerProfileConfig
     )
@@ -104,9 +104,9 @@ async def create_exploration_job(
         profile_config=profile_config
     )
     
-    # Create handler and execute
-    handler = CreateExplorationJobHandler(uow)
-    return await handler.handle(command)
+    # Create service and execute
+    service = ExplorationService(uow)
+    return await service.create_exploration_job(command)
 
 
 @router.get("/datasets/{dataset_id}/history", response_model=ExplorationHistoryResponse)
@@ -119,23 +119,18 @@ async def get_dataset_exploration_history(
     uow: PostgresUnitOfWork = Depends(get_uow)
 ) -> ExplorationHistoryResponse:
     """Get exploration history for a dataset."""
-    from ..features.exploration.handlers.get_exploration_history import (
-        GetExplorationHistoryHandler,
-        GetExplorationHistoryCommand
-    )
+    from ..features.exploration.services import ExplorationService
     
-    # Create command
-    command = GetExplorationHistoryCommand(
+    # Create service and execute
+    service = ExplorationService(uow)
+    result = await service.get_exploration_history(
         dataset_id=dataset_id,
-        offset=offset,
-        limit=limit
+        user_id=current_user.user_id,
+        limit=limit,
+        offset=offset
     )
     
-    # Create handler and execute
-    handler = GetExplorationHistoryHandler(uow)
-    result = await handler.handle(command)
-    
-    # Convert handler response to API response
+    # Convert service response to API response
     return ExplorationHistoryResponse(
         items=[
             ExplorationHistoryItem(
@@ -168,29 +163,22 @@ async def get_user_exploration_history(
     uow: PostgresUnitOfWork = Depends(get_uow)
 ) -> ExplorationHistoryResponse:
     """Get exploration history for a user."""
-    from ..features.exploration.handlers.get_exploration_history import (
-        GetExplorationHistoryHandler,
-        GetExplorationHistoryCommand
-    )
+    from ..features.exploration.services import ExplorationService
     
     # Check permissions (users can only see their own history unless admin)
     if user_id != current_user.user_id and not current_user.is_admin():
         raise PermissionError("Cannot view other users' history")
     
-    # Create command
-    command = GetExplorationHistoryCommand(
-        user_id=user_id,
+    # Create service and execute
+    service = ExplorationService(uow)
+    result = await service.get_exploration_history(
         dataset_id=dataset_id,
-        requesting_user_id=current_user.user_id,
-        offset=offset,
-        limit=limit
+        user_id=user_id,
+        limit=limit,
+        offset=offset
     )
     
-    # Create handler and execute
-    handler = GetExplorationHistoryHandler(uow)
-    result = await handler.handle(command)
-    
-    # Convert handler response to API response
+    # Convert service response to API response
     return ExplorationHistoryResponse(
         items=[
             ExplorationHistoryItem(
@@ -222,21 +210,15 @@ async def get_exploration_result(
     uow: PostgresUnitOfWork = Depends(get_uow)
 ):
     """Get the result of a completed exploration job."""
-    from ..features.exploration.handlers.get_exploration_result import (
-        GetExplorationResultHandler,
-        GetExplorationResultCommand
-    )
+    from ..features.exploration.services import ExplorationService
     
-    # Create command
-    command = GetExplorationResultCommand(
-        user_id=current_user.user_id,
+    # Create service and execute
+    service = ExplorationService(uow)
+    result = await service.get_exploration_result(
         job_id=job_id,
+        user_id=current_user.user_id,
         format=format
     )
-    
-    # Create handler and execute
-    handler = GetExplorationResultHandler(uow)
-    result = await handler.handle(command)
     
     # Return appropriate response based on format
     if format == "html":
