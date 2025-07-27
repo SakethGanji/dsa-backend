@@ -1,11 +1,11 @@
-from fastapi import APIRouter, Depends, Query, File, UploadFile, Form, status, Path
+from fastapi import APIRouter, Depends, Query, File, UploadFile, Form, Path
 from typing import List, Dict, Any, Optional
 
 from src.api.models import (
     CreateCommitRequest, CreateCommitResponse,
     GetDataRequest, GetDataResponse,
     CommitSchemaResponse, QueueImportRequest, QueueImportResponse,
-    GetCommitHistoryResponse, CheckoutResponse, CurrentUser,
+    GetCommitHistoryResponse, CurrentUser,
     ListRefsResponse, CreateBranchRequest, CreateBranchResponse,
     TableAnalysisResponse, DatasetOverviewResponse
 )
@@ -22,7 +22,7 @@ from src.features.versioning.handlers.checkout_commit import CheckoutCommitHandl
 from src.features.versioning.handlers.get_dataset_overview import GetDatasetOverviewHandler
 from src.features.refs.handlers import ListRefsHandler, CreateBranchHandler, DeleteBranchHandler
 from src.infrastructure.postgres.database import DatabasePool, UnitOfWorkFactory
-from src.core.authorization import get_current_user_info, PermissionType, require_dataset_read, require_dataset_write
+from src.core.authorization import get_current_user_info, require_dataset_read, require_dataset_write
 from src.api.dependencies import get_uow, get_db_pool, get_event_bus, get_permission_service
 from src.infrastructure.postgres.uow import PostgresUnitOfWork
 
@@ -42,9 +42,8 @@ async def get_table_analysis_service(
     uow: PostgresUnitOfWork = Depends(get_uow)
 ):
     """Get table analysis service."""
-    from src.infrastructure.services.table_analysis import (
-        TableAnalysisService, DataTypeInferenceService, ColumnStatisticsService
-    )
+    from src.services import TableAnalysisService
+    from src.services.table_analysis import DataTypeInferenceService, ColumnStatisticsService
     return TableAnalysisService(
         table_reader=uow.table_reader,
         type_inference_service=DataTypeInferenceService(),
@@ -282,7 +281,7 @@ async def delete_branch(
     _: CurrentUser = Depends(require_dataset_write)
 ):
     """Delete a branch/ref."""
-    from src.features.refs.handlers.delete_branch import DeleteBranchCommand, DeleteBranchResponse
+    from src.features.refs.handlers.delete_branch import DeleteBranchCommand
     handler = DeleteBranchHandler(uow, permissions=permission_service)
     command = DeleteBranchCommand(
         user_id=current_user.user_id,

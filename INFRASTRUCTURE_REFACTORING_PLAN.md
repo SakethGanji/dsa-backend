@@ -3,6 +3,18 @@
 ## Overview
 This document outlines the plan to reorganize the infrastructure folder for better modularity, clarity, and extensibility.
 
+## Completed Steps
+✅ **Services Separation (Completed)** 
+- All services have been moved from `src/infrastructure/services/` to `src/services/` as a separate top-level module
+- All imports have been updated to use `src.services` instead of `src.infrastructure.services`
+- The `src/services/__init__.py` has been updated to export all required services
+- Total files migrated: 10 service files + 2 subdirectories (file_processing, statistics)
+
+## Remaining Infrastructure to Refactor
+The following infrastructure components still need to be reorganized:
+- **External adapters** (auth, storage, cache, config) - currently in `src/infrastructure/external/`
+- **Postgres persistence layer** - currently in `src/infrastructure/postgres/`
+
 ## Target Structure
 ```
 infrastructure/
@@ -35,22 +47,28 @@ infrastructure/
 │   │       ├── uow.py
 │   │       ├── event_store.py
 │   │       └── adapters.py
-├── services/              # Business logic services
-│   ├── data/
-│   │   ├── export.py
-│   │   ├── sampling.py
-│   │   └── statistics/
-│   ├── processing/
-│   │   ├── file/
-│   │   ├── sql_execution.py
-│   │   └── table_analysis.py
-│   └── workflows/          # Technical orchestration services
-│       ├── commit_preparation.py
-│       ├── exploration.py
-│       └── workbench.py
 └── config/                # (Already exists - no need to create)
     ├── __init__.py
     └── settings.py
+```
+
+## Services Module Structure (Completed)
+```
+services/                  # Top-level services module (separated from infrastructure)
+├── __init__.py
+├── commit_preparation_service.py
+├── data_export_service.py
+├── file_processing/
+│   ├── __init__.py
+│   ├── factory.py
+│   └── parsers.py
+├── sampling_service.py
+├── sql_execution.py
+├── statistics/
+│   ├── __init__.py
+│   └── calculator.py
+├── table_analysis.py
+└── workbench_service.py
 ```
 
 ## Migration Steps
@@ -67,11 +85,6 @@ mkdir -p src/infrastructure/adapters/config
 mkdir -p src/infrastructure/persistence/postgres/repositories
 mkdir -p src/infrastructure/persistence/postgres/readers
 mkdir -p src/infrastructure/persistence/postgres/patterns
-
-# Create services directories
-mkdir -p src/infrastructure/services/data/statistics
-mkdir -p src/infrastructure/services/processing/file
-mkdir -p src/infrastructure/services/workflows
 
 # Note: src/infrastructure/config/ already exists - no need to create
 ```
@@ -127,27 +140,7 @@ git mv src/infrastructure/postgres/__init__.py src/infrastructure/persistence/po
 ```
 
 #### Services Migration
-```bash
-# Data services
-git mv src/infrastructure/services/data_export_service.py src/infrastructure/services/data/export.py
-git mv src/infrastructure/services/sampling_service.py src/infrastructure/services/data/sampling.py
-git mv src/infrastructure/services/statistics/* src/infrastructure/services/data/statistics/
-
-# Processing services
-git mv src/infrastructure/services/file_processing/* src/infrastructure/services/processing/file/
-git mv src/infrastructure/services/sql_execution.py src/infrastructure/services/processing/sql_execution.py
-git mv src/infrastructure/services/table_analysis.py src/infrastructure/services/processing/table_analysis.py
-
-# Workflow services
-git mv src/infrastructure/services/commit_preparation_service.py src/infrastructure/services/workflows/commit_preparation.py
-git mv src/infrastructure/services/exploration_service.py src/infrastructure/services/workflows/exploration.py
-git mv src/infrastructure/services/workbench_service.py src/infrastructure/services/workflows/workbench.py
-
-# Move __init__.py files
-git mv src/infrastructure/services/__init__.py src/infrastructure/services/__init__.py  # Keep in same location
-git mv src/infrastructure/services/file_processing/__init__.py src/infrastructure/services/processing/file/__init__.py
-git mv src/infrastructure/services/statistics/__init__.py src/infrastructure/services/data/statistics/__init__.py
-```
+✅ **COMPLETED** - All services have been moved to `src/services/` as a separate top-level module.
 
 ### Phase 3: Update Import Statements
 
@@ -174,15 +167,8 @@ git mv src/infrastructure/services/statistics/__init__.py src/infrastructure/ser
 | `from src.infrastructure.postgres.uow` | `from src.infrastructure.persistence.postgres.patterns.uow` |
 | `from src.infrastructure.postgres.event_store` | `from src.infrastructure.persistence.postgres.patterns.event_store` |
 | `from src.infrastructure.postgres.adapters` | `from src.infrastructure.persistence.postgres.patterns.adapters` |
-| `from src.infrastructure.services.data_export_service` | `from src.infrastructure.services.data.export` |
-| `from src.infrastructure.services.sampling_service` | `from src.infrastructure.services.data.sampling` |
-| `from src.infrastructure.services.statistics` | `from src.infrastructure.services.data.statistics` |
-| `from src.infrastructure.services.file_processing` | `from src.infrastructure.services.processing.file` |
-| `from src.infrastructure.services.sql_execution` | `from src.infrastructure.services.processing.sql_execution` |
-| `from src.infrastructure.services.table_analysis` | `from src.infrastructure.services.processing.table_analysis` |
-| `from src.infrastructure.services.commit_preparation_service` | `from src.infrastructure.services.workflows.commit_preparation` |
-| `from src.infrastructure.services.exploration_service` | `from src.infrastructure.services.workflows.exploration` |
-| `from src.infrastructure.services.workbench_service` | `from src.infrastructure.services.workflows.workbench` |
+
+**Services imports have been updated** - All services are now imported from `src.services` instead of `src.infrastructure.services`.
 
 ### Phase 4: Update Import Statements
 
@@ -216,15 +202,7 @@ IMPORT_MAPPING = {
     "from src.infrastructure.postgres.uow": "from src.infrastructure.persistence.postgres.patterns.uow",
     "from src.infrastructure.postgres.event_store": "from src.infrastructure.persistence.postgres.patterns.event_store",
     "from src.infrastructure.postgres.adapters": "from src.infrastructure.persistence.postgres.patterns.adapters",
-    "from src.infrastructure.services.data_export_service": "from src.infrastructure.services.data.export",
-    "from src.infrastructure.services.sampling_service": "from src.infrastructure.services.data.sampling",
-    "from src.infrastructure.services.statistics": "from src.infrastructure.services.data.statistics",
-    "from src.infrastructure.services.file_processing": "from src.infrastructure.services.processing.file",
-    "from src.infrastructure.services.sql_execution": "from src.infrastructure.services.processing.sql_execution",
-    "from src.infrastructure.services.table_analysis": "from src.infrastructure.services.processing.table_analysis",
-    "from src.infrastructure.services.commit_preparation_service": "from src.infrastructure.services.workflows.commit_preparation",
-    "from src.infrastructure.services.exploration_service": "from src.infrastructure.services.workflows.exploration",
-    "from src.infrastructure.services.workbench_service": "from src.infrastructure.services.workflows.workbench",
+    # Services imports have been handled separately - moved to src.services
 }
 
 def update_imports_in_file(filepath):
@@ -352,13 +330,11 @@ git checkout -b infrastructure-refactor-backup
 - [ ] Move repository files
 - [ ] Move reader files
 - [ ] Move pattern files
-- [ ] Move data service files
-- [ ] Move processing service files
-- [ ] Move workflow service files
+- [x] ✅ Move service files to src/services (COMPLETED)
 - [ ] Run automated import update script
 - [ ] Manually verify critical imports
 - [ ] Create __init__.py files with proper exports
-- [ ] Update api/dependencies.py if needed
+- [x] ✅ Update imports for services migration (COMPLETED)
 
 ### Post-Migration
 - [ ] Run unit tests

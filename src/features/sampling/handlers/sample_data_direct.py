@@ -3,7 +3,6 @@
 from typing import Dict, Any, List, Optional, Union
 from dataclasses import dataclass
 from src.infrastructure.postgres.uow import PostgresUnitOfWork
-from enum import Enum
 
 # Import SamplingMethod from models
 from ..models.sampling import SamplingMethod
@@ -22,7 +21,7 @@ class SampleConfig:
     relevance_threshold: Optional[float] = None
     num_rounds: Optional[int] = None
     round_configs: Optional[List['SampleConfig']] = None
-from src.infrastructure.services.sampling_service import SamplingService
+from src.services.sampling_service import SamplingService
 from ...base_handler import BaseHandler
 from src.core.permissions import PermissionService
 from src.core.domain_exceptions import EntityNotFoundException

@@ -1,21 +1,18 @@
 """API endpoints for data sampling operations."""
 
 from typing import List, Dict, Any, Optional
-from fastapi import APIRouter, Depends, Query, Path, Response
+from fastapi import APIRouter, Depends, Query, Path
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, validator
-from uuid import UUID
 from datetime import datetime
 import io
 import csv
 
-from ..infrastructure.postgres.database import DatabasePool, UnitOfWorkFactory
 from ..infrastructure.postgres.uow import PostgresUnitOfWork
-from ..infrastructure.services.sampling_service import SamplingService
+from src.services import SamplingService
 from ..infrastructure.postgres.table_reader import PostgresTableReader
 from enum import Enum
 from ..core.authorization import get_current_user_info, require_dataset_read
-from ..core.domain_exceptions import resource_not_found
 from ..core.domain_exceptions import ValidationException
 from ..api.models import CurrentUser
 from ..features.sampling.handlers import (
@@ -23,7 +20,7 @@ from ..features.sampling.handlers import (
     GetDatasetSamplingHistoryHandler,
     GetUserSamplingHistoryHandler
 )
-from .dependencies import get_db_pool, get_uow, get_permission_service
+from .dependencies import get_uow, get_permission_service
 
 
 # Sampling method enum

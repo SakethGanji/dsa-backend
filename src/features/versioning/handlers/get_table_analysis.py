@@ -1,7 +1,7 @@
 """Handler for comprehensive table analysis using service abstraction."""
 
 from src.infrastructure.postgres.uow import PostgresUnitOfWork
-from src.infrastructure.services.table_analysis import TableAnalysisService
+from src.services import TableAnalysisService
 from src.api.models import TableAnalysisResponse
 from ...base_handler import BaseHandler, with_error_handling
 from fastapi import HTTPException

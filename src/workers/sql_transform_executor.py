@@ -8,14 +8,11 @@ from .job_worker import JobExecutor
 from ..infrastructure.postgres.database import DatabasePool
 from ..infrastructure.postgres.event_store import PostgresEventStore
 from ..core.events.registry import InMemoryEventBus
-from ..infrastructure.services.sql_execution import (
+from src.services import (
     SqlValidationService, SqlExecutionService, QueryOptimizationService,
     SqlSource, SqlTarget
 )
-from dataclasses import dataclass
-from typing import Optional
-from ..infrastructure.postgres.table_reader import PostgresTableReader
-from ..core.events.publisher import EventType, JobStartedEvent, JobCompletedEvent, JobFailedEvent
+from ..core.events.publisher import JobStartedEvent, JobCompletedEvent, JobFailedEvent
 
 
 class SqlTransformExecutor(JobExecutor):

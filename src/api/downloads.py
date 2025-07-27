@@ -1,16 +1,12 @@
 """Data download API endpoints."""
 
 import io
-import csv
-from typing import Optional, Dict, Any
+from typing import Optional
 from fastapi import APIRouter, Depends, Query, Path
 from fastapi.responses import StreamingResponse
-import openpyxl
-from openpyxl import Workbook
 
 from ..api.models import CurrentUser
 from ..core.authorization import get_current_user_info, require_dataset_read
-from ..core.domain_exceptions import resource_not_found
 from .dependencies import get_uow
 from ..infrastructure.postgres.uow import PostgresUnitOfWork
 from ..infrastructure.postgres.table_reader import PostgresTableReader
@@ -48,7 +44,7 @@ async def download_dataset(
     )
     
     # Create handler and execute  
-    from ..infrastructure.services.data_export_service import DataExportService
+    from src.services.data_export_service import DataExportService
     export_service = DataExportService(uow.table_reader)
     handler = DownloadDatasetHandler(uow, export_service)
     result = await handler.handle(command)

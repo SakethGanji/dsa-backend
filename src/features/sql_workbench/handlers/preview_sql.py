@@ -4,9 +4,8 @@ from typing import List
 
 from ...base_handler import BaseHandler, with_error_handling
 from ....infrastructure.postgres.uow import PostgresUnitOfWork
-from ....infrastructure.services.workbench_service import WorkbenchService
+from src.services.workbench_service import WorkbenchService
 from ....core.permissions import PermissionService, PermissionCheck
-from ....core.domain_exceptions import ForbiddenException
 from ..models.sql_preview import SqlPreviewRequest, SqlPreviewResponse, SqlSource
 
 

@@ -1,12 +1,11 @@
 """Main FastAPI application with comprehensive error handling."""
 
-from fastapi import FastAPI, Depends, Request
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import logging
 import asyncio
-from urllib.parse import quote_plus, urlparse, urlunparse
+from urllib.parse import quote_plus
 
 from .infrastructure.config import get_settings
 from .infrastructure.postgres.database import DatabasePool
@@ -17,7 +16,7 @@ from .api.dependencies import (
     set_stats_calculator,
     set_event_bus
 )
-from .infrastructure.services import FileParserFactory, DefaultStatisticsCalculator
+from src.services import FileParserFactory, DefaultStatisticsCalculator
 
 # Import new error handling
 from .api.error_handlers import register_error_handlers

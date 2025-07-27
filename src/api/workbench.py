@@ -1,11 +1,9 @@
 """API endpoints for SQL workbench functionality."""
 
 from fastapi import APIRouter, Depends
-from typing import Dict
 
-from ..infrastructure.postgres.database import DatabasePool
 from ..infrastructure.postgres.uow import PostgresUnitOfWork
-from ..infrastructure.services.workbench_service import WorkbenchService
+from src.services.workbench_service import WorkbenchService
 from ..infrastructure.postgres.table_reader import PostgresTableReader
 from ..infrastructure.postgres.dataset_repo import PostgresDatasetRepository
 from ..infrastructure.postgres.job_repo import PostgresJobRepository
@@ -17,7 +15,7 @@ from ..features.sql_workbench.models.sql_preview import SqlPreviewRequest, SqlPr
 from ..features.sql_workbench.models.sql_transform import SqlTransformRequest, SqlTransformResponse
 from ..features.sql_workbench.handlers.preview_sql import PreviewSqlHandler
 from ..features.sql_workbench.handlers.transform_sql import TransformSqlHandler
-from .dependencies import get_db_pool, get_uow, get_permission_service
+from .dependencies import get_uow, get_permission_service
 
 router = APIRouter(prefix="/workbench", tags=["workbench"])
 
@@ -27,7 +25,7 @@ async def get_workbench_service(
     uow: PostgresUnitOfWork = Depends(get_uow)
 ) -> WorkbenchService:
     """Get workbench service."""
-    from ..infrastructure.services.workbench_service import WorkbenchService
+    from src.services.workbench_service import WorkbenchService
     return WorkbenchService()
 
 

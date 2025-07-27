@@ -1,20 +1,18 @@
 """Handler for SQL transformation jobs."""
 
-from uuid import UUID
 from typing import Dict, Any, List
 from dataclasses import dataclass
 from enum import Enum
 
 from ...base_handler import BaseHandler, with_error_handling, with_transaction
 from ....infrastructure.postgres.uow import PostgresUnitOfWork
-from ....infrastructure.services.workbench_service import WorkbenchService
+from src.services.workbench_service import WorkbenchService
 from ....infrastructure.postgres.dataset_repo import PostgresDatasetRepository
 from ....infrastructure.postgres.job_repo import PostgresJobRepository
 from ....infrastructure.postgres.versioning_repo import PostgresCommitRepository
 from ....core.permissions import PermissionService, PermissionCheck
 # Use standard Python exceptions instead of custom error classes
 from ..models.sql_transform import SqlTransformRequest, SqlTransformResponse
-from src.core.domain_exceptions import ForbiddenException
 
 
 # Data classes for workbench context

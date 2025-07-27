@@ -2,7 +2,7 @@
 from typing import Optional
 
 from src.infrastructure.postgres.uow import PostgresUnitOfWork
-from src.infrastructure.services.commit_preparation_service import CommitPreparationService
+from src.services.commit_preparation_service import CommitPreparationService
 from src.core.events.publisher import EventBus, CommitCreatedEvent
 from src.api.models import CreateCommitRequest, CreateCommitResponse
 from ...base_handler import BaseHandler, with_error_handling, with_transaction

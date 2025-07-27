@@ -2,7 +2,7 @@
 from typing import Dict, Any
 
 from src.infrastructure.postgres.uow import PostgresUnitOfWork
-from src.infrastructure.services.data_export_service import DataExportService, ExportOptions
+from src.services import DataExportService, ExportOptions
 from src.core.domain_exceptions import EntityNotFoundException, ValidationException
 from ..models import DownloadDatasetCommand
 
