@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, status, Path, UploadFile, File, Form
 from typing import Annotated, AsyncGenerator, Dict, Any
 from ..infrastructure.postgres.database import DatabasePool, UnitOfWorkFactory
 from ..infrastructure.postgres import PostgresDatasetRepository
-from ..features.datasets.handlers.grant_permission import GrantPermissionHandler
+from ..features.datasets.services import DatasetService
 from ..api.models import (
     CreateDatasetRequest, CreateDatasetResponse,
     GrantPermissionRequest, GrantPermissionResponse,
@@ -52,7 +52,7 @@ async def create_dataset(
     permission_service = Depends(get_permission_service)
 ) -> CreateDatasetResponse:
     """Create a new dataset with optional tags."""
-    from ..features.datasets.handlers.create_dataset import CreateDatasetHandler, CreateDatasetCommand
+    from ..features.datasets.models import CreateDatasetCommand
     
     # Create command from request
     command = CreateDatasetCommand(
@@ -62,18 +62,16 @@ async def create_dataset(
         tags=request.tags
     )
     
-    # Create unit of work and handler
+    # Create unit of work and service
     async with uow_factory.create() as uow:
-        handler = CreateDatasetHandler(
+        service = DatasetService(
             uow=uow,
-            dataset_repo=uow.datasets,
-            commit_repo=uow.commits,
             permissions=permission_service,
             event_bus=event_bus
         )
         
-        # Execute handler
-        return await handler.handle(command)
+        # Execute service method
+        return await service.create_dataset(command)
 
 
 @router.post("/create-with-file", response_model=CreateDatasetWithFileResponse)
@@ -86,10 +84,11 @@ async def create_dataset_with_file(
     commit_message: str = Form("Initial import"),
     current_user: CurrentUser = Depends(get_current_user_info),
     uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+    event_bus = Depends(get_event_bus),
     permission_service = Depends(get_permission_service)
 ) -> CreateDatasetWithFileResponse:
     """Create a new dataset and import a file in one operation."""
-    from ..features.datasets.handlers.create_dataset_with_file import CreateDatasetWithFileHandler
+    from ..features.datasets.models import CreateDatasetWithFileCommand
     
     # Parse tags from comma-separated string
     tag_list = [tag.strip() for tag in tags.split(",")] if tags else []
@@ -103,23 +102,30 @@ async def create_dataset_with_file(
         commit_message=commit_message
     )
     
-    # Create unit of work and handler
+    # Create command
+    command = CreateDatasetWithFileCommand(
+        name=name,
+        created_by=current_user.user_id,
+        file_name=file.filename,
+        file_size=file.size or 0,
+        file_content=file.file,
+        description=description,
+        tags=tag_list,
+        default_branch=default_branch,
+        branch_name="main",
+        commit_message=commit_message
+    )
+    
+    # Create unit of work and service
     async with uow_factory.create() as uow:
-        handler = CreateDatasetWithFileHandler(
+        service = DatasetService(
             uow=uow,
-            dataset_repo=uow.datasets,
-            commit_repo=uow.commits,
-            job_repo=uow.jobs,
-            permissions=permission_service
+            permissions=permission_service,
+            event_bus=event_bus
         )
         
-        # Execute handler
-        return await handler.handle(
-            request=request,
-            file=file.file,  # Get the file object
-            filename=file.filename,
-            user_id=current_user.user_id
-        )
+        # Execute service method
+        return await service.create_dataset_with_file(command)
 
 
 @router.post("/{dataset_id}/permissions", response_model=GrantPermissionResponse)
@@ -128,16 +134,31 @@ async def grant_permission(
     request: GrantPermissionRequest = ...,
     current_user: CurrentUser = Depends(get_current_user_info),
     uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
-    dataset_repo: PostgresDatasetRepository = Depends(get_dataset_repo),
+    event_bus = Depends(get_event_bus),
     permission_service = Depends(get_permission_service),
     _: CurrentUser = Depends(require_dataset_admin)
 ) -> GrantPermissionResponse:
     """Grant permission to a user on a dataset (admin only)."""
-    uow = uow_factory.create()
-    handler = GrantPermissionHandler(uow, dataset_repo, permissions=permission_service)
+    from ..features.datasets.models import GrantPermissionCommand
     
-    # Handler expects granting_user_id parameter
-    return await handler.handle(dataset_id, request, current_user.user_id)
+    # Create command
+    command = GrantPermissionCommand(
+        dataset_id=dataset_id,
+        user_id=current_user.user_id,
+        target_user_id=request.user_id,
+        permission_type=request.permission_type
+    )
+    
+    # Create unit of work and service
+    async with uow_factory.create() as uow:
+        service = DatasetService(
+            uow=uow,
+            permissions=permission_service,
+            event_bus=event_bus
+        )
+        
+        # Execute service method
+        return await service.grant_permission(command)
 
 
 @router.get("/", response_model=ListDatasetsResponse)
@@ -147,10 +168,11 @@ async def list_datasets(
     current_user: CurrentUser = Depends(get_current_user_info),
     uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
     pool: DatabasePool = Depends(get_db_pool),
+    event_bus = Depends(get_event_bus),
     permission_service = Depends(get_permission_service)
 ) -> ListDatasetsResponse:
     """List all datasets accessible to the current user with pagination."""
-    from ..features.datasets.handlers.list_datasets import ListDatasetsHandler, ListDatasetsCommand
+    from ..features.datasets.models import ListDatasetsCommand
     
     # Create command
     command = ListDatasetsCommand(
@@ -159,16 +181,16 @@ async def list_datasets(
         limit=limit
     )
     
-    # Create unit of work and handler
+    # Create unit of work and service
     async with uow_factory.create() as uow:
-        handler = ListDatasetsHandler(
+        service = DatasetService(
             uow=uow,
-            dataset_repo=uow.datasets,
-            permissions=permission_service
+            permissions=permission_service,
+            event_bus=event_bus
         )
         
-        # Execute handler
-        dataset_items, total = await handler.handle(command)
+        # Execute service method
+        dataset_items, total = await service.list_datasets(command)
         
         # Get import status for each dataset
         # Note: This is done outside the handler to maintain separation of concerns
@@ -214,10 +236,11 @@ async def get_dataset(
     current_user: CurrentUser = Depends(get_current_user_info),
     uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
     pool: DatabasePool = Depends(get_db_pool),
+    event_bus = Depends(get_event_bus),
     permission_service = Depends(get_permission_service)
 ) -> DatasetDetailResponse:
     """Get detailed information about a specific dataset."""
-    from ..features.datasets.handlers.get_dataset import GetDatasetHandler, GetDatasetCommand
+    from ..features.datasets.models import GetDatasetCommand
     
     # Create command
     command = GetDatasetCommand(
@@ -225,16 +248,16 @@ async def get_dataset(
         dataset_id=dataset_id
     )
     
-    # Create unit of work and handler
+    # Create unit of work and service
     async with uow_factory.create() as uow:
-        handler = GetDatasetHandler(
+        service = DatasetService(
             uow=uow,
-            dataset_repo=uow.datasets,
-            permissions=permission_service
+            permissions=permission_service,
+            event_bus=event_bus
         )
         
-        # Execute handler
-        response = await handler.handle(command)
+        # Execute service method
+        response = await service.get_dataset(command)
     
     # Get import job status (done outside handler to maintain separation)
     async with pool.acquire() as conn:
@@ -259,7 +282,7 @@ async def update_dataset(
     permission_service = Depends(get_permission_service)
 ) -> UpdateDatasetResponse:
     """Update dataset metadata (name, description, tags)."""
-    from ..features.datasets.handlers.update_dataset import UpdateDatasetHandler, UpdateDatasetCommand
+    from ..features.datasets.models import UpdateDatasetCommand
     
     # Create command from request
     command = UpdateDatasetCommand(
@@ -270,17 +293,16 @@ async def update_dataset(
         tags=request.tags
     )
     
-    # Create unit of work and handler
+    # Create unit of work and service
     async with uow_factory.create() as uow:
-        handler = UpdateDatasetHandler(
+        service = DatasetService(
             uow=uow,
-            dataset_repo=uow.datasets,
-            event_bus=event_bus,
-            permissions=permission_service
+            permissions=permission_service,
+            event_bus=event_bus
         )
         
-        # Execute handler
-        return await handler.handle(command)
+        # Execute service method
+        return await service.update_dataset(command)
 
 
 @router.delete("/{dataset_id}", response_model=DeleteDatasetResponse)
@@ -293,7 +315,8 @@ async def delete_dataset(
     _: CurrentUser = Depends(require_dataset_admin)
 ) -> DeleteDatasetResponse:
     """Delete a dataset and all its related data."""
-    from ..features.datasets.handlers.delete_dataset import DeleteDatasetHandler, DeleteDatasetCommand, DeleteDatasetResponse as HandlerDeleteResponse
+    from ..features.datasets.models import DeleteDatasetCommand
+    from ..features.datasets.services.dataset_service import DeleteDatasetResponse as ServiceDeleteResponse
     
     # Create command
     command = DeleteDatasetCommand(
@@ -301,22 +324,21 @@ async def delete_dataset(
         dataset_id=dataset_id
     )
     
-    # Create unit of work and handler
+    # Create unit of work and service
     async with uow_factory.create() as uow:
-        handler = DeleteDatasetHandler(
+        service = DatasetService(
             uow=uow,
-            dataset_repo=uow.datasets,
-            event_bus=event_bus,
-            permissions=permission_service
+            permissions=permission_service,
+            event_bus=event_bus
         )
         
-        # Execute handler - returns the handler's DeleteDatasetResponse
-        handler_response = await handler.handle(command)
+        # Execute service method - returns the service's DeleteDatasetResponse
+        service_response = await service.delete_dataset(command)
         
         # Convert to API's DeleteDatasetResponse
         return DeleteDatasetResponse(
             success=True,
-            message=handler_response.message
+            message=service_response.message
         )
 
 
@@ -325,11 +347,12 @@ async def check_dataset_ready(
     dataset_id: int = Path(..., description="Dataset ID"),
     current_user: CurrentUser = Depends(get_current_user_info),
     uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+    event_bus = Depends(get_event_bus),
     permission_service = Depends(get_permission_service),
     _: CurrentUser = Depends(require_dataset_read)
 ) -> Dict[str, Any]:
     """Check if a dataset is ready for operations (import completed)."""
-    from ..features.datasets.handlers.check_dataset_ready import CheckDatasetReadyHandler, CheckDatasetReadyCommand
+    from ..features.datasets.models import CheckDatasetReadyCommand
     
     # Create command
     command = CheckDatasetReadyCommand(
@@ -337,13 +360,13 @@ async def check_dataset_ready(
         dataset_id=dataset_id
     )
     
-    # Create unit of work and handler
+    # Create unit of work and service
     async with uow_factory.create() as uow:
-        handler = CheckDatasetReadyHandler(
+        service = DatasetService(
             uow=uow,
-            job_repo=uow.jobs,
-            permissions=permission_service
+            permissions=permission_service,
+            event_bus=event_bus
         )
         
-        # Execute handler
-        return await handler.handle(command)
+        # Execute service method
+        return await service.check_dataset_ready(command)
