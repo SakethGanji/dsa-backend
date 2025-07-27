@@ -8,7 +8,8 @@ from ..features.users.handlers.create_user import CreateUserHandler
 from ..features.users.handlers.login_user import LoginUserHandler
 from ..api.models import (
     CreateUserRequest, CreateUserResponse,
-    LoginRequest, LoginResponse
+    LoginRequest, LoginResponse,
+    CurrentUser
 )
 from ..core.authorization import require_admin_role
 from .dependencies import get_db_pool, get_permission_service
@@ -41,20 +42,29 @@ async def create_user(
     uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
     user_repo: PostgresUserRepository = Depends(get_user_repo),
     permission_service = Depends(get_permission_service),
-    _: None = Depends(require_admin_role)  # Only admins can create users
+    current_user: CurrentUser = Depends(require_admin_role)  # Only admins can create users
 ) -> CreateUserResponse:
     """Create a new user (admin only)."""
+    from ..features.users.models import CreateUserCommand
+    
+    # Create command with current user as creator
+    command = CreateUserCommand(
+        soeid=request.soeid,
+        password=request.password,
+        role_id=request.role_id,
+        created_by=current_user.user_id
+    )
+    
     uow = uow_factory.create()
     handler = CreateUserHandler(uow, user_repo, permissions=permission_service)
     
-    return await handler.handle(request)
+    return await handler.handle(command)
 
 
 @router.post("/login", response_model=LoginResponse)
 async def login(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
-    user_repo: PostgresUserRepository = Depends(get_user_repo),
-    permission_service = Depends(get_permission_service)
+    user_repo: PostgresUserRepository = Depends(get_user_repo)
 ) -> LoginResponse:
     """Login with username (SOEID) and password."""
     # Convert OAuth2 form to our login request
@@ -63,7 +73,7 @@ async def login(
         password=form_data.password
     )
     
-    handler = LoginUserHandler(user_repo, permissions=permission_service)
+    handler = LoginUserHandler(user_repo)
     
     return await handler.handle(request)
 
@@ -75,7 +85,7 @@ async def token(
     permission_service = Depends(get_permission_service)
 ) -> LoginResponse:
     """OAuth2 compatible token endpoint."""
-    return await login(form_data, user_repo, permission_service)
+    return await login(form_data, user_repo)
 
 
 @router.post("/register-public", response_model=CreateUserResponse)
@@ -98,7 +108,7 @@ async def create_user_public(
     )
     
     # Create handler and execute
-    handler = CreateUserPublicHandler(pool, permissions=permission_service)
+    handler = CreateUserPublicHandler(pool)
     result = await handler.handle(command)
     
     # Convert handler response to API response

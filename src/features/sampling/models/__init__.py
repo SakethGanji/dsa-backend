@@ -9,10 +9,8 @@ from .sampling import (
 
 from .commands import (
     CreateSamplingJobCommand,
-    GetColumnSamplesCommand,
     GetSamplingHistoryCommand,
     GetJobDataCommand,
-    DirectSamplingCommand,
     GetSamplingMethodsCommand
 )
 
@@ -25,9 +23,7 @@ __all__ = [
     
     # Commands
     'CreateSamplingJobCommand',
-    'GetColumnSamplesCommand',
     'GetSamplingHistoryCommand',
     'GetJobDataCommand',
-    'DirectSamplingCommand',
     'GetSamplingMethodsCommand',
 ]

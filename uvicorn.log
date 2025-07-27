@@ -1,0 +1,73 @@
+/home/saketh/.local/lib/python3.10/site-packages/pydantic/_internal/_config.py:373: UserWarning: Valid config keys have changed in V2:
+* 'schema_extra' has been renamed to 'json_schema_extra'
+  warnings.warn(message, UserWarning)
+INFO:visions.backends:Pandas backend loaded 2.2.3
+INFO:visions.backends:Numpy backend loaded 2.1.3
+INFO:visions.backends:Pyspark backend NOT loaded
+INFO:visions.backends:Python backend loaded
+INFO:src.api.error_handlers:Error handlers registered successfully
+INFO:     Started server process [73259]
+INFO:     Waiting for application startup.
+INFO:src.main:Starting DSA Platform...
+INFO:src.main:Database pool initialized
+INFO:src.main:Initializing event system...
+INFO:src.core.events.registry:Registered SearchIndexEventHandler for dataset.created
+INFO:src.core.events.registry:Registered SearchIndexEventHandler for dataset.updated
+INFO:src.core.events.registry:Registered SearchIndexEventHandler for dataset.deleted
+INFO:src.core.events.registry:Registered AuditLogHandler for dataset.created
+INFO:src.core.events.registry:Registered AuditLogHandler for dataset.updated
+INFO:src.core.events.registry:Registered AuditLogHandler for dataset.deleted
+INFO:src.core.events.registry:Registered AuditLogHandler for commit.created
+INFO:src.core.events.registry:Registered AuditLogHandler for commit.merged
+INFO:src.core.events.registry:Registered AuditLogHandler for user.created
+INFO:src.core.events.registry:Registered AuditLogHandler for user.updated
+INFO:src.core.events.registry:Registered AuditLogHandler for user.deleted
+INFO:src.core.events.registry:Registered AuditLogHandler for user.login
+INFO:src.core.events.registry:Registered AuditLogHandler for job.created
+INFO:src.core.events.registry:Registered AuditLogHandler for job.started
+INFO:src.core.events.registry:Registered AuditLogHandler for job.completed
+INFO:src.core.events.registry:Registered AuditLogHandler for job.failed
+INFO:src.core.events.registry:Registered AuditLogHandler for job.cancelled
+INFO:src.core.events.registry:Registered AuditLogHandler for permission.granted
+INFO:src.core.events.registry:Registered AuditLogHandler for permission.revoked
+INFO:src.core.events.registry:Registered AuditLogHandler for branch.created
+INFO:src.core.events.registry:Registered AuditLogHandler for branch.deleted
+INFO:src.core.events.registry:Registered AuditLogHandler for branch.merged
+INFO:src.core.events.registry:Registered AuditLogHandler for import.started
+INFO:src.core.events.registry:Registered AuditLogHandler for import.completed
+INFO:src.core.events.registry:Registered AuditLogHandler for import.failed
+INFO:src.core.events.registry:Registered AuditLogHandler for export.requested
+INFO:src.core.events.registry:Registered AuditLogHandler for export.completed
+INFO:src.core.events.registry:Registered AuditLogHandler for export.failed
+INFO:src.core.events.registry:Registered AuditLogHandler for search.index.updated
+INFO:src.core.events.registry:Registered AuditLogHandler for search.index.deleted
+INFO:src.core.events.registry:Registered CacheInvalidationHandler for dataset.updated
+INFO:src.core.events.registry:Registered CacheInvalidationHandler for dataset.deleted
+INFO:src.core.events.registry:Registered CacheInvalidationHandler for commit.created
+INFO:src.core.events.registry:Registered CacheInvalidationHandler for user.updated
+INFO:src.core.events.registry:Registered CacheInvalidationHandler for user.deleted
+INFO:src.core.events.registry:Registered NotificationHandler for dataset.created
+INFO:src.core.events.registry:Registered NotificationHandler for job.failed
+INFO:src.core.events.registry:Registered NotificationHandler for import.completed
+INFO:src.core.events.registry:Registered NotificationHandler for user.deleted
+INFO:src.core.events.registry:Wired 4 handlers to event bus
+INFO:src.main:Event system initialized with 4 handlers
+INFO:src.workers.job_worker:Registered executor for job type: import
+INFO:src.workers.job_worker:Registered executor for job type: sampling
+INFO:src.workers.job_worker:Registered executor for job type: exploration
+INFO:src.workers.job_worker:Registered executor for job type: sql_transform
+INFO:src.main:Job worker started
+INFO:src.workers.job_worker:Starting job worker...
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+[1;34mUpgrade to ydata-sdk[0m
+Improve your data and profiling with ydata-sdk, featuring data quality scoring, redundancy detection, outlier identification, text validation, and synthetic data generation.
+Register at https://ydata.ai/register
+INFO:     127.0.0.1:46668 - "GET /health HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:src.main:Shutting down DSA Platform...
+INFO:src.workers.job_worker:Stopping job worker...
+INFO:src.main:Shutdown complete
+INFO:     Application shutdown complete.
+INFO:     Finished server process [73259]

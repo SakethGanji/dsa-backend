@@ -14,11 +14,7 @@ from enum import Enum
 from ..core.authorization import get_current_user_info, require_dataset_read
 from ..core.domain_exceptions import ValidationException
 from ..api.models import CurrentUser
-from ..features.sampling.handlers import (
-    GetSamplingJobDataHandler,
-    GetDatasetSamplingHistoryHandler,
-    GetUserSamplingHistoryHandler
-)
+from ..features.sampling.services import SamplingService
 from .dependencies import get_uow, get_permission_service
 
 
@@ -161,7 +157,7 @@ async def create_sampling_job(
     permission_service = Depends(get_permission_service)
 ) -> SamplingJobResponse:
     """Create a sampling job for asynchronous processing."""
-    from ..features.sampling.handlers.create_sampling_job import CreateSamplingJobHandler, CreateSamplingJobCommand
+    from ..features.sampling.models import CreateSamplingJobCommand
     
     # Convert rounds to handler format
     rounds = []
@@ -195,9 +191,9 @@ async def create_sampling_job(
         residual_output_name=request.residual_output_name
     )
     
-    # Create handler and execute
-    handler = CreateSamplingJobHandler(uow, permissions=permission_service)
-    return await handler.handle(command)
+    # Create service and execute
+    service = SamplingService(uow, permissions=permission_service)
+    return await service.create_sampling_job(command)
 
 
 
@@ -212,17 +208,9 @@ async def get_sampling_methods(
     permission_service = Depends(get_permission_service)
 ) -> Dict[str, Any]:
     """Get available sampling methods and their parameters."""
-    from ..features.sampling.handlers.get_sampling_methods import GetSamplingMethodsHandler, GetSamplingMethodsCommand
-    
-    # Create command
-    command = GetSamplingMethodsCommand(
-        user_id=current_user.user_id,
-        dataset_id=dataset_id
-    )
-    
-    # Create handler and execute
-    handler = GetSamplingMethodsHandler(uow, permissions=permission_service)
-    return await handler.handle(command)
+    # Create service and execute
+    service = SamplingService(uow, permissions=permission_service)
+    return await service.get_sampling_methods(dataset_id, current_user.user_id)
 
 
 
@@ -247,8 +235,8 @@ async def get_sampling_job_data(
     # Parse columns if provided
     column_list = columns.split(",") if columns else None
     
-    handler = GetSamplingJobDataHandler(uow, table_reader, permissions=permission_service)
-    result = await handler.handle(
+    service = SamplingService(uow, permissions=permission_service, table_reader=table_reader)
+    result = await service.get_job_data(
         job_id=job_id,
         user_id=current_user.user_id,
         table_key=table_key,
@@ -269,7 +257,7 @@ async def get_sampling_job_data(
         batch_size = 1000
         
         while True:
-            batch_result = await handler.handle(
+            batch_result = await service.get_job_data(
                 job_id=job_id,
                 user_id=current_user.user_id,
                 table_key=table_key,
@@ -321,8 +309,8 @@ async def get_dataset_sampling_history(
 ):
     """Get sampling job history for a dataset."""
     
-    handler = GetDatasetSamplingHistoryHandler(uow, permissions=permission_service)
-    return await handler.handle(
+    service = SamplingService(uow, permissions=permission_service)
+    return await service.get_dataset_sampling_history(
         dataset_id=dataset_id,
         user_id=current_user.user_id,
         ref_name=ref_name,
@@ -349,8 +337,8 @@ async def get_user_sampling_history(
 ):
     """Get sampling job history for a user."""
     
-    handler = GetUserSamplingHistoryHandler(uow, permissions=permission_service)
-    return await handler.handle(
+    service = SamplingService(uow, permissions=permission_service)
+    return await service.get_user_sampling_history(
         target_user_id=user_id,
         current_user_id=current_user.user_id,
         is_admin=current_user.is_admin(),
