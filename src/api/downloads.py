@@ -30,10 +30,12 @@ async def download_dataset(
     format: str = Query("csv", description="Export format (csv, excel, json)"),
     current_user: CurrentUser = Depends(get_current_user_info),
     uow: PostgresUnitOfWork = Depends(get_uow),
+    table_reader: PostgresTableReader = Depends(get_table_reader),
     _: CurrentUser = Depends(require_dataset_read)
 ):
     """Download entire dataset in specified format."""
-    from ..features.downloads.handlers.download_dataset import DownloadDatasetHandler, DownloadDatasetCommand
+    from ..features.downloads.services import DownloadService
+    from ..features.downloads.models import DownloadDatasetCommand
     
     # Create command
     command = DownloadDatasetCommand(
@@ -43,18 +45,18 @@ async def download_dataset(
         format=format
     )
     
-    # Create handler and execute  
+    # Create service and execute  
     from src.services.data_export_service import DataExportService
-    export_service = DataExportService(uow.table_reader)
-    handler = DownloadDatasetHandler(uow, export_service)
-    result = await handler.handle(command)
+    export_service = DataExportService(table_reader)
+    service = DownloadService(uow, table_reader, export_service)
+    result = await service.download_dataset(command)
     
     # Return streaming response
     return StreamingResponse(
-        io.BytesIO(result["content"]),
-        media_type=result["content_type"],
+        io.BytesIO(result.content),
+        media_type=result.content_type,
         headers={
-            "Content-Disposition": f'attachment; filename="{result["filename"]}"'
+            "Content-Disposition": f'attachment; filename="{result.filename}"'
         }
     )
 
@@ -72,7 +74,8 @@ async def download_table(
     _: CurrentUser = Depends(require_dataset_read)
 ):
     """Download a specific table in specified format."""
-    from ..features.downloads.handlers.download_table import DownloadTableHandler, DownloadTableCommand
+    from ..features.downloads.services import DownloadService
+    from ..features.downloads.models import DownloadTableCommand
     
     # Parse columns
     column_list = [col.strip() for col in columns.split(",")] if columns else None
@@ -87,16 +90,16 @@ async def download_table(
         columns=column_list
     )
     
-    # Create handler and execute
-    handler = DownloadTableHandler(uow, table_reader, table_reader)
-    result = await handler.handle(command)
+    # Create service and execute
+    service = DownloadService(uow, table_reader)
+    result = await service.download_table(command)
     
     # Return streaming response
     return StreamingResponse(
-        io.BytesIO(result["content"]),
-        media_type=result["content_type"],
+        io.BytesIO(result.content),
+        media_type=result.content_type,
         headers={
-            "Content-Disposition": f'attachment; filename="{result["filename"]}"'
+            "Content-Disposition": f'attachment; filename="{result.filename}"'
         }
     )
 

@@ -5,8 +5,7 @@ from typing import Optional, List
 from src.api.models import (
     JobListResponse, JobDetailResponse, JobSummary, JobDetail
 )
-from src.features.jobs.handlers.get_jobs import GetJobsHandler
-from src.features.jobs.handlers.get_job_by_id import GetJobByIdHandler
+from src.features.jobs.services import JobService
 from src.core.authorization import get_current_user_info
 from src.core.domain_exceptions import resource_not_found
 from src.api.dependencies import get_uow, get_permission_service
@@ -31,7 +30,7 @@ async def get_jobs(
     permission_service = Depends(get_permission_service)
 ):
     """Get list of jobs with optional filters"""
-    handler = GetJobsHandler(uow, permissions=permission_service)
+    service = JobService(uow, permissions=permission_service)
     
     # Convert SOEID to user_id if provided
     filter_user_id = user_id
@@ -44,7 +43,7 @@ async def get_jobs(
         if user:
             filter_user_id = user['id']
     
-    result = await handler.handle(
+    result = await service.get_jobs(
         user_id=filter_user_id,
         dataset_id=dataset_id,
         status=status,
@@ -88,9 +87,9 @@ async def get_job_by_id(
     permission_service = Depends(get_permission_service)
 ):
     """Get detailed information about a specific job"""
-    handler = GetJobByIdHandler(uow, permissions=permission_service)
+    service = JobService(uow, permissions=permission_service)
     
-    job = await handler.handle(
+    job = await service.get_job_by_id(
         job_id=job_id,
         current_user_id=current_user.user_id
     )
