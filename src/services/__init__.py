@@ -4,7 +4,6 @@ from .file_processing.factory import FileParserFactory
 from .file_processing.parsers import CSVParser, ParquetParser, ExcelParser
 from .statistics.calculator import DefaultStatisticsCalculator
 from .table_analysis import TableAnalysisService
-from .sampling_service import SamplingService
 from .data_export_service import DataExportService, ExportOptions
 from .sql_execution import (
     SqlExecutionService, 
@@ -24,7 +23,6 @@ __all__ = [
     'ExcelParser',
     'DefaultStatisticsCalculator',
     'TableAnalysisService',
-    'SamplingService',
     'DataExportService',
     'ExportOptions',
     'SqlExecutionService',

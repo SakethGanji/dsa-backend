@@ -212,54 +212,6 @@ class PostgresTableReader:
         count = await self._conn.fetchval(query, commit_id, pattern, table_key)
         return count or 0
     
-    async def get_column_samples(
-        self, 
-        commit_id: str, 
-        table_key: str, 
-        columns: List[str], 
-        samples_per_column: int = 20
-    ) -> Dict[str, List[Any]]:
-        """Get unique sample values per column using SQL."""
-        # Handle table key pattern
-        if ':' in table_key:
-            pattern = f"{table_key}:%"
-        else:
-            pattern = f"{table_key}_%"
-        
-        # Build dynamic column sampling query
-        column_samples = {}
-        
-        for column in columns:
-            # Validate column name to prevent SQL injection
-            if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', column):
-                raise ValueError(f"Invalid column name: {column}")
-            
-            query = """
-                WITH sampled_data AS (
-                    SELECT DISTINCT r.data->>$3 as col_value
-                    FROM dsa_core.commit_rows m
-                    TABLESAMPLE SYSTEM(10)  -- 10% sample for speed
-                    JOIN dsa_core.rows r ON m.row_hash = r.row_hash
-                    WHERE m.commit_id = $1 
-                    AND m.logical_row_id LIKE $2
-                    AND r.data ? $3  -- Column exists
-                    AND r.data->>$3 IS NOT NULL  -- Not null
-                    LIMIT $4 * 2  -- Get extra to ensure enough unique values
-                ),
-                ranked_samples AS (
-                    SELECT col_value, ROW_NUMBER() OVER (ORDER BY random()) as rn
-                    FROM sampled_data
-                )
-                SELECT col_value
-                FROM ranked_samples
-                WHERE rn <= $4
-                ORDER BY col_value
-            """
-            
-            rows = await self._conn.fetch(query, commit_id, pattern, column, samples_per_column)
-            column_samples[column] = [row['col_value'] for row in rows]
-        
-        return column_samples
     
     async def get_table_sample_stream(
         self, 

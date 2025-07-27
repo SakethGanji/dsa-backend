@@ -20,15 +20,6 @@ class CreateSamplingJobCommand:
     residual_output_name: str
 
 
-@dataclass
-class GetColumnSamplesCommand:
-    """Command to get column value samples."""
-    user_id: int
-    dataset_id: int
-    ref_name: str
-    table_key: str
-    columns: List[str]
-    samples_per_column: int
 
 
 @dataclass
@@ -54,22 +45,6 @@ class GetJobDataCommand:
     limit: Optional[int] = None
 
 
-@dataclass
-class DirectSamplingCommand:
-    """Command to sample data directly without creating a job."""
-    user_id: int
-    dataset_id: int
-    ref_name: str
-    table_key: str
-    method: str  # Will be converted to SamplingMethod enum in handler
-    sample_size: int
-    random_seed: Optional[int] = None
-    stratify_columns: Optional[List[str]] = None
-    proportional: bool = True
-    cluster_column: Optional[str] = None
-    num_clusters: Optional[int] = None
-    offset: int = 0
-    limit: int = 100
 
 
 @dataclass

@@ -9,7 +9,6 @@ import io
 import csv
 
 from ..infrastructure.postgres.uow import PostgresUnitOfWork
-from src.services import SamplingService
 from ..infrastructure.postgres.table_reader import PostgresTableReader
 from enum import Enum
 from ..core.authorization import get_current_user_info, require_dataset_read
@@ -141,26 +140,6 @@ class CreateSamplingJobRequest(BaseModel):
     residual_output_name: Optional[str] = Field(None, description="Name for residual output")
 
 
-class DirectSamplingRequest(BaseModel):
-    """Request for direct sampling (non-job based)."""
-    method: SamplingMethod
-    sample_size: int = Field(..., gt=0, description="Number of samples")
-    random_seed: Optional[int] = Field(None, description="Random seed for reproducibility")
-    
-    # Method-specific parameters
-    stratify_columns: Optional[List[str]] = Field(None, description="Columns for stratification")
-    proportional: bool = Field(True, description="Use proportional allocation")
-    samples_per_stratum: Optional[int] = Field(None, description="Fixed samples per stratum (disproportional sampling)")
-    cluster_column: Optional[str] = Field(None, description="Column for clustering")
-    num_clusters: Optional[int] = Field(None, description="Number of clusters to select")
-    
-    # Filtering and selection
-    filters: Optional[FilterSpec] = Field(None, description="Row filters")
-    selection: Optional[SelectionSpec] = Field(None, description="Column selection")
-    
-    # Pagination for results
-    offset: int = Field(0, ge=0, description="Offset for paginated results")
-    limit: int = Field(100, ge=1, le=10000, description="Limit for paginated results")
 
 
 class SamplingJobResponse(BaseModel):
@@ -170,26 +149,6 @@ class SamplingJobResponse(BaseModel):
     message: str
 
 
-class SamplingResultResponse(BaseModel):
-    """Response for direct sampling."""
-    method: str
-    sample_size: int
-    data: List[Dict[str, Any]]
-    metadata: Dict[str, Any]
-    strata_counts: Optional[Dict[str, int]] = None
-    selected_clusters: Optional[List[Any]] = None
-
-
-class ColumnSamplesRequest(BaseModel):
-    """Request for column value samples."""
-    columns: List[str] = Field(..., description="Columns to sample")
-    samples_per_column: int = Field(20, ge=1, le=100, description="Samples per column")
-
-
-class ColumnSamplesResponse(BaseModel):
-    """Response for column value samples."""
-    samples: Dict[str, List[Any]]
-    metadata: Dict[str, Any]
 
 
 @router.post("/datasets/{dataset_id}/jobs", response_model=SamplingJobResponse)
@@ -241,69 +200,8 @@ async def create_sampling_job(
     return await handler.handle(command)
 
 
-@router.post("/datasets/{dataset_id}/sample", response_model=SamplingResultResponse)
-async def sample_data_direct(
-    dataset_id: int = Path(..., description="Dataset ID"),
-    ref_name: str = Query("main", description="Ref/branch name"),
-    table_key: str = Query("primary", description="Table to sample from"),
-    request: DirectSamplingRequest = ...,
-    current_user: CurrentUser = Depends(get_current_user_info),
-    _: CurrentUser = Depends(require_dataset_read),
-    uow: PostgresUnitOfWork = Depends(get_uow),
-    permission_service = Depends(get_permission_service)
-) -> SamplingResultResponse:
-    """Perform direct sampling and return results immediately."""
-    from ..features.sampling.handlers.sample_data_direct import SampleDataDirectHandler, DirectSamplingCommand
-    
-    # Create command
-    command = DirectSamplingCommand(
-        user_id=current_user.user_id,
-        dataset_id=dataset_id,
-        ref_name=ref_name,
-        table_key=table_key,
-        method=request.method,
-        sample_size=request.sample_size,
-        random_seed=request.random_seed,
-        stratify_columns=request.stratify_columns,
-        proportional=request.proportional,
-        cluster_column=request.cluster_column,
-        num_clusters=request.num_clusters,
-        offset=request.offset,
-        limit=request.limit
-    )
-    
-    # Create handler and execute
-    handler = SampleDataDirectHandler(uow, permissions=permission_service)
-    return await handler.handle(command)
 
 
-@router.post("/datasets/{dataset_id}/column-samples", response_model=ColumnSamplesResponse)
-async def get_column_samples(
-    dataset_id: int = Path(..., description="Dataset ID"),
-    ref_name: str = Query("main", description="Ref/branch name"),
-    table_key: str = Query("primary", description="Table to sample from"),
-    request: ColumnSamplesRequest = ...,
-    current_user: CurrentUser = Depends(get_current_user_info),
-    _: CurrentUser = Depends(require_dataset_read),
-    uow: PostgresUnitOfWork = Depends(get_uow),
-    permission_service = Depends(get_permission_service)
-) -> ColumnSamplesResponse:
-    """Get unique value samples for specified columns."""
-    from ..features.sampling.handlers.get_column_samples import GetColumnSamplesHandler, GetColumnSamplesCommand
-    
-    # Create command
-    command = GetColumnSamplesCommand(
-        user_id=current_user.user_id,
-        dataset_id=dataset_id,
-        ref_name=ref_name,
-        table_key=table_key,
-        columns=request.columns,
-        samples_per_column=request.samples_per_column
-    )
-    
-    # Create handler and execute
-    handler = GetColumnSamplesHandler(uow, permissions=permission_service)
-    return await handler.handle(command)
 
 
 @router.get("/datasets/{dataset_id}/sampling-methods")
@@ -406,32 +304,6 @@ async def get_sampling_job_data(
     return result
 
 
-@router.get("/jobs/{job_id}/residual")
-async def get_sampling_job_residual(
-    job_id: str = Path(..., description="Job ID"),
-    offset: int = Query(0, ge=0, description="Pagination offset"),
-    limit: int = Query(100, ge=1, le=1000, description="Items per page"),
-    columns: Optional[str] = Query(None, description="Comma-separated column names"),
-    format: str = Query("json", description="Output format (json or csv)"),
-    current_user: CurrentUser = Depends(get_current_user_info),
-    uow: PostgresUnitOfWork = Depends(get_uow),
-    table_reader: PostgresTableReader = Depends(get_table_reader),
-    permission_service = Depends(get_permission_service)
-):
-    """Get residual (unsampled) data from a sampling job."""
-    
-    # This is just a wrapper that calls the main endpoint with table_key="residual"
-    return await get_sampling_job_data(
-        job_id=job_id,
-        table_key="residual",
-        offset=offset,
-        limit=limit,
-        columns=columns,
-        format=format,
-        current_user=current_user,
-        uow=uow,
-        table_reader=table_reader
-    )
 
 
 @router.get("/datasets/{dataset_id}/history")
