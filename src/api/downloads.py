@@ -46,7 +46,7 @@ async def download_dataset(
     )
     
     # Create service and execute  
-    from src.services.data_export_service import DataExportService
+    from src.features.downloads.services.data_export_service import DataExportService
     export_service = DataExportService(table_reader)
     service = DownloadService(uow, table_reader, export_service)
     result = await service.download_dataset(command)

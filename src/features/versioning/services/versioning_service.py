@@ -1,18 +1,14 @@
 """Consolidated service for all versioning operations including refs."""
 
-from typing import Dict, Any, List, Optional, Tuple
-from uuid import UUID
-from datetime import datetime
+from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
-import json
 
 from src.infrastructure.postgres.uow import PostgresUnitOfWork
 from src.core.permissions import PermissionService
 from src.core.events.publisher import EventBus
-from src.core.domain_exceptions import EntityNotFoundException, ForbiddenException, ValidationException, BusinessRuleViolation
-from src.services.commit_preparation_service import CommitPreparationService
-from src.services import TableAnalysisService
-from src.services.table_analysis import DataTypeInferenceService, ColumnStatisticsService
+from src.core.domain_exceptions import EntityNotFoundException, ValidationException, BusinessRuleViolation
+from src.features.versioning.services.commit_preparation_service import CommitPreparationService
+from src.features.table_analysis.services.table_analysis import TableAnalysisService, DataTypeInferenceService, ColumnStatisticsService
 from ...base_handler import with_transaction, with_error_handling
 from src.core.common.pagination import PaginationMixin
 from src.api.models import (
@@ -24,7 +20,6 @@ from src.api.models import (
     DatasetOverviewResponse, QueueImportResponse,
     GetCommitHistoryResponse, CommitInfo
 )
-from ..models import *
 
 
 @dataclass

@@ -7,7 +7,8 @@ from fastapi.security import OAuth2PasswordBearer
 from ..infrastructure.postgres.database import DatabasePool
 from ..core.events.publisher import EventBus
 from ..infrastructure.postgres.uow import PostgresUnitOfWork
-from src.services import FileParserFactory, DefaultStatisticsCalculator
+from src.features.file_processing.services.factory import FileParserFactory
+from src.features.statistics.services.calculator import DefaultStatisticsCalculator
 from ..core.permissions import PermissionService
 
 # OAuth2 scheme for token authentication

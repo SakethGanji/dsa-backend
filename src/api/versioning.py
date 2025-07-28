@@ -4,13 +4,13 @@ from typing import List, Dict, Any, Optional
 from src.api.models import (
     CreateCommitRequest, CreateCommitResponse,
     GetDataRequest, GetDataResponse,
-    CommitSchemaResponse, QueueImportRequest, QueueImportResponse,
+    CommitSchemaResponse, QueueImportResponse,
     GetCommitHistoryResponse, CurrentUser,
     ListRefsResponse, CreateBranchRequest, CreateBranchResponse,
     TableAnalysisResponse, DatasetOverviewResponse
 )
 from src.features.versioning.services import VersioningService
-from src.services.commit_preparation_service import CommitPreparationService
+from src.features.versioning.services.commit_preparation_service import CommitPreparationService
 from src.core.domain_exceptions import EntityNotFoundException
 from src.infrastructure.postgres.database import DatabasePool, UnitOfWorkFactory
 from src.core.authorization import get_current_user_info, require_dataset_read, require_dataset_write
@@ -33,8 +33,7 @@ async def get_table_analysis_service(
     uow: PostgresUnitOfWork = Depends(get_uow)
 ):
     """Get table analysis service."""
-    from src.services import TableAnalysisService
-    from src.services.table_analysis import DataTypeInferenceService, ColumnStatisticsService
+    from src.features.table_analysis.services.table_analysis import TableAnalysisService, DataTypeInferenceService, ColumnStatisticsService
     return TableAnalysisService(
         table_reader=uow.table_reader,
         type_inference_service=DataTypeInferenceService(),

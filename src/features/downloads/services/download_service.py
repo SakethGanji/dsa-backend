@@ -8,7 +8,7 @@ import json
 
 from src.infrastructure.postgres.uow import PostgresUnitOfWork
 from src.infrastructure.postgres.table_reader import PostgresTableReader
-from src.services import DataExportService, ExportOptions
+from .data_export_service import DataExportService, ExportOptions
 from src.core.domain_exceptions import EntityNotFoundException, ValidationException
 from ...base_handler import with_error_handling
 from ..models import DownloadDatasetCommand, DownloadTableCommand
@@ -62,7 +62,7 @@ class DownloadService:
         
         # Ensure export service is available
         if not self._export_service:
-            from src.services.data_export_service import DataExportService as ExportServiceClass
+            from src.features.downloads.services.data_export_service import DataExportService as ExportServiceClass
             self._export_service = ExportServiceClass(self._table_reader)
         
         # Prepare export options

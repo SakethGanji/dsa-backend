@@ -6,7 +6,7 @@ from enum import Enum
 
 from src.infrastructure.postgres.uow import PostgresUnitOfWork
 from src.core.permissions import PermissionService, PermissionCheck
-from src.services.workbench_service import WorkbenchService
+from src.features.sql_workbench.services.workbench_service import WorkbenchService
 from src.infrastructure.postgres.dataset_repo import PostgresDatasetRepository
 from src.infrastructure.postgres.job_repo import PostgresJobRepository
 from src.infrastructure.postgres.versioning_repo import PostgresCommitRepository

@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends
 
 from ..infrastructure.postgres.uow import PostgresUnitOfWork
-from src.services.workbench_service import WorkbenchService
+from src.features.sql_workbench.services.workbench_service import WorkbenchService
 from ..infrastructure.postgres.table_reader import PostgresTableReader
 from ..infrastructure.postgres.dataset_repo import PostgresDatasetRepository
 from ..infrastructure.postgres.job_repo import PostgresJobRepository
@@ -24,7 +24,7 @@ async def get_workbench_service(
     uow: PostgresUnitOfWork = Depends(get_uow)
 ) -> WorkbenchService:
     """Get workbench service."""
-    from src.services.workbench_service import WorkbenchService
+    from src.features.sql_workbench.services.workbench_service import WorkbenchService
     return WorkbenchService()
 
 

@@ -16,7 +16,8 @@ from .api.dependencies import (
     set_stats_calculator,
     set_event_bus
 )
-from src.services import FileParserFactory, DefaultStatisticsCalculator
+from src.features.file_processing.services.factory import FileParserFactory
+from src.features.statistics.services.calculator import DefaultStatisticsCalculator
 
 # Import new error handling
 from .api.error_handlers import register_error_handlers

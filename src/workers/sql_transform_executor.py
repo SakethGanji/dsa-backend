@@ -8,7 +8,7 @@ from .job_worker import JobExecutor
 from ..infrastructure.postgres.database import DatabasePool
 from ..infrastructure.postgres.event_store import PostgresEventStore
 from ..core.events.registry import InMemoryEventBus
-from src.services import (
+from src.features.sql_workbench.services.sql_execution import (
     SqlValidationService, SqlExecutionService, QueryOptimizationService,
     SqlSource, SqlTarget
 )
