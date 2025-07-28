@@ -13,6 +13,7 @@ from src.infrastructure.postgres.database import DatabasePool
 from src.infrastructure.postgres.event_store import PostgresEventStore
 from src.core.events.publisher import JobStartedEvent, JobCompletedEvent, JobFailedEvent
 from src.core.events.registry import InMemoryEventBus
+from src.features.sampling.services.filter_parser import FilterExpressionParser
 from .job_worker import JobExecutor
 
 logger = logging.getLogger(__name__)
@@ -315,54 +316,18 @@ class SamplingJobExecutor(JobExecutor):
         column_types: Dict[str, str],
         param_start_index: int = 1
     ) -> Tuple[str, List[Any]]:
-        """Securely builds a WHERE clause from filter specifications with type-aware casting."""
-        if not filters or not filters.get('conditions'):
+        """Securely builds a WHERE clause from filter expression using the parser."""
+        if not filters or not filters.get('expression'):
             return "", []
 
-        conditions = []
-        params = []
-        param_idx = param_start_index
-
-        for cond in filters['conditions']:
-            column = cond.get('column')
-            operator = cond.get('operator')
-            value = cond.get('value')
-
-            # SECURITY: Validate column name
-            if not column or column not in valid_columns:
-                raise ValueError(f"Invalid or unauthorized filter column: {column}")
-
-            # SECURITY: Whitelist operator
-            if operator not in self.ALLOWED_OPERATORS:
-                raise ValueError(f"Invalid filter operator: {operator}")
-            
-            sql_op = self.ALLOWED_OPERATORS[operator]
-            col_type = column_types.get(column, 'text')
-
-            # Build condition based on operator type
-            if operator in ['is_null', 'is_not_null']:
-                conditions.append(f"r.data->>'{column}' {sql_op}")
-            elif operator in ['in', 'not_in']:
-                if not isinstance(value, list):
-                    raise TypeError(f"Value for '{operator}' must be a list")
-                placeholders = ', '.join([f'${i}' for i in range(param_idx, param_idx + len(value))])
-                cast = self._get_type_cast(col_type)
-                conditions.append(f"(r.data->>'{column}'){cast} {sql_op} ({placeholders})")
-                params.extend(value)
-                param_idx += len(value)
-            else:
-                # Apply appropriate type cast based on column type
-                cast = self._get_type_cast(col_type)
-                conditions.append(f"(r.data->>'{column}'){cast} {sql_op} ${param_idx}")
-                params.append(value)
-                param_idx += 1
-
-        logic = filters.get('logic', 'AND').upper()
-        if logic not in ['AND', 'OR']:
-            raise ValueError(f"Invalid logic operator: {logic}")
-
-        where_sql = f" AND ({' ' + logic + ' '.join(conditions)})" if conditions else ""
-        return where_sql, params
+        expression = filters['expression']
+        
+        # Parse and convert to SQL
+        parser = FilterExpressionParser()
+        parsed_expr = parser.parse(expression)
+        sql, params = parser.to_sql(parsed_expr, valid_columns, column_types, param_start_index)
+        
+        return f" AND {sql}", params
     
     def _get_type_cast(self, col_type: str) -> str:
         """Returns appropriate PostgreSQL type cast based on column type."""

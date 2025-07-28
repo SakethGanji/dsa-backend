@@ -39,23 +39,9 @@ async def get_table_reader(
 
 
 # Request/Response Models
-class FilterCondition(BaseModel):
-    """Single filter condition."""
-    column: str = Field(..., description="Column name to filter on")
-    operator: str = Field(..., description="Filter operator (>, <, =, in, etc.)")
-    value: Any = Field(..., description="Value to compare against")
-
-
 class FilterSpec(BaseModel):
-    """Filter specification for sampling."""
-    conditions: List[FilterCondition] = Field(default_factory=list)
-    logic: str = Field("AND", description="Logic operator (AND/OR)")
-    
-    @validator('logic')
-    def validate_logic(cls, v):
-        if v.upper() not in ['AND', 'OR']:
-            raise ValidationException("Logic must be AND or OR", field="logic")
-        return v.upper()
+    """Filter specification for sampling using SQL-like expressions."""
+    expression: str = Field(..., description="SQL-like filter expression with support for AND/OR and parentheses. Example: (age > 25 AND status = 'active') OR role = 'admin'")
 
 
 class SelectionSpec(BaseModel):
