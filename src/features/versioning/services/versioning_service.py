@@ -597,12 +597,58 @@ class VersioningService(PaginationMixin):
             sample_size=1000
         )
         
+        # Convert TableAnalysis to dict format expected by TableAnalysisResponse
+        # Get row count
+        row_count = await self._uow.commits.count_commit_rows(commit_id, table_key)
+        
+        # Convert statistics to column_stats format
+        column_stats = {}
+        null_counts = {}
+        unique_counts = {}
+        data_types = {}
+        columns = []
+        
+        for stat in analysis.statistics:
+            column_stats[stat.column_name] = {
+                "min": stat.min_value,
+                "max": stat.max_value,
+                "mean": stat.mean_value,
+                "median": stat.median_value,
+                "mode": stat.mode_value,
+                "std_dev": stat.std_dev,
+                "null_count": stat.null_count,
+                "unique_count": stat.unique_count
+            }
+            null_counts[stat.column_name] = stat.null_count or 0
+            unique_counts[stat.column_name] = stat.unique_count or 0
+            data_types[stat.column_name] = stat.data_type
+            columns.append({"name": stat.column_name, "type": stat.data_type})
+        
+        # Convert sample data to list of dicts
+        sample_data = []
+        if analysis.sample_values:
+            # Get column names
+            col_names = list(analysis.sample_values.keys())
+            # Get max number of samples
+            max_samples = max(len(vals) for vals in analysis.sample_values.values()) if analysis.sample_values else 0
+            # Build sample rows
+            for i in range(max_samples):
+                row = {}
+                for col in col_names:
+                    if i < len(analysis.sample_values[col]):
+                        row[col] = analysis.sample_values[col][i]
+                sample_data.append(row)
+        
         return TableAnalysisResponse(
-            dataset_id=dataset_id,
-            ref_name=ref_name,
-            commit_id=commit_id,
             table_key=table_key,
-            **analysis
+            sheet_name=table_key,  # Using table_key as sheet_name
+            column_stats=column_stats,
+            sample_data=sample_data,
+            row_count=row_count,
+            null_counts=null_counts,
+            unique_counts=unique_counts,
+            data_types=data_types,
+            columns=columns
         )
     
     # ========== Overview and Import ==========
@@ -649,30 +695,44 @@ class VersioningService(PaginationMixin):
         ref_count = len(refs)
         
         # Get recent commits
-        commits, _ = await self._uow.commits.get_commit_history(
-            dataset_id, commit_id, offset=0, limit=5
+        commits = await self._uow.commits.get_commit_history(
+            dataset_id, ref_name, offset=0, limit=5
         )
+        
+        # Get all branches with their tables
+        branches = []
+        for ref_info in refs:
+            ref_commit_id = ref_info['commit_id']
+            ref_schema = await self._uow.commits.get_commit_schema(ref_commit_id)
+            
+            tables = []
+            if ref_schema:
+                for table_key, table_schema in ref_schema.items():
+                    # Get row count for this table
+                    table_row_count = await self._uow.commits.get_commit_table_row_count(ref_commit_id, table_key)
+                    tables.append({
+                        'table_key': table_key,
+                        'sheet_name': table_key,  # Using table_key as sheet name
+                        'row_count': table_row_count,
+                        'column_count': len(table_schema.get('columns', [])),
+                        'created_at': ref_info['created_at'],  # Using ref creation time
+                        'commit_id': ref_commit_id
+                    })
+            
+            branches.append({
+                'ref_name': ref_info['name'],
+                'commit_id': ref_commit_id,
+                'is_default': ref_info['name'] == 'main',
+                'created_at': ref_info['created_at'],
+                'updated_at': ref_info['updated_at'],
+                'tables': tables
+            })
         
         return DatasetOverviewResponse(
             dataset_id=dataset_id,
             name=dataset['name'],
             description=dataset.get('description', ''),
-            created_at=dataset['created_at'],
-            updated_at=dataset['updated_at'],
-            current_ref=ref_name,
-            current_commit_id=commit_id,
-            table_count=table_count,
-            total_rows=total_rows,
-            ref_count=ref_count,
-            recent_commits=[
-                {
-                    'commit_id': c['id'],
-                    'message': c['message'],
-                    'author_id': c['author_id'],
-                    'created_at': c['created_at']
-                }
-                for c in commits
-            ]
+            branches=branches
         )
     
     @with_transaction

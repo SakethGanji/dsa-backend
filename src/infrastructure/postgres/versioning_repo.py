@@ -293,3 +293,7 @@ class PostgresCommitRepository:
         # For now, we'll hardcode 'main' as default
         # In future, this could be stored in datasets table
         return "main"
+    
+    async def get_commit_table_row_count(self, commit_id: str, table_key: str) -> int:
+        """Get row count for a specific table in a commit."""
+        return await self.count_commit_rows(commit_id, table_key)
