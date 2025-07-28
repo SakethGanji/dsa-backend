@@ -3,7 +3,6 @@
 from fastapi import APIRouter, Depends
 
 from ..infrastructure.postgres.uow import PostgresUnitOfWork
-from src.features.sql_workbench.services.workbench_service import WorkbenchService
 from ..infrastructure.postgres.table_reader import PostgresTableReader
 from ..infrastructure.postgres.dataset_repo import PostgresDatasetRepository
 from ..infrastructure.postgres.job_repo import PostgresJobRepository
@@ -20,14 +19,6 @@ router = APIRouter(prefix="/workbench", tags=["workbench"])
 
 
 # Local dependency helpers
-async def get_workbench_service(
-    uow: PostgresUnitOfWork = Depends(get_uow)
-) -> WorkbenchService:
-    """Get workbench service."""
-    from src.features.sql_workbench.services.workbench_service import WorkbenchService
-    return WorkbenchService()
-
-
 async def get_table_reader(
     uow: PostgresUnitOfWork = Depends(get_uow)
 ) -> PostgresTableReader:
@@ -61,7 +52,6 @@ async def preview_sql(
     request: SqlPreviewRequest,
     current_user: CurrentUser = Depends(get_current_user_info),
     uow: PostgresUnitOfWork = Depends(get_uow),
-    workbench_service: WorkbenchService = Depends(get_workbench_service),
     table_reader: PostgresTableReader = Depends(get_table_reader),
     dataset_repository: PostgresDatasetRepository = Depends(get_dataset_repository),
     permission_service = Depends(get_permission_service)
@@ -82,7 +72,7 @@ async def preview_sql(
     Raises:
         400 for validation errors, 403 for permission errors, 404 for not found
     """
-    service = SqlWorkbenchService(uow, permissions=permission_service, workbench_service=workbench_service)
+    service = SqlWorkbenchService(uow, permissions=permission_service)
     return await service.preview_sql(request, current_user.user_id)
 
 
@@ -91,7 +81,6 @@ async def transform_sql(
     request: SqlTransformRequest,
     current_user: CurrentUser = Depends(get_current_user_info),
     uow: PostgresUnitOfWork = Depends(get_uow),
-    workbench_service: WorkbenchService = Depends(get_workbench_service),
     job_repository: PostgresJobRepository = Depends(get_job_repository),
     dataset_repository: PostgresDatasetRepository = Depends(get_dataset_repository),
     commit_repository: PostgresCommitRepository = Depends(get_commit_repository),
@@ -116,7 +105,7 @@ async def transform_sql(
     service = SqlWorkbenchService(
         uow, 
         permissions=permission_service,
-        workbench_service=workbench_service,
+        sql_executor=None,  # Will use default SqlExecutor
         job_repository=job_repository,
         dataset_repository=dataset_repository,
         commit_repository=commit_repository

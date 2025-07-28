@@ -7,6 +7,7 @@ import time
 from typing import Dict, Any, List, Tuple, Optional
 from datetime import datetime
 import asyncpg
+from .sql_validator import SqlValidator, ValidationLevel
 
 from dataclasses import dataclass
 from typing import Optional
@@ -61,13 +62,10 @@ from src.infrastructure.postgres.database import DatabasePool
 
 
 class SqlValidationService:
-    """Service for validating SQL queries."""
+    """Service for validating SQL queries using unified validator."""
     
-    # Disallowed SQL keywords for security
-    DISALLOWED_KEYWORDS = [
-        'DROP', 'CREATE', 'ALTER', 'TRUNCATE', 'DELETE', 'UPDATE', 
-        'INSERT', 'GRANT', 'REVOKE', 'EXECUTE', 'CALL', 'EXEC'
-    ]
+    def __init__(self):
+        self._validator = SqlValidator()
     
     async def validate_query(
         self,
@@ -75,40 +73,17 @@ class SqlValidationService:
         sources: List[SqlSource]
     ) -> Tuple[bool, List[str]]:
         """Validate SQL syntax and semantic correctness."""
-        errors = []
+        # Convert sources to format expected by validator
+        source_configs = [{'alias': source.alias} for source in sources]
         
-        # Check for disallowed keywords
-        sql_upper = sql.upper()
-        for keyword in self.DISALLOWED_KEYWORDS:
-            if re.search(r'\b' + keyword + r'\b', sql_upper):
-                errors.append(f"Disallowed SQL keyword: {keyword}")
+        # Use unified validator
+        result = await self._validator.validate(
+            sql=sql,
+            sources=source_configs,
+            level=ValidationLevel.ALL
+        )
         
-        # Validate all source aliases are used
-        aliases = {source.alias for source in sources}
-        used_aliases = set()
-        
-        # Simple regex to find potential table references
-        # This is a simplified check - real SQL parsing would be more complex
-        table_refs = re.findall(r'FROM\s+(\w+)|JOIN\s+(\w+)', sql, re.IGNORECASE)
-        for ref in table_refs:
-            alias = ref[0] or ref[1]
-            if alias:
-                used_aliases.add(alias)
-        
-        # Check for undefined aliases
-        for alias in used_aliases:
-            if alias not in aliases:
-                errors.append(f"Undefined table alias: {alias}")
-        
-        # Basic syntax validation
-        if not sql.strip():
-            errors.append("SQL query cannot be empty")
-        
-        # Check for balanced parentheses
-        if sql.count('(') != sql.count(')'):
-            errors.append("Unbalanced parentheses in SQL query")
-        
-        return len(errors) == 0, errors
+        return result.is_valid, result.errors
     
     async def estimate_resource_usage(
         self,
@@ -117,38 +92,34 @@ class SqlValidationService:
         table_reader
     ) -> Dict[str, Any]:
         """Estimate memory and time requirements for the query."""
-        # Simplified estimation without needing table reader
-        # In production, would use EXPLAIN ANALYZE
+        # Use validator's resource estimation
+        estimate = self._validator.get_resource_estimate(sql)
         
-        # Simple heuristics for estimation
-        has_join = 'JOIN' in sql.upper()
-        has_group_by = 'GROUP BY' in sql.upper()
-        has_order_by = 'ORDER BY' in sql.upper()
-        
+        # Add source-specific estimations
         # Basic estimation - assume 10000 rows per source
         estimated_rows = len(sources) * 10000
-        if has_join:
-            estimated_rows *= 1.5  # Join can increase rows
-        if has_group_by:
-            estimated_rows *= 0.3  # Group by reduces rows
+        
+        # Adjust based on complexity
+        if estimate['complexity'] == 'high':
+            estimated_rows *= 2
+        elif estimate['complexity'] == 'medium':
+            estimated_rows *= 1.5
         
         # Memory estimation (very rough)
         bytes_per_row = 1000  # Assume 1KB per row average
         estimated_memory_mb = (estimated_rows * bytes_per_row) / (1024 * 1024)
         
-        # Add overhead for operations
-        if has_order_by:
-            estimated_memory_mb *= 2  # Sorting needs extra memory
+        # Adjust memory based on validator's assessment
+        if estimate['memory_usage'] == 'high':
+            estimated_memory_mb *= 2
         
         return {
             'estimated_rows': int(estimated_rows),
             'estimated_memory_mb': estimated_memory_mb,
             'estimated_time_ms': int(estimated_rows / 1000),  # 1ms per 1000 rows
-            'operations': {
-                'has_join': has_join,
-                'has_group_by': has_group_by,
-                'has_order_by': has_order_by
-            }
+            'complexity': estimate['complexity'],
+            'estimated_runtime': estimate['estimated_runtime'],
+            'recommendations': estimate['recommendations']
         }
     
     def sanitize_query(self, sql: str) -> str:
@@ -529,74 +500,3 @@ class SqlExecutionService:
         
         return hints
 
-
-class QueryOptimizationService:
-    """Service for optimizing SQL queries."""
-    
-    def optimize_query(
-        self,
-        sql: str,
-        table_schemas: Dict[str, TableSchema]
-    ) -> str:
-        """Optimize SQL query based on table schemas."""
-        # This is a placeholder implementation
-        # Real optimization would involve query plan analysis
-        optimized = sql
-        
-        # Simple optimizations
-        # 1. Remove redundant DISTINCT if primary key is selected
-        # 2. Push down filters
-        # 3. Optimize JOIN order based on table sizes
-        
-        return optimized
-    
-    def suggest_indexes(
-        self,
-        sql: str,
-        table_schemas: Dict[str, TableSchema]
-    ) -> List[Dict[str, Any]]:
-        """Suggest indexes that would improve query performance."""
-        suggestions = []
-        
-        # Find columns used in WHERE clauses
-        where_match = re.search(r'WHERE\s+(.+?)(?:GROUP|ORDER|LIMIT|$)', sql, re.IGNORECASE)
-        if where_match:
-            where_clause = where_match.group(1)
-            # Simple column extraction
-            columns = re.findall(r'(\w+\.\w+|\w+)\s*[=<>]', where_clause)
-            
-            for col in columns:
-                suggestions.append({
-                    'column': col,
-                    'type': 'btree',
-                    'reason': 'Used in WHERE clause'
-                })
-        
-        # Find columns used in JOIN conditions
-        join_matches = re.findall(r'JOIN.*?ON\s+(.+?)(?:WHERE|GROUP|ORDER|JOIN|$)', sql, re.IGNORECASE)
-        for join_condition in join_matches:
-            columns = re.findall(r'(\w+\.\w+|\w+)\s*=\s*(\w+\.\w+|\w+)', join_condition)
-            for col1, col2 in columns:
-                suggestions.append({
-                    'column': col1,
-                    'type': 'btree',
-                    'reason': 'Used in JOIN condition'
-                })
-                suggestions.append({
-                    'column': col2,
-                    'type': 'btree',
-                    'reason': 'Used in JOIN condition'
-                })
-        
-        return suggestions
-    
-    def analyze_query_plan(self, sql: str) -> Dict[str, Any]:
-        """Analyze the query execution plan."""
-        # Placeholder implementation
-        # Real implementation would use EXPLAIN ANALYZE
-        return {
-            'estimated_cost': 100,
-            'estimated_rows': 1000,
-            'plan_type': 'sequential_scan',
-            'recommendations': []
-        }

@@ -9,7 +9,7 @@ from ..infrastructure.postgres.database import DatabasePool
 from ..infrastructure.postgres.event_store import PostgresEventStore
 from ..core.events.registry import InMemoryEventBus
 from src.features.sql_workbench.services.sql_execution import (
-    SqlValidationService, SqlExecutionService, QueryOptimizationService,
+    SqlValidationService, SqlExecutionService,
     SqlSource, SqlTarget
 )
 from ..core.events.publisher import JobStartedEvent, JobCompletedEvent, JobFailedEvent

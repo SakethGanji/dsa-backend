@@ -6,7 +6,8 @@ from enum import Enum
 
 from src.infrastructure.postgres.uow import PostgresUnitOfWork
 from src.core.permissions import PermissionService, PermissionCheck
-from src.features.sql_workbench.services.workbench_service import WorkbenchService
+from src.features.sql_workbench.utils import SqlExecutor
+from .sql_validator import SqlValidator, ValidationLevel
 from src.infrastructure.postgres.dataset_repo import PostgresDatasetRepository
 from src.infrastructure.postgres.job_repo import PostgresJobRepository
 from src.infrastructure.postgres.versioning_repo import PostgresCommitRepository
@@ -41,14 +42,16 @@ class SqlWorkbenchService:
         self,
         uow: PostgresUnitOfWork,
         permissions: PermissionService,
-        workbench_service: Optional[WorkbenchService] = None,
+        sql_executor: Optional[SqlExecutor] = None,
+        sql_validator: Optional[SqlValidator] = None,
         job_repository: Optional[PostgresJobRepository] = None,
         dataset_repository: Optional[PostgresDatasetRepository] = None,
         commit_repository: Optional[PostgresCommitRepository] = None
     ):
         self._uow = uow
         self._permissions = permissions
-        self._workbench = workbench_service or WorkbenchService()
+        self._sql_executor = sql_executor or SqlExecutor()
+        self._sql_validator = sql_validator or SqlValidator()
         self._job_repository = job_repository
         self._dataset_repository = dataset_repository
         self._commit_repository = commit_repository
@@ -80,14 +83,10 @@ class SqlWorkbenchService:
         # Add LIMIT to the SQL for preview
         limited_sql = f"SELECT * FROM ({request.sql}) AS preview_result LIMIT {request.limit}"
         
-        # Execute preview using the new method
+        # Execute preview using the SQL executor
         start = time.time()
         
-        # Set db_pool on workbench service if needed
-        if not self._workbench._db_pool:
-            self._workbench._db_pool = self._uow._pool
-        
-        result = await self._workbench._execute_sql_with_sources(
+        result = await self._sql_executor.execute_sql_with_sources(
             sql=limited_sql,
             sources=sources,
             db_pool=self._uow._pool
@@ -152,7 +151,12 @@ class SqlWorkbenchService:
         )
         
         # Validate SQL syntax
-        validation = await self._workbench.validate_transformation(request.sql)
+        sources_for_validation = [{'alias': s.alias} for s in request.sources]
+        validation = await self._sql_validator.validate(
+            request.sql, 
+            sources=sources_for_validation,
+            level=ValidationLevel.ALL
+        )
         if not validation.is_valid:
             raise ValueError(f"SQL transformation validation failed: {'; '.join(validation.errors)}")
         
