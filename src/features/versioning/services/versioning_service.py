@@ -135,35 +135,39 @@ class VersioningService(PaginationMixin):
         # Get current commit for ref
         current_commit = await self._uow.commits.get_current_commit_for_ref(dataset_id, ref_name)
         if not current_commit:
-            raise EntityNotFoundException(f"No commits found for ref '{ref_name}'")
+            raise EntityNotFoundException("Ref", ref_name)
         
         # Get commit history
-        commits, total = await self._uow.commits.get_commit_history(
+        commits = await self._uow.commits.get_commit_history(
             dataset_id, 
-            current_commit,
+            ref_name,
             offset=offset,
             limit=limit
         )
+        total = len(commits)  # For now, total is the number of commits returned
         
         # Convert to response model
         commit_infos = []
-        for commit in commits:
+        for i, commit in enumerate(commits):
             commit_info = CommitInfo(
-                commit_id=commit['id'],
+                commit_id=commit['commit_id'],
                 message=commit['message'],
                 author_id=commit['author_id'],
+                author_soeid=commit.get('author_soeid', 'unknown'),
                 created_at=commit['created_at'],
                 parent_commit_id=commit.get('parent_commit_id'),
-                row_count=commit.get('row_count', 0)
+                table_count=commit.get('table_count', 0),
+                is_head=(i == 0)  # First commit in the list is the head
             )
             commit_infos.append(commit_info)
         
         return GetCommitHistoryResponse(
+            dataset_id=dataset_id,
+            ref_name=ref_name,
             commits=commit_infos,
             total=total,
             offset=offset,
-            limit=limit,
-            has_more=offset + len(commits) < total
+            limit=limit
         )
     
     @with_error_handling
@@ -184,13 +188,60 @@ class VersioningService(PaginationMixin):
         
         # Get schema
         schema = await self._uow.commits.get_commit_schema(commit_id)
+        
+        # If no schema in commit_schemas, try to build from table analysis
         if not schema:
-            raise EntityNotFoundException(f"Schema not found for commit {commit_id}")
+            # Get all tables for this commit
+            if self._table_reader:
+                table_keys = await self._table_reader.list_table_keys(commit_id)
+                if table_keys:
+                    schema = {}
+                    for table_key in table_keys:
+                        table_schema = await self._table_reader.get_table_schema(commit_id, table_key)
+                        if table_schema:
+                            schema[table_key] = table_schema
+                
+        if not schema:
+            raise EntityNotFoundException("Schema", commit_id)
+        
+        # Convert schema to sheets format
+        from src.api.models import SheetSchema, ColumnSchema
+        sheets = []
+        
+        if isinstance(schema, dict):
+            for table_key, table_schema in schema.items():
+                if isinstance(table_schema, dict):
+                    columns = []
+                    # Handle different schema formats
+                    if 'columns' in table_schema:
+                        # New format with columns array
+                        for col in table_schema['columns']:
+                            column = ColumnSchema(
+                                name=col.get('name', ''),
+                                type=col.get('data_type', col.get('type', 'string')),
+                                nullable=col.get('nullable', True)
+                            )
+                            columns.append(column)
+                    elif 'fields' in table_schema:
+                        # Legacy format with fields array
+                        for field in table_schema['fields']:
+                            column = ColumnSchema(
+                                name=field.get('name', ''),
+                                type=field.get('type', 'string'),
+                                nullable=True
+                            )
+                            columns.append(column)
+                    
+                    sheet = SheetSchema(
+                        sheet_name=table_key,
+                        columns=columns,
+                        row_count=table_schema.get('row_count', 0)
+                    )
+                    sheets.append(sheet)
         
         return CommitSchemaResponse(
             commit_id=commit_id,
-            schema=schema,
-            created_at=commit['created_at']
+            sheets=sheets
         )
     
     @with_error_handling
@@ -212,33 +263,51 @@ class VersioningService(PaginationMixin):
         if not commit or commit.get('dataset_id') != dataset_id:
             raise EntityNotFoundException("Commit", commit_id)
         
-        # Get row hashes from manifest
-        row_hashes = await self._uow.commits.get_commit_manifest_hashes(
-            commit_id, table_key, offset, limit
+        # Use table reader to get data
+        if not self._table_reader:
+            raise ValueError("Table reader not available")
+            
+        # Get data from the table
+        raw_rows = await self._table_reader.get_table_data(
+            commit_id=commit_id,
+            table_key=table_key,
+            offset=offset,
+            limit=limit
         )
         
-        # Get actual row data
+        # Convert to DataRow objects
+        from src.api.models import DataRow
         rows = []
-        for hash_value in row_hashes:
-            row_data = await self._uow.commits.get_row_data(hash_value)
-            if row_data:
-                rows.append(row_data)
+        for i, row in enumerate(raw_rows):
+            # Extract logical_row_id if present
+            logical_row_id = row.get('_logical_row_id') or row.get('logical_row_id') or f"{table_key}:{i}"
+            # Remove system columns
+            clean_row = {k: v for k, v in row.items() 
+                        if not k.startswith('_') and k != 'logical_row_id'}
+            data_row = DataRow(
+                sheet_name=table_key,
+                logical_row_id=logical_row_id,
+                data=clean_row
+            )
+            rows.append(data_row)
         
         # Get total count
-        total_count = await self._uow.commits.get_commit_table_row_count(commit_id, table_key)
+        total_count = await self._table_reader.count_table_rows(commit_id, table_key)
         
         # Get schema
-        schema = await self._uow.commits.get_table_schema_at_commit(commit_id, table_key)
+        schema = None
+        if self._table_reader:
+            schema = await self._table_reader.get_table_schema(commit_id, table_key)
         
+        # For checkout, we don't have a ref_name, use "checkout" as placeholder
         return GetDataResponse(
             dataset_id=dataset_id,
+            ref_name="checkout",
             commit_id=commit_id,
-            data=rows,
+            rows=rows,
             total_rows=total_count,
             offset=offset,
-            limit=limit,
-            has_more=offset + len(rows) < total_count,
-            schema=schema
+            limit=limit
         )
     
     # ========== Ref Operations (formerly in refs feature) ==========
@@ -401,7 +470,7 @@ class VersioningService(PaginationMixin):
             raise ValueError("Table reader not available")
         
         # Get data from the table
-        table_key = request.table_name or "primary"
+        table_key = request.sheet_name or "primary"
         
         # Get total row count first
         total_rows = await self._table_reader.count_table_rows(commit_id, table_key)
@@ -418,18 +487,26 @@ class VersioningService(PaginationMixin):
         schema = await self._table_reader.get_table_schema(commit_id, table_key)
         
         # Convert rows to DataRow objects
+        from src.api.models import DataRow
         data_rows = []
-        for row in rows:
+        for i, row in enumerate(rows):
+            # Extract logical_row_id if present
+            logical_row_id = row.get('_logical_row_id') or row.get('logical_row_id') or f"{table_key}:{i}"
             # Remove system columns
             clean_row = {k: v for k, v in row.items() 
-                        if not k.startswith('_') or k == '_logical_row_id'}
-            data_rows.append(clean_row)
+                        if not k.startswith('_') and k != 'logical_row_id'}
+            data_row = DataRow(
+                sheet_name=table_key,
+                logical_row_id=logical_row_id,
+                data=clean_row
+            )
+            data_rows.append(data_row)
         
         return GetDataResponse(
             dataset_id=dataset_id,
             ref_name=ref_name,
             commit_id=commit_id,
-            data=data_rows,
+            rows=data_rows,
             total_rows=total_rows,
             offset=offset,
             limit=limit,
@@ -547,9 +624,12 @@ class VersioningService(PaginationMixin):
             raise EntityNotFoundException("Commit", commit_id)
         
         # Get table schema
-        schema = await self._uow.commits.get_table_schema_at_commit(commit_id, table_key)
+        if not self._table_reader:
+            raise ValueError("Table reader not available")
+            
+        schema = await self._table_reader.get_table_schema(commit_id, table_key)
         if not schema:
-            raise EntityNotFoundException(f"Table '{table_key}' not found in commit")
+            raise EntityNotFoundException("Table", table_key)
         
         return {
             'dataset_id': dataset_id,

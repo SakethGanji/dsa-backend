@@ -179,15 +179,18 @@ class PostgresCommitRepository:
                 INNER JOIN commit_history ch ON c.commit_id = ch.parent_commit_id
             )
             SELECT 
-                commit_id, 
-                dataset_id, 
-                parent_commit_id, 
-                message, 
-                author_id, 
-                committed_at as created_at,
-                (SELECT COUNT(*) FROM dsa_core.commit_rows WHERE commit_id = commit_history.commit_id) as row_count
-            FROM commit_history
-            ORDER BY committed_at DESC
+                ch.commit_id, 
+                ch.dataset_id, 
+                ch.parent_commit_id, 
+                ch.message, 
+                ch.author_id,
+                u.soeid as author_soeid,
+                ch.committed_at as created_at,
+                (SELECT COUNT(*) FROM dsa_core.commit_rows WHERE commit_id = ch.commit_id) as row_count,
+                (SELECT COUNT(DISTINCT split_part(logical_row_id, ':', 1)) FROM dsa_core.commit_rows WHERE commit_id = ch.commit_id) as table_count
+            FROM commit_history ch
+            LEFT JOIN dsa_auth.users u ON ch.author_id = u.id
+            ORDER BY ch.committed_at DESC
             LIMIT $3 OFFSET $4
         """
         rows = await self._conn.fetch(query, dataset_id, ref_name, limit, offset)

@@ -7,6 +7,7 @@ from datetime import datetime
 import pandas as pd
 
 from src.infrastructure.postgres.table_reader import PostgresTableReader
+from src.core.models import TableSchema
 
 
 @dataclass
@@ -21,12 +22,7 @@ class CommitData:
     author: str
 
 
-@dataclass
-class TableSchema:
-    """Schema information for a table."""
-    columns: List[Dict[str, Any]]
-    primary_key: Optional[List[str]]
-    indexes: List[Dict[str, Any]]
+# TableSchema now imported from src.core.models
 
 
 class CommitPreparationService:
@@ -52,7 +48,7 @@ class CommitPreparationService:
         for table_name, table_changes in changes.items():
             # Extract schema
             schema = await self.extract_schema(dataset_id, parent_commit_id, table_name)
-            schemas[table_name] = self._schema_to_dict(schema)
+            schemas[table_name] = schema.to_dict()
             
             # Canonicalize and hash data
             if 'data' in table_changes:
@@ -118,26 +114,49 @@ class CommitPreparationService:
         """Extract schema information for a table."""
         # Get schema from table reader
         raw_schema = await self._table_reader.get_table_schema(
-            dataset_id=dataset_id,
             commit_id=commit_id,
-            table_name=table_name
+            table_key=table_name
         )
+        
+        if not raw_schema:
+            # No existing schema, infer from data
+            return TableSchema(
+                columns=[],
+                primary_key=None,
+                indexes=[],
+                row_count=0
+            )
         
         # Convert to our schema format
         columns = []
-        for col in raw_schema.columns:
-            columns.append({
-                'name': col.name,
-                'type': col.data_type,
-                'nullable': col.is_nullable,
-                'default': col.default_value,
-                'constraints': col.constraints or []
-            })
+        
+        # Handle different schema formats
+        if isinstance(raw_schema, dict):
+            if 'columns' in raw_schema:
+                # New format with columns array
+                for col in raw_schema['columns']:
+                    columns.append({
+                        'name': col.get('name', ''),
+                        'type': col.get('data_type', col.get('type', 'string')),
+                        'nullable': col.get('nullable', True),
+                        'default': col.get('default'),
+                        'constraints': col.get('constraints', [])
+                    })
+            elif 'fields' in raw_schema:
+                # Legacy format with fields array
+                for field in raw_schema['fields']:
+                    columns.append({
+                        'name': field.get('name', ''),
+                        'type': field.get('type', 'string'),
+                        'nullable': True,
+                        'default': None,
+                        'constraints': []
+                    })
         
         return TableSchema(
             columns=columns,
-            primary_key=raw_schema.primary_key,
-            indexes=raw_schema.indexes or []
+            primary_key=raw_schema.get('primary_key') if isinstance(raw_schema, dict) else None,
+            indexes=raw_schema.get('indexes', []) if isinstance(raw_schema, dict) else []
         )
     
     async def canonicalize_data(
@@ -203,10 +222,4 @@ class CommitPreparationService:
         else:
             return str(value) if value is not None else None
     
-    def _schema_to_dict(self, schema: TableSchema) -> Dict[str, Any]:
-        """Convert schema object to dictionary."""
-        return {
-            'columns': schema.columns,
-            'primary_key': schema.primary_key,
-            'indexes': schema.indexes
-        }
+    # _schema_to_dict method removed - using TableSchema.to_dict() instead

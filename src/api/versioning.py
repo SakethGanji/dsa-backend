@@ -12,7 +12,7 @@ from src.api.models import (
 from src.features.versioning.services import VersioningService
 from src.features.versioning.services.commit_preparation_service import CommitPreparationService
 from src.core.domain_exceptions import EntityNotFoundException
-from src.infrastructure.postgres.database import DatabasePool, UnitOfWorkFactory
+from src.infrastructure.postgres.database import DatabasePool
 from src.core.authorization import get_current_user_info, require_dataset_read, require_dataset_write
 from src.api.dependencies import get_uow, get_db_pool, get_event_bus, get_permission_service
 from src.infrastructure.postgres.uow import PostgresUnitOfWork
@@ -21,12 +21,7 @@ from src.infrastructure.postgres.uow import PostgresUnitOfWork
 router = APIRouter(tags=["versioning"])
 
 
-# Dependency injection helpers
-async def get_uow_factory(
-    pool: DatabasePool = Depends(get_db_pool)
-) -> UnitOfWorkFactory:
-    """Get unit of work factory."""
-    return UnitOfWorkFactory(pool)
+# Dependency injection helpers removed - using get_uow directly
 
 
 async def get_table_analysis_service(
@@ -53,7 +48,7 @@ async def create_commit(
     permission_service = Depends(get_permission_service)
 ):
     """Create a new commit with direct data"""
-    commit_service = CommitPreparationService(uow)
+    commit_service = CommitPreparationService(uow.table_reader)
     service = VersioningService(uow, permissions=permission_service, commit_service=commit_service, event_bus=event_bus)
     return await service.create_commit(dataset_id, ref_name, request, current_user.user_id)
 
@@ -222,13 +217,13 @@ async def get_commit_history(
     offset: int = Query(0, ge=0, description="Pagination offset"),
     limit: int = Query(50, ge=1, le=100, description="Number of commits to return"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+    uow: PostgresUnitOfWork = Depends(get_uow),
     permission_service = Depends(get_permission_service),
     _: CurrentUser = Depends(require_dataset_read)
 ) -> GetCommitHistoryResponse:
     """Get the chronological commit history for a dataset."""
     # Get commit history
-    service = VersioningService(uow_factory.create(), permissions=permission_service)
+    service = VersioningService(uow, permissions=permission_service)
     return await service.get_commit_history(dataset_id, ref_name, current_user.user_id, offset, limit)
 
 
@@ -240,13 +235,13 @@ async def checkout_commit(
     offset: int = Query(0, ge=0, description="Pagination offset"),
     limit: int = Query(100, ge=1, le=1000, description="Number of rows to return"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+    uow: PostgresUnitOfWork = Depends(get_uow),
     permission_service = Depends(get_permission_service),
     _: CurrentUser = Depends(require_dataset_read)
 ) -> GetDataResponse:
     """Get the data as it existed at a specific commit."""
     # Checkout commit
-    service = VersioningService(uow_factory.create(), permissions=permission_service)
+    service = VersioningService(uow, permissions=permission_service)
     return await service.checkout_commit(dataset_id, commit_id, current_user.user_id, table_key or "primary", offset, limit)
 
 
@@ -255,12 +250,12 @@ async def checkout_commit(
 async def list_refs(
     dataset_id: int = Path(..., description="Dataset ID"),
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+    uow: PostgresUnitOfWork = Depends(get_uow),
     permission_service = Depends(get_permission_service),
     _: CurrentUser = Depends(require_dataset_read)
 ) -> ListRefsResponse:
     """List all branches/refs for a dataset."""
-    service = VersioningService(uow_factory.create(), permissions=permission_service)
+    service = VersioningService(uow, permissions=permission_service)
     return await service.list_refs(dataset_id, current_user.user_id)
 
 
@@ -269,12 +264,12 @@ async def create_branch(
     dataset_id: int = Path(..., description="Dataset ID"),
     request: CreateBranchRequest = ...,
     current_user: CurrentUser = Depends(get_current_user_info),
-    uow_factory: UnitOfWorkFactory = Depends(get_uow_factory),
+    uow: PostgresUnitOfWork = Depends(get_uow),
     permission_service = Depends(get_permission_service),
     _: CurrentUser = Depends(require_dataset_write)
 ) -> CreateBranchResponse:
     """Create a new branch from an existing ref."""
-    service = VersioningService(uow_factory.create(), permissions=permission_service)
+    service = VersioningService(uow, permissions=permission_service)
     return await service.create_branch(dataset_id, request, current_user.user_id)
 
 

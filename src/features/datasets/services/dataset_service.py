@@ -91,8 +91,9 @@ class DatasetService:
         
         # Add tags if any
         if dataset.tags:
-            tag_values = [tag.value for tag in dataset.tags]
-            await self._dataset_repo.add_dataset_tags(dataset_id, tag_values)
+            tag_values = [tag.value for tag in dataset.tags if tag is not None]
+            if tag_values:
+                await self._dataset_repo.add_dataset_tags(dataset_id, tag_values)
         
         # Create initial empty commit
         initial_commit_id = await self._commit_repo.create_commit_and_manifest(
@@ -127,7 +128,7 @@ class DatasetService:
                 user_id=command.created_by,
                 name=dataset.name,
                 description=dataset.description,
-                tags=[tag.value for tag in dataset.tags]
+                tags=[tag.value for tag in dataset.tags if tag is not None]
             )
             await self._event_bus.publish(event)
         
@@ -138,7 +139,7 @@ class DatasetService:
             dataset_id=dataset_id,
             name=dataset.name,
             description=dataset.description or "",
-            tags=[tag.value for tag in dataset.tags],
+            tags=[tag.value for tag in dataset.tags if tag is not None],
             created_at=created_dataset['created_at']
         )
     
@@ -176,36 +177,44 @@ class DatasetService:
         with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
             # Write file content
             if hasattr(command.file_content, 'read'):
-                content = await command.file_content.read()
+                # It's a file-like object, read synchronously
+                content = command.file_content.read()
                 tmp_file.write(content)
             else:
+                # It's already bytes
                 tmp_file.write(command.file_content)
             temp_path = tmp_file.name
         
         # Create import job
         if self._job_repo:
             job_id = await self._job_repo.create_job(
-                job_type='import',
+                run_type='import',
                 dataset_id=dataset_response.dataset_id,
-                created_by=command.created_by,
-                parameters={
-                    'file_path': temp_path,
-                    'original_filename': command.file_name,
+                user_id=command.created_by,
+                run_parameters={
+                    'temp_file_path': temp_path,
+                    'filename': command.file_name,
                     'file_size': command.file_size,
-                    'branch_name': command.branch_name,
-                    'commit_message': command.commit_message
+                    'target_ref': command.branch_name,
+                    'commit_message': command.commit_message,
+                    'dataset_id': dataset_response.dataset_id,
+                    'user_id': command.created_by
                 }
             )
         else:
             job_id = None
         
+        # Return the response in the expected format
+        from src.api.models import QueueImportResponse
+        
         return CreateDatasetWithFileResponse(
-            dataset_id=dataset_response.dataset_id,
-            name=dataset_response.name,
-            description=dataset_response.description,
-            tags=dataset_response.tags,
-            created_at=dataset_response.created_at,
-            import_job_id=str(job_id) if job_id else None
+            dataset=dataset_response,
+            commit_id="initial",  # We don't have a specific commit ID yet
+            import_job=QueueImportResponse(
+                job_id=str(job_id) if job_id else "",
+                status="pending",
+                message="Import job queued successfully"
+            )
         )
     
     @with_error_handling
@@ -336,6 +345,9 @@ class DatasetService:
         
         # Get updated dataset
         updated = await self._dataset_repo.get_dataset_by_id(command.dataset_id)
+        if not updated:
+            raise EntityNotFoundException("Dataset", command.dataset_id)
+        
         tags = await self._dataset_repo.get_dataset_tags(command.dataset_id)
         
         # Publish event if there were changes

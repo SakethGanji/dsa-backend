@@ -7,15 +7,10 @@ from datetime import datetime
 import re
 
 from dataclasses import dataclass
+from src.core.models import TableSchema
 
 # Data classes for table analysis
-@dataclass
-class TableSchema:
-    """Schema information for a table."""
-    columns: List[Dict[str, Any]]
-    primary_key: Optional[List[str]] = None
-    row_count: int = 0
-    size_bytes: Optional[int] = None
+# TableSchema now imported from src.core.models
 
 @dataclass
 class ServiceColumnStatistics:

@@ -11,6 +11,7 @@ from .sql_validator import SqlValidator, ValidationLevel
 
 from dataclasses import dataclass
 from typing import Optional
+from src.core.models import TableSchema
 
 # Data classes for SQL execution
 @dataclass
@@ -51,13 +52,7 @@ class SqlExecutionResult:
     memory_used_mb: Optional[float] = None
     optimization_applied: Optional[List[str]] = None
 
-@dataclass
-class TableSchema:
-    """Schema information for a table."""
-    columns: List[Dict[str, Any]]
-    primary_key: Optional[List[str]] = None
-    row_count: int = 0
-    size_bytes: Optional[int] = None
+# TableSchema now imported from src.core.models
 from src.infrastructure.postgres.database import DatabasePool
 
 

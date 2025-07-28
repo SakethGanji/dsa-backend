@@ -7,6 +7,7 @@ import hashlib
 import json
 
 from src.core.domain_exceptions import ValidationException, BusinessRuleViolation
+from src.core.models import TableSchema
 
 
 @dataclass
@@ -23,38 +24,8 @@ class TableManifestEntry:
             raise ValidationException("Row hash is required", field="row_hash")
 
 
-@dataclass
-class TableSchema:
-    """Value object for table schema definition."""
-    columns: List[Dict[str, Any]]
-    primary_key: Optional[List[str]] = None
-    
-    def __post_init__(self):
-        """Validate schema."""
-        if not self.columns:
-            raise ValidationException("Schema must have at least one column", field="columns")
-        
-        # Validate column definitions
-        column_names = set()
-        for col in self.columns:
-            if 'name' not in col:
-                raise ValidationException("Column must have a name", field="columns")
-            if 'type' not in col:
-                raise ValidationException(f"Column '{col.get('name')}' must have a type", field="columns")
-            
-            name = col['name']
-            if name in column_names:
-                raise ValidationException(f"Duplicate column name: {name}", field="columns")
-            column_names.add(name)
-        
-        # Validate primary key columns exist
-        if self.primary_key:
-            for pk_col in self.primary_key:
-                if pk_col not in column_names:
-                    raise ValidationException(
-                        f"Primary key column '{pk_col}' not found in schema",
-                        field="primary_key"
-                    )
+# TableSchema now imported from src.core.models
+# Note: The shared TableSchema includes all validation logic from this version
 
 
 @dataclass
