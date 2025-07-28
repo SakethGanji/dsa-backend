@@ -13,8 +13,7 @@ from ..core.authorization import get_current_user_info
 from ..api.models import CurrentUser
 from ..features.sql_workbench.models.sql_preview import SqlPreviewRequest, SqlPreviewResponse
 from ..features.sql_workbench.models.sql_transform import SqlTransformRequest, SqlTransformResponse
-from ..features.sql_workbench.handlers.preview_sql import PreviewSqlHandler
-from ..features.sql_workbench.handlers.transform_sql import TransformSqlHandler
+from ..features.sql_workbench.services.sql_workbench_service import SqlWorkbenchService
 from .dependencies import get_uow, get_permission_service
 
 router = APIRouter(prefix="/workbench", tags=["workbench"])
@@ -83,8 +82,8 @@ async def preview_sql(
     Raises:
         400 for validation errors, 403 for permission errors, 404 for not found
     """
-    handler = PreviewSqlHandler(uow, workbench_service, permissions=permission_service)
-    return await handler.handle(request, current_user.user_id)
+    service = SqlWorkbenchService(uow, permissions=permission_service, workbench_service=workbench_service)
+    return await service.preview_sql(request, current_user.user_id)
 
 
 @router.post("/sql-transform", response_model=SqlTransformResponse)
@@ -114,14 +113,14 @@ async def transform_sql(
     Raises:
         400 for validation errors, 403 for permission errors, 404 for not found
     """
-    handler = TransformSqlHandler(
+    service = SqlWorkbenchService(
         uow, 
-        workbench_service, 
-        job_repository, 
-        dataset_repository,
-        commit_repository,
-        permissions=permission_service
+        permissions=permission_service,
+        workbench_service=workbench_service,
+        job_repository=job_repository,
+        dataset_repository=dataset_repository,
+        commit_repository=commit_repository
     )
-    return await handler.handle(request, current_user.user_id)
+    return await service.transform_sql(request, current_user.user_id)
 
 

@@ -4,29 +4,21 @@ from fastapi import APIRouter, Depends, Query
 from typing import Optional, List
 from datetime import datetime
 
-from ..infrastructure.postgres.database import DatabasePool, UnitOfWorkFactory
+from ..infrastructure.postgres.database import DatabasePool
 from ..core.authorization import get_current_user_info
-from ..features.search.handlers import SearchDatasetsHandler, SuggestHandler
+from ..features.search.services import SearchService
 from ..features.search.models import (
-    SearchRequest, 
-    SuggestRequest, 
     SearchResponse, 
     SuggestResponse
 )
 from ..api.models import CurrentUser
 from ..infrastructure.postgres.uow import PostgresUnitOfWork
-from .dependencies import get_db_pool
+from .dependencies import get_db_pool, get_uow
 
 
 router = APIRouter(prefix="/datasets/search", tags=["search"])
 
 
-# Local dependency helpers
-async def get_uow_factory(
-    pool: DatabasePool = Depends(get_db_pool)
-) -> UnitOfWorkFactory:
-    """Get unit of work factory."""
-    return UnitOfWorkFactory(pool)
 
 
 @router.get("/", response_model=SearchResponse, summary="Search datasets")
@@ -102,7 +94,7 @@ async def search_datasets(
     
     # Dependencies
     current_user: CurrentUser = Depends(get_current_user_info),
-    pool: DatabasePool = Depends(get_db_pool)
+    uow: PostgresUnitOfWork = Depends(get_uow)
 ):
     """
     Search for datasets with advanced filtering and faceting.
@@ -135,31 +127,25 @@ async def search_datasets(
         if field not in valid_facet_fields:
             raise ValueError(f"Invalid facet field: {field}. Must be one of: {', '.join(valid_facet_fields)}")
     
-    # Create UnitOfWork and handler
-    async with pool.acquire() as conn:
-        from ..infrastructure.postgres.uow import PostgresUnitOfWork
-        uow = PostgresUnitOfWork(pool)
-        handler = SearchDatasetsHandler(uow)
-        
-        request = SearchRequest(
-            context={'user_id': current_user.user_id},
-            query=query,
-            fuzzy=fuzzy,
-            tags=tags,
-            created_by=created_by,
-            created_after=created_after,
-            created_before=created_before,
-            updated_after=updated_after,
-            updated_before=updated_before,
-            limit=limit,
-            offset=offset,
-            sort_by=sort_by,
-            sort_order=sort_order,
-            include_facets=include_facets,
-            facet_fields=facet_fields
-        )
-        
-        return await handler.handle(request)
+    # Create service and execute search
+    service = SearchService(uow)
+    return await service.search_datasets(
+        user_id=current_user.user_id,
+        query=query,
+        fuzzy=fuzzy,
+        tags=tags,
+        created_by=created_by,
+        created_after=created_after,
+        created_before=created_before,
+        updated_after=updated_after,
+        updated_before=updated_before,
+        limit=limit,
+        offset=offset,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        include_facets=include_facets,
+        facet_fields=facet_fields
+    )
 
 
 @router.get("/suggest", response_model=SuggestResponse, summary="Get search suggestions")
@@ -176,7 +162,7 @@ async def suggest(
         description="Maximum number of suggestions"
     ),
     current_user: CurrentUser = Depends(get_current_user_info),
-    pool: DatabasePool = Depends(get_db_pool)
+    uow: PostgresUnitOfWork = Depends(get_uow)
 ):
     """
     Get autocomplete suggestions for dataset names and tags.
@@ -187,16 +173,34 @@ async def suggest(
     
     Suggestions are sorted by relevance and filtered by user permissions.
     """
-    # Create UnitOfWork and handler
-    async with pool.acquire() as conn:
-        from ..infrastructure.postgres.uow import PostgresUnitOfWork
-        uow = PostgresUnitOfWork(pool)
-        handler = SuggestHandler(uow)
-        
-        request = SuggestRequest(
-            context={'user_id': current_user.user_id},
-            query=query,
-            limit=limit
-        )
-        
-        return await handler.handle(request)
+    # Create service and get suggestions
+    service = SearchService(uow)
+    return await service.suggest(
+        user_id=current_user.user_id,
+        query=query,
+        limit=limit
+    )
+
+
+@router.post("/refresh-index", summary="Refresh search index")
+async def refresh_search_index(
+    current_user: CurrentUser = Depends(get_current_user_info),
+    uow: PostgresUnitOfWork = Depends(get_uow)
+):
+    """
+    Manually refresh the search materialized view.
+    
+    This endpoint should be called:
+    - After bulk data imports
+    - When immediate index updates are needed
+    - During maintenance windows
+    
+    Note: This operation may take some time for large datasets.
+    Admin access required.
+    """
+    # TODO: Add admin check when available
+    # For now, any authenticated user can refresh
+    
+    # Create service and refresh index
+    service = SearchService(uow)
+    return await service.refresh_search_index()

@@ -1,7 +1,7 @@
 """Event handlers for search indexing."""
 
 import logging
-from typing import List
+from typing import List, Optional
 
 from src.core.events.publisher import (
     DomainEvent,
@@ -9,6 +9,8 @@ from src.core.events.publisher import (
 )
 from src.core.events.publisher import EventType
 from src.infrastructure.postgres.database import DatabasePool
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
+from .services import SearchService
 
 
 logger = logging.getLogger(__name__)
@@ -19,6 +21,14 @@ class SearchIndexEventHandler:
     
     def __init__(self, db_pool: DatabasePool):
         self._db_pool = db_pool
+        self._search_service: Optional[SearchService] = None
+    
+    async def _get_service(self) -> SearchService:
+        """Get or create the search service instance."""
+        if not self._search_service:
+            uow = PostgresUnitOfWork(self._db_pool)
+            self._search_service = SearchService(uow)
+        return self._search_service
     
     def handles(self) -> List[EventType]:
         """Return list of event types this handler processes."""
@@ -43,44 +53,35 @@ class SearchIndexEventHandler:
         """Handle dataset creation by adding to search index."""
         dataset_id = int(event.aggregate_id)
         
-        async with self._db_pool.acquire() as conn:
-            # Update search_datasets materialized view
-            await conn.execute("""
-                -- Refresh materialized view to include new dataset
-                REFRESH MATERIALIZED VIEW CONCURRENTLY dsa_core.search_datasets
-            """)
-            
-            logger.info(f"Added dataset {dataset_id} to search index")
+        # Use service to handle the update
+        service = await self._get_service()
+        await service.handle_dataset_created(dataset_id)
+        
+        logger.info(f"Added dataset {dataset_id} to search index")
     
     async def _handle_dataset_updated(self, event: DatasetUpdatedEvent) -> None:
         """Handle dataset update by refreshing search index."""
         dataset_id = int(event.aggregate_id)
         changes = event.payload.get('changes', {})
         
-        # Only refresh if searchable fields changed
+        # Use service to handle the update
+        service = await self._get_service()
+        await service.handle_dataset_updated(dataset_id, changes)
+        
+        # Only log if searchable fields changed
         searchable_fields = {'name', 'description', 'tags'}
         if any(field in changes for field in searchable_fields):
-            async with self._db_pool.acquire() as conn:
-                await conn.execute("""
-                    -- Refresh materialized view to reflect updates
-                    REFRESH MATERIALIZED VIEW CONCURRENTLY dsa_core.search_datasets
-                """)
-                
-                logger.info(f"Updated dataset {dataset_id} in search index")
+            logger.info(f"Updated dataset {dataset_id} in search index")
     
     async def _handle_dataset_deleted(self, event: DatasetDeletedEvent) -> None:
         """Handle dataset deletion by removing from search index."""
         dataset_id = int(event.aggregate_id)
         
-        async with self._db_pool.acquire() as conn:
-            # The materialized view will automatically exclude deleted datasets
-            # on next refresh since they won't exist in the source tables
-            await conn.execute("""
-                -- Refresh materialized view to remove deleted dataset
-                REFRESH MATERIALIZED VIEW CONCURRENTLY dsa_core.search_datasets
-            """)
-            
-            logger.info(f"Removed dataset {dataset_id} from search index")
+        # Use service to handle the deletion
+        service = await self._get_service()
+        await service.handle_dataset_deleted(dataset_id)
+        
+        logger.info(f"Removed dataset {dataset_id} from search index")
     
     @property
     def handler_name(self) -> str:

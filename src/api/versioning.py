@@ -9,18 +9,9 @@ from src.api.models import (
     ListRefsResponse, CreateBranchRequest, CreateBranchResponse,
     TableAnalysisResponse, DatasetOverviewResponse
 )
-from src.features.versioning.handlers.create_commit import CreateCommitHandler
-from src.features.versioning.handlers.get_data_at_ref import GetDataAtRefHandler
-from src.features.versioning.handlers.get_commit_schema import GetCommitSchemaHandler
-from src.features.versioning.handlers.get_table_data import (
-    GetTableDataHandler, ListTablesHandler, GetTableSchemaHandler
-)
-from src.features.versioning.handlers.get_table_analysis import GetTableAnalysisHandler
-from src.features.versioning.handlers.queue_import_job import QueueImportJobHandler
-from src.features.versioning.handlers.get_commit_history import GetCommitHistoryHandler
-from src.features.versioning.handlers.checkout_commit import CheckoutCommitHandler
-from src.features.versioning.handlers.get_dataset_overview import GetDatasetOverviewHandler
-from src.features.refs.handlers import ListRefsHandler, CreateBranchHandler, DeleteBranchHandler
+from src.features.versioning.services import VersioningService
+from src.services.commit_preparation_service import CommitPreparationService
+from src.core.domain_exceptions import EntityNotFoundException
 from src.infrastructure.postgres.database import DatabasePool, UnitOfWorkFactory
 from src.core.authorization import get_current_user_info, require_dataset_read, require_dataset_write
 from src.api.dependencies import get_uow, get_db_pool, get_event_bus, get_permission_service
@@ -63,8 +54,9 @@ async def create_commit(
     permission_service = Depends(get_permission_service)
 ):
     """Create a new commit with direct data"""
-    handler = CreateCommitHandler(uow, uow.commits, uow.datasets, permissions=permission_service, event_bus=event_bus)
-    return await handler.handle(dataset_id, ref_name, request, current_user.user_id)
+    commit_service = CommitPreparationService(uow)
+    service = VersioningService(uow, permissions=permission_service, commit_service=commit_service, event_bus=event_bus)
+    return await service.create_commit(dataset_id, ref_name, request, current_user.user_id)
 
 
 @router.post("/datasets/{dataset_id}/refs/{ref_name}/import", response_model=QueueImportResponse)
@@ -79,15 +71,21 @@ async def import_file(
     _: CurrentUser = Depends(require_dataset_write)
 ):
     """Upload a file to import as a new commit"""
-    handler = QueueImportJobHandler(uow, permissions=permission_service)
-    request = QueueImportRequest(commit_message=commit_message)
-    return await handler.handle(
+    # Save uploaded file temporarily
+    import tempfile
+    import shutil
+    with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+        shutil.copyfileobj(file.file, tmp_file)
+        temp_path = tmp_file.name
+    
+    service = VersioningService(uow, permissions=permission_service)
+    return await service.queue_import_job(
         dataset_id=dataset_id,
-        ref_name=ref_name,
-        file=file.file,
-        filename=file.filename,
-        request=request,
-        user_id=current_user.user_id
+        file_path=temp_path,
+        file_name=file.filename,
+        branch_name=ref_name,
+        user_id=current_user.user_id,
+        commit_message=commit_message
     )
 
 
@@ -104,9 +102,9 @@ async def get_data_at_ref(
     _: CurrentUser = Depends(require_dataset_read)
 ):
     """Get paginated data for a ref"""
-    handler = GetDataAtRefHandler(uow, uow.table_reader, permissions=permission_service)
+    service = VersioningService(uow, permissions=permission_service)
     request = GetDataRequest(sheet_name=table_key, offset=offset, limit=limit)
-    return await handler.handle(dataset_id, ref_name, request, current_user.user_id)
+    return await service.get_data_at_ref(dataset_id, ref_name, request, current_user.user_id)
 
 
 @router.get("/datasets/{dataset_id}/commits/{commit_id}/schema", response_model=CommitSchemaResponse)
@@ -119,8 +117,8 @@ async def get_commit_schema(
     _: CurrentUser = Depends(require_dataset_read)
 ):
     """Get schema information for a commit"""
-    handler = GetCommitSchemaHandler(uow.commits, uow.datasets, permissions=permission_service)
-    return await handler.handle(dataset_id, commit_id, current_user.user_id)
+    service = VersioningService(uow, permissions=permission_service)
+    return await service.get_commit_schema(dataset_id, commit_id, current_user.user_id)
 
 
 # Table-specific endpoints for multi-table support
@@ -134,8 +132,12 @@ async def list_tables(
     _: CurrentUser = Depends(require_dataset_read)
 ) -> Dict[str, List[str]]:
     """List all available tables in the dataset at the given ref"""
-    handler = ListTablesHandler(uow, uow.table_reader, permissions=permission_service)
-    return await handler.handle(dataset_id, ref_name, current_user.user_id)
+    service = VersioningService(uow, permissions=permission_service)
+    # Get current commit for ref
+    ref = await uow.commits.get_ref(dataset_id, ref_name)
+    if not ref:
+        raise EntityNotFoundException("Ref", ref_name)
+    return await service.list_tables(dataset_id, ref['commit_id'], current_user.user_id)
 
 
 @router.get("/datasets/{dataset_id}/refs/{ref_name}/tables/{table_key}/data")
@@ -151,10 +153,15 @@ async def get_table_data(
     _: CurrentUser = Depends(require_dataset_read)
 ) -> Dict[str, Any]:
     """Get paginated data for a specific table"""
-    handler = GetTableDataHandler(uow, uow.table_reader, permissions=permission_service)
-    return await handler.handle(
+    service = VersioningService(uow, permissions=permission_service)
+    # Get current commit for ref
+    ref = await uow.commits.get_ref(dataset_id, ref_name)
+    if not ref:
+        from src.core.domain_exceptions import EntityNotFoundException
+        raise EntityNotFoundException("Ref", ref_name)
+    return await service.get_table_data(
         dataset_id=dataset_id,
-        ref_name=ref_name,
+        commit_id=ref['commit_id'],
         table_key=table_key,
         user_id=current_user.user_id,
         offset=offset,
@@ -173,10 +180,15 @@ async def get_table_schema(
     _: CurrentUser = Depends(require_dataset_read)
 ) -> Dict[str, Any]:
     """Get schema for a specific table"""
-    handler = GetTableSchemaHandler(uow, uow.table_reader, permissions=permission_service)
-    return await handler.handle(
+    service = VersioningService(uow, permissions=permission_service)
+    # Get current commit for ref
+    ref = await uow.commits.get_ref(dataset_id, ref_name)
+    if not ref:
+        from src.core.domain_exceptions import EntityNotFoundException
+        raise EntityNotFoundException("Ref", ref_name)
+    return await service.get_table_schema(
         dataset_id=dataset_id,
-        ref_name=ref_name,
+        commit_id=ref['commit_id'],
         table_key=table_key,
         user_id=current_user.user_id
     )
@@ -194,8 +206,8 @@ async def get_table_analysis(
     _: CurrentUser = Depends(require_dataset_read)
 ) -> TableAnalysisResponse:
     """Get comprehensive table analysis including schema, statistics, and sample values"""
-    handler = GetTableAnalysisHandler(uow, table_analysis_service, permissions=permission_service)
-    return await handler.handle(
+    service = VersioningService(uow, permissions=permission_service, table_analysis_service=table_analysis_service)
+    return await service.get_table_analysis(
         dataset_id=dataset_id,
         ref_name=ref_name,
         table_key=table_key,
@@ -217,9 +229,8 @@ async def get_commit_history(
 ) -> GetCommitHistoryResponse:
     """Get the chronological commit history for a dataset."""
     # Get commit history
-    uow = uow_factory.create()
-    handler = GetCommitHistoryHandler(uow, permissions=permission_service)
-    return await handler.handle(dataset_id, ref_name, offset, limit)
+    service = VersioningService(uow_factory.create(), permissions=permission_service)
+    return await service.get_commit_history(dataset_id, ref_name, current_user.user_id, offset, limit)
 
 
 @router.get("/datasets/{dataset_id}/commits/{commit_id}/data", response_model=GetDataResponse)
@@ -236,9 +247,8 @@ async def checkout_commit(
 ) -> GetDataResponse:
     """Get the data as it existed at a specific commit."""
     # Checkout commit
-    uow = uow_factory.create()
-    handler = CheckoutCommitHandler(uow, permissions=permission_service)
-    return await handler.handle(dataset_id, commit_id, table_key, offset, limit)
+    service = VersioningService(uow_factory.create(), permissions=permission_service)
+    return await service.checkout_commit(dataset_id, commit_id, current_user.user_id, table_key or "primary", offset, limit)
 
 
 # Branch/Ref management endpoints
@@ -251,9 +261,8 @@ async def list_refs(
     _: CurrentUser = Depends(require_dataset_read)
 ) -> ListRefsResponse:
     """List all branches/refs for a dataset."""
-    uow = uow_factory.create()
-    handler = ListRefsHandler(uow, permissions=permission_service)
-    return await handler.handle(dataset_id, current_user.user_id)
+    service = VersioningService(uow_factory.create(), permissions=permission_service)
+    return await service.list_refs(dataset_id, current_user.user_id)
 
 
 @router.post("/datasets/{dataset_id}/refs", response_model=CreateBranchResponse)
@@ -266,9 +275,8 @@ async def create_branch(
     _: CurrentUser = Depends(require_dataset_write)
 ) -> CreateBranchResponse:
     """Create a new branch from an existing ref."""
-    uow = uow_factory.create()
-    handler = CreateBranchHandler(uow, permissions=permission_service)
-    return await handler.handle(dataset_id, request, current_user.user_id)
+    service = VersioningService(uow_factory.create(), permissions=permission_service)
+    return await service.create_branch(dataset_id, request, current_user.user_id)
 
 
 @router.delete("/datasets/{dataset_id}/refs/{ref_name}")
@@ -281,14 +289,8 @@ async def delete_branch(
     _: CurrentUser = Depends(require_dataset_write)
 ):
     """Delete a branch/ref."""
-    from src.features.refs.handlers.delete_branch import DeleteBranchCommand
-    handler = DeleteBranchHandler(uow, permissions=permission_service)
-    command = DeleteBranchCommand(
-        user_id=current_user.user_id,
-        dataset_id=dataset_id,
-        ref_name=ref_name
-    )
-    return await handler.handle(command)
+    service = VersioningService(uow, permissions=permission_service)
+    return await service.delete_branch(dataset_id, ref_name, current_user.user_id)
 
 
 # Dataset Overview endpoint
@@ -305,6 +307,5 @@ async def get_dataset_overview(
     This endpoint provides everything the UI needs to populate ref_name and table_key
     dropdowns for the columns endpoint.
     """
-    # Use optimized handler that does bulk fetching
-    handler = GetDatasetOverviewHandler(uow, uow.table_reader, permissions=permission_service)
-    return await handler.handle(dataset_id, current_user.user_id)
+    service = VersioningService(uow, permissions=permission_service)
+    return await service.get_dataset_overview(dataset_id, "main", current_user.user_id)

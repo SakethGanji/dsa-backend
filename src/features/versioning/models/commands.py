@@ -145,3 +145,11 @@ class MergeBranchCommand:
     def __post_init__(self):
         if not self.commit_message:
             self.commit_message = f"Merge {self.source_branch} into {self.target_branch}"
+
+
+@dataclass
+class ListRefsCommand:
+    """Command to list refs for a dataset."""
+    dataset_id: int
+    user_id: int
+    ref_type: Optional[str] = None  # Filter by branch or tag

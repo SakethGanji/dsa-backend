@@ -1,21 +1,22 @@
-"""Handler for SQL transformation jobs."""
-
-from typing import Dict, Any, List
+"""Consolidated service for all SQL workbench operations."""
+import time
+from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 from enum import Enum
 
-from ...base_handler import BaseHandler, with_error_handling, with_transaction
-from ....infrastructure.postgres.uow import PostgresUnitOfWork
+from src.infrastructure.postgres.uow import PostgresUnitOfWork
+from src.core.permissions import PermissionService, PermissionCheck
 from src.services.workbench_service import WorkbenchService
-from ....infrastructure.postgres.dataset_repo import PostgresDatasetRepository
-from ....infrastructure.postgres.job_repo import PostgresJobRepository
-from ....infrastructure.postgres.versioning_repo import PostgresCommitRepository
-from ....core.permissions import PermissionService, PermissionCheck
-# Use standard Python exceptions instead of custom error classes
-from ..models.sql_transform import SqlTransformRequest, SqlTransformResponse
+from src.infrastructure.postgres.dataset_repo import PostgresDatasetRepository
+from src.infrastructure.postgres.job_repo import PostgresJobRepository
+from src.infrastructure.postgres.versioning_repo import PostgresCommitRepository
+from ...base_handler import with_transaction, with_error_handling
+from ..models import (
+    SqlPreviewRequest, SqlPreviewResponse, SqlSource,
+    SqlTransformRequest, SqlTransformResponse
+)
 
 
-# Data classes for workbench context
 class OperationType(Enum):
     """Types of operations supported by the workbench."""
     SQL_TRANSFORM = "sql_transform"
@@ -33,45 +34,108 @@ class WorkbenchContext:
     parameters: Dict[str, Any]
 
 
-class TransformSqlHandler(BaseHandler[SqlTransformResponse]):
-    """Handler for creating SQL transformation jobs."""
+class SqlWorkbenchService:
+    """Consolidated service for all SQL workbench operations."""
     
     def __init__(
         self,
         uow: PostgresUnitOfWork,
-        workbench_service: WorkbenchService,
-        job_repository: PostgresJobRepository,
-        dataset_repository: PostgresDatasetRepository,
-        commit_repository: PostgresCommitRepository,
-        permissions: PermissionService
+        permissions: PermissionService,
+        workbench_service: Optional[WorkbenchService] = None,
+        job_repository: Optional[PostgresJobRepository] = None,
+        dataset_repository: Optional[PostgresDatasetRepository] = None,
+        commit_repository: Optional[PostgresCommitRepository] = None
     ):
-        """Initialize handler with dependencies."""
-        super().__init__(uow)
-        self._workbench_service = workbench_service
+        self._uow = uow
+        self._permissions = permissions
+        self._workbench = workbench_service or WorkbenchService()
         self._job_repository = job_repository
         self._dataset_repository = dataset_repository
         self._commit_repository = commit_repository
-        self._permissions = permissions
     
     @with_error_handling
+    async def preview_sql(
+        self,
+        request: SqlPreviewRequest,
+        user_id: int
+    ) -> SqlPreviewResponse:
+        """Preview SQL query results on sample data."""
+        # Validate permissions
+        await self._validate_preview_permissions(request.sources, user_id)
+        
+        # Build source information for SQL execution
+        sources = []
+        for source in request.sources:
+            ref = await self._uow.commits.get_ref(source.dataset_id, source.ref)
+            if not ref:
+                raise ValueError(f"Ref '{source.ref}' not found")
+            
+            sources.append({
+                'alias': source.alias,
+                'dataset_id': source.dataset_id,
+                'commit_id': ref['commit_id'],
+                'table_key': source.table_key
+            })
+        
+        # Add LIMIT to the SQL for preview
+        limited_sql = f"SELECT * FROM ({request.sql}) AS preview_result LIMIT {request.limit}"
+        
+        # Execute preview using the new method
+        start = time.time()
+        
+        # Set db_pool on workbench service if needed
+        if not self._workbench._db_pool:
+            self._workbench._db_pool = self._uow._pool
+        
+        result = await self._workbench._execute_sql_with_sources(
+            sql=limited_sql,
+            sources=sources,
+            db_pool=self._uow._pool
+        )
+        
+        execution_time_ms = int((time.time() - start) * 1000)
+        
+        # Convert result format
+        data = []
+        columns = []
+        
+        if result['rows']:
+            # Convert column names to the expected format
+            columns = [{"name": col, "type": "UNKNOWN"} for col in result['columns']]
+            
+            # Convert rows to dictionaries
+            for row in result['rows']:
+                row_dict = dict(zip(result['columns'], row))
+                data.append(row_dict)
+        
+        # Return response
+        return SqlPreviewResponse(
+            data=data,
+            row_count=len(data),
+            total_row_count=None,  # We don't know the total without running a count query
+            execution_time_ms=execution_time_ms,
+            columns=columns,
+            truncated=len(data) == request.limit
+        )
+    
     @with_transaction
-    async def handle(
+    @with_error_handling
+    async def transform_sql(
         self,
         request: SqlTransformRequest,
         user_id: int
     ) -> SqlTransformResponse:
-        """
-        Create a SQL transformation job.
+        """Create SQL transformation job for asynchronous processing."""
+        # Ensure repositories are available
+        if not self._job_repository:
+            raise ValueError("Job repository not provided")
+        if not self._dataset_repository:
+            raise ValueError("Dataset repository not provided")
+        if not self._commit_repository:
+            raise ValueError("Commit repository not provided")
         
-        Args:
-            request: SQL transformation request
-            user_id: ID of the user creating the transformation
-            
-        Returns:
-            SqlTransformResponse with job ID
-        """
         # Validate permissions
-        await self._validate_permissions(request, user_id)
+        await self._validate_transform_permissions(request, user_id)
         
         # Create workbench context
         context = WorkbenchContext(
@@ -88,7 +152,7 @@ class TransformSqlHandler(BaseHandler[SqlTransformResponse]):
         )
         
         # Validate SQL syntax
-        validation = await self._workbench_service.validate_transformation(request.sql)
+        validation = await self._workbench.validate_transformation(request.sql)
         if not validation.is_valid:
             raise ValueError(f"SQL transformation validation failed: {'; '.join(validation.errors)}")
         
@@ -142,7 +206,15 @@ class TransformSqlHandler(BaseHandler[SqlTransformResponse]):
             estimated_rows=estimated_rows
         )
     
-    async def _validate_permissions(self, request: SqlTransformRequest, user_id: int):
+    async def _validate_preview_permissions(self, sources: List[SqlSource], user_id: int):
+        """Validate read permissions for preview."""
+        checks = [
+            PermissionCheck("dataset", source.dataset_id, user_id, "read")
+            for source in sources
+        ]
+        await self._permissions.require_all(checks)
+    
+    async def _validate_transform_permissions(self, request: SqlTransformRequest, user_id: int):
         """Validate user permissions for the transformation."""
         # Check read permissions for all sources
         checks = [

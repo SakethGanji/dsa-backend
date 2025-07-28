@@ -1,10 +1,7 @@
 """Search feature module."""
 
-from .handlers import (
-    SearchDatasetsHandler,
-    SuggestHandler,
-    RefreshSearchIndexHandler
-)
+from .services import SearchService
+from .event_handlers import SearchIndexEventHandler
 from .models import (
     SearchRequest,
     SuggestRequest,
@@ -16,10 +13,11 @@ from .models import (
 )
 
 __all__ = [
-    # Handlers
-    'SearchDatasetsHandler',
-    'SuggestHandler', 
-    'RefreshSearchIndexHandler',
+    # Services
+    'SearchService',
+    
+    # Event Handlers
+    'SearchIndexEventHandler',
     
     # Models
     'SearchRequest',

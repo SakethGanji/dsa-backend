@@ -26,7 +26,8 @@ from .commands import (
     CreateBranchCommand,
     DeleteBranchCommand,
     CreateTagCommand,
-    MergeBranchCommand
+    MergeBranchCommand,
+    ListRefsCommand
 )
 
 __all__ = [
@@ -55,4 +56,5 @@ __all__ = [
     'DeleteBranchCommand',
     'CreateTagCommand',
     'MergeBranchCommand',
+    'ListRefsCommand',
 ]
