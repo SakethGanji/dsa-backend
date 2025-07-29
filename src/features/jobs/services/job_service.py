@@ -3,7 +3,6 @@
 from typing import Dict, Any, List, Optional
 from uuid import UUID
 from datetime import datetime
-import json
 import logging
 
 from src.infrastructure.postgres.uow import PostgresUnitOfWork
@@ -88,148 +87,16 @@ class JobService:
         current_user_id: Optional[int] = None
     ) -> Dict[str, Any]:
         """Get list of jobs with optional filters."""
-        conn = self._uow.connection
-        
-        # Build query with filters
-        query = """
-            SELECT 
-                ar.id,
-                ar.run_type,
-                ar.status,
-                ar.dataset_id,
-                d.name as dataset_name,
-                ar.user_id,
-                u.soeid as user_soeid,
-                ar.created_at,
-                ar.completed_at,
-                ar.error_message,
-                ar.output_summary
-            FROM dsa_jobs.analysis_runs ar
-            LEFT JOIN dsa_core.datasets d ON ar.dataset_id = d.id
-            LEFT JOIN dsa_auth.users u ON ar.user_id = u.id
-            WHERE 1=1
-        """
-        
-        params = []
-        param_count = 0
-        
-        # Add filters
-        if user_id is not None:
-            param_count += 1
-            query += f" AND ar.user_id = ${param_count}"
-            params.append(user_id)
-            
-        if dataset_id is not None:
-            param_count += 1
-            query += f" AND ar.dataset_id = ${param_count}"
-            params.append(dataset_id)
-            
-        if status is not None:
-            param_count += 1
-            query += f" AND ar.status = ${param_count}"
-            params.append(status)
-            
-        if run_type is not None:
-            param_count += 1
-            query += f" AND ar.run_type = ${param_count}"
-            params.append(run_type)
-        
-        # Add permission filter if current_user_id is provided
-        if current_user_id is not None:
-            param_count += 1
-            query += f"""
-                AND (
-                    ar.dataset_id IS NULL  -- Jobs without datasets
-                    OR EXISTS (
-                        SELECT 1 FROM dsa_auth.dataset_permissions dp
-                        WHERE dp.dataset_id = ar.dataset_id
-                        AND dp.user_id = ${param_count}
-                    )
-                )
-            """
-            params.append(current_user_id)
-        
-        # Add ordering
-        query += " ORDER BY ar.created_at DESC"
-        
-        # Add pagination
-        param_count += 1
-        query += f" LIMIT ${param_count}"
-        params.append(limit)
-        
-        param_count += 1
-        query += f" OFFSET ${param_count}"
-        params.append(offset)
-        
-        # Execute query
-        rows = await conn.fetch(query, *params)
-        
-        # Get total count
-        count_query = """
-            SELECT COUNT(*) as total
-            FROM dsa_jobs.analysis_runs ar
-            WHERE 1=1
-        """
-        
-        count_params = []
-        count_param_num = 0
-        
-        if user_id is not None:
-            count_param_num += 1
-            count_query += f" AND ar.user_id = ${count_param_num}"
-            count_params.append(user_id)
-            
-        if dataset_id is not None:
-            count_param_num += 1
-            count_query += f" AND ar.dataset_id = ${count_param_num}"
-            count_params.append(dataset_id)
-            
-        if status is not None:
-            count_param_num += 1
-            count_query += f" AND ar.status = ${count_param_num}"
-            count_params.append(status)
-            
-        if run_type is not None:
-            count_param_num += 1
-            count_query += f" AND ar.run_type = ${count_param_num}"
-            count_params.append(run_type)
-        
-        # Add permission filter for count
-        if current_user_id is not None:
-            count_param_num += 1
-            count_query += f"""
-                AND (
-                    ar.dataset_id IS NULL
-                    OR EXISTS (
-                        SELECT 1 FROM dsa_auth.dataset_permissions dp
-                        WHERE dp.dataset_id = ar.dataset_id
-                        AND dp.user_id = ${count_param_num}
-                    )
-                )
-            """
-            count_params.append(current_user_id)
-        
-        total_row = await conn.fetchrow(count_query, *count_params)
-        total = total_row['total'] if total_row else 0
-        
-        # Format results
-        jobs = []
-        for row in rows:
-            job = {
-                "id": str(row['id']),
-                "run_type": row['run_type'],
-                "status": row['status'],
-                "dataset_id": row['dataset_id'],
-                "dataset_name": row['dataset_name'],
-                "user_id": row['user_id'],
-                "user_soeid": row['user_soeid'],
-                "created_at": row['created_at'].isoformat() if row['created_at'] else None,
-                "updated_at": row['created_at'].isoformat() if row['created_at'] else None,
-                "completed_at": row['completed_at'].isoformat() if row['completed_at'] else None,
-                "error_message": row['error_message'],
-                "output_summary": row['output_summary']
-            }
-            jobs.append(job)
+        # Use repository method
+        jobs, total = await self._job_repo.get_jobs(
+            user_id=user_id,
+            dataset_id=dataset_id,
+            status=status,
+            run_type=run_type,
+            offset=offset,
+            limit=limit,
+            current_user_id=current_user_id
+        )
         
         return {
             "jobs": jobs,
@@ -245,100 +112,24 @@ class JobService:
         current_user_id: Optional[int] = None
     ) -> Optional[Dict[str, Any]]:
         """Get detailed information about a specific job."""
-        conn = self._uow.connection
+        # Use repository method
+        job = await self._job_repo.get_job_detail(job_id, current_user_id)
         
-        query = """
-            SELECT 
-                ar.id,
-                ar.run_type,
-                ar.status,
-                ar.dataset_id,
-                d.name as dataset_name,
-                ar.source_commit_id,
-                ar.user_id,
-                u.soeid as user_soeid,
-                ar.run_parameters,
-                ar.output_summary,
-                ar.error_message,
-                ar.created_at,
-                ar.completed_at,
-                CASE 
-                    WHEN ar.completed_at IS NOT NULL 
-                    THEN EXTRACT(EPOCH FROM (ar.completed_at - ar.created_at))
-                    ELSE NULL 
-                END as duration_seconds
-            FROM dsa_jobs.analysis_runs ar
-            LEFT JOIN dsa_core.datasets d ON ar.dataset_id = d.id
-            LEFT JOIN dsa_auth.users u ON ar.user_id = u.id
-            WHERE ar.id = $1
-        """
-        
-        row = await conn.fetchrow(query, job_id)
-        
-        if not row:
+        if not job:
             logger.warning(f"Job not found with ID: {job_id}")
-            
-            # Try to see if the job exists with a simpler query
-            exists = await conn.fetchval(
-                "SELECT EXISTS(SELECT 1 FROM dsa_jobs.analysis_runs WHERE id = $1)",
-                job_id
-            )
-            if exists:
-                logger.error(f"Job {job_id} exists but failed to fetch with joins")
-            
             return None
         
         # Check if user has permission to view this job
         if current_user_id:
-            is_job_owner = row['user_id'] == current_user_id
-            if not is_job_owner and row['dataset_id']:
+            is_job_owner = job['user_id'] == current_user_id
+            if not is_job_owner and job['dataset_id']:
                 has_permission = await self._permissions.has_permission(
-                    "dataset", row['dataset_id'], current_user_id, "read"
+                    "dataset", job['dataset_id'], current_user_id, "read"
                 )
                 if not has_permission:
                     return None
         
-        # Format result
-        try:
-            # Parse JSON fields safely
-            run_parameters = row['run_parameters']
-            if isinstance(run_parameters, str):
-                try:
-                    run_parameters = json.loads(run_parameters)
-                except json.JSONDecodeError:
-                    logger.error(f"Failed to parse run_parameters for job {job_id}: {run_parameters[:100]}")
-                    run_parameters = None
-            
-            output_summary = row['output_summary']
-            if isinstance(output_summary, str):
-                try:
-                    output_summary = json.loads(output_summary)
-                except json.JSONDecodeError:
-                    logger.error(f"Failed to parse output_summary for job {job_id}: {output_summary[:100]}")
-                    output_summary = None
-            
-            job = {
-                "id": str(row['id']),
-                "run_type": row['run_type'],
-                "status": row['status'],
-                "dataset_id": row['dataset_id'],
-                "dataset_name": row['dataset_name'],
-                "source_commit_id": row['source_commit_id'].strip() if row['source_commit_id'] else None,
-                "user_id": row['user_id'],
-                "user_soeid": row['user_soeid'],
-                "run_parameters": run_parameters,
-                "output_summary": output_summary,
-                "error_message": row['error_message'],
-                "created_at": row['created_at'].isoformat() if row['created_at'] else None,
-                "completed_at": row['completed_at'].isoformat() if row['completed_at'] else None,
-                "duration_seconds": float(row['duration_seconds']) if row['duration_seconds'] else None
-            }
-            
-            return job
-            
-        except Exception as e:
-            logger.error(f"Error formatting job {job_id}: {str(e)}")
-            raise
+        return job
     
     @with_error_handling
     async def get_job_status(
@@ -424,17 +215,8 @@ class JobService:
                 error_message="Job cancelled by user"
             )
         else:
-            # Fallback to direct update
-            await self._uow.connection.execute(
-                """
-                UPDATE dsa_jobs.analysis_runs 
-                SET status = 'cancelled', 
-                    error_message = 'Job cancelled by user',
-                    completed_at = NOW()
-                WHERE id = $1
-                """,
-                job_id
-            )
+            # Use repository method
+            await self._job_repo.cancel_job(job_id)
         
         # Publish event if event bus available
         if self._event_bus:

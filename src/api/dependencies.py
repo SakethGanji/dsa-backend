@@ -7,7 +7,6 @@ from fastapi.security import OAuth2PasswordBearer
 from ..infrastructure.postgres.database import DatabasePool
 from ..core.events.publisher import EventBus
 from ..infrastructure.postgres.uow import PostgresUnitOfWork
-from src.features.file_processing.services.factory import FileParserFactory
 from ..core.permissions import PermissionService
 
 # OAuth2 scheme for token authentication
@@ -15,7 +14,6 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 # Global instances (these would be initialized in main.py)
 _db_pool: Optional[DatabasePool] = None
-_parser_factory: Optional[FileParserFactory] = None
 _event_bus: Optional[EventBus] = None
 
 
@@ -24,11 +22,6 @@ def set_database_pool(pool: DatabasePool) -> None:
     global _db_pool
     _db_pool = pool
 
-
-def set_parser_factory(factory: FileParserFactory) -> None:
-    """Set the global parser factory instance."""
-    global _parser_factory
-    _parser_factory = factory
 
 
 def set_event_bus(event_bus: EventBus) -> None:
@@ -58,12 +51,6 @@ async def get_permission_service(
     """Get permission service dependency with request-scoped caching."""
     return PermissionService(uow)
 
-
-async def get_parser_factory() -> FileParserFactory:
-    """Get file parser factory dependency."""
-    if _parser_factory is None:
-        raise RuntimeError("Parser factory not initialized")
-    return _parser_factory
 
 
 async def get_event_bus() -> Optional[EventBus]:

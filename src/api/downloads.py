@@ -10,6 +10,9 @@ from ..core.authorization import get_current_user_info, require_dataset_read
 from .dependencies import get_uow
 from ..infrastructure.postgres.uow import PostgresUnitOfWork
 from ..infrastructure.postgres.table_reader import PostgresTableReader
+from ..features.file_conversion.services.file_conversion_service import FileConversionService
+from ..features.file_conversion.models.file_format import FileFormat, ConversionOptions
+from ..core.domain_exceptions import EntityNotFoundException
 
 
 router = APIRouter(prefix="/datasets", tags=["downloads"])
@@ -34,29 +37,46 @@ async def download_dataset(
     _: CurrentUser = Depends(require_dataset_read)
 ):
     """Download entire dataset in specified format."""
-    from ..features.downloads.services import DownloadService
-    from ..features.downloads.models import DownloadDatasetCommand
+    # Map string format to FileFormat enum
+    format_map = {
+        "csv": FileFormat.CSV,
+        "excel": FileFormat.EXCEL,
+        "json": FileFormat.JSON,
+        "parquet": FileFormat.PARQUET
+    }
     
-    # Create command
-    command = DownloadDatasetCommand(
-        user_id=current_user.user_id,
+    file_format = format_map.get(format)
+    if not file_format:
+        raise ValueError(f"Unsupported format: {format}")
+    
+    # Get dataset and ref
+    dataset = await uow.datasets.get_dataset_by_id(dataset_id)
+    if not dataset:
+        raise EntityNotFoundException("Dataset", dataset_id)
+    
+    ref = await uow.commits.get_ref(dataset_id, ref_name)
+    if not ref:
+        raise EntityNotFoundException("Ref", ref_name)
+    
+    # Create service and export
+    service = FileConversionService(uow, table_reader)
+    result = await service.export_data(
         dataset_id=dataset_id,
-        ref_name=ref_name,
-        format=format
+        commit_id=ref['commit_id'],
+        table_name="primary",
+        format=file_format
     )
     
-    # Create service and execute  
-    from src.features.downloads.services.data_export_service import DataExportService
-    export_service = DataExportService(table_reader)
-    service = DownloadService(uow, table_reader, export_service)
-    result = await service.download_dataset(command)
+    # Read file content
+    with open(result.file_path, 'rb') as f:
+        content = f.read()
     
     # Return streaming response
     return StreamingResponse(
-        io.BytesIO(result.content),
+        io.BytesIO(content),
         media_type=result.content_type,
         headers={
-            "Content-Disposition": f'attachment; filename="{result.filename}"'
+            "Content-Disposition": f'attachment; filename="{dataset["name"]}.{format}"'
         }
     )
 
@@ -74,32 +94,50 @@ async def download_table(
     _: CurrentUser = Depends(require_dataset_read)
 ):
     """Download a specific table in specified format."""
-    from ..features.downloads.services import DownloadService
-    from ..features.downloads.models import DownloadTableCommand
+    # Map string format to FileFormat enum
+    format_map = {
+        "csv": FileFormat.CSV,
+        "json": FileFormat.JSON
+    }
+    
+    file_format = format_map.get(format)
+    if not file_format:
+        raise ValueError(f"Unsupported format for table download: {format}")
     
     # Parse columns
     column_list = [col.strip() for col in columns.split(",")] if columns else None
     
-    # Create command
-    command = DownloadTableCommand(
-        user_id=current_user.user_id,
+    # Get dataset and ref
+    dataset = await uow.datasets.get_dataset_by_id(dataset_id)
+    if not dataset:
+        raise EntityNotFoundException("Dataset", dataset_id)
+    
+    ref = await uow.commits.get_ref(dataset_id, ref_name)
+    if not ref:
+        raise EntityNotFoundException("Ref", ref_name)
+    
+    # Create service and export
+    service = FileConversionService(uow, table_reader)
+    options = ConversionOptions(columns=column_list)
+    
+    result = await service.export_data(
         dataset_id=dataset_id,
-        ref_name=ref_name,
-        table_key=table_key,
-        format=format,
-        columns=column_list
+        commit_id=ref['commit_id'],
+        table_name=table_key,
+        format=file_format,
+        options=options
     )
     
-    # Create service and execute
-    service = DownloadService(uow, table_reader)
-    result = await service.download_table(command)
+    # Read file content
+    with open(result.file_path, 'rb') as f:
+        content = f.read()
     
     # Return streaming response
     return StreamingResponse(
-        io.BytesIO(result.content),
+        io.BytesIO(content),
         media_type=result.content_type,
         headers={
-            "Content-Disposition": f'attachment; filename="{result.filename}"'
+            "Content-Disposition": f'attachment; filename="{dataset["name"]}_{table_key}.{format}"'
         }
     )
 

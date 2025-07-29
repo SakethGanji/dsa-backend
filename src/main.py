@@ -12,10 +12,8 @@ from .infrastructure.postgres.database import DatabasePool
 from .infrastructure.external.password_manager import get_password_manager
 from .api.dependencies import (
     set_database_pool,
-    set_parser_factory,
     set_event_bus
 )
-from src.features.file_processing.services.factory import FileParserFactory
 
 # Import new error handling
 from .api.error_handlers import register_error_handlers
@@ -93,7 +91,6 @@ async def lifespan(app: FastAPI):
     
     # Initialize global dependencies
     set_database_pool(db_pool)
-    set_parser_factory(FileParserFactory())
     
     # Initialize event system
     logger.info("Initializing event system...")
