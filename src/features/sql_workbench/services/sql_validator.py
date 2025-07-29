@@ -180,42 +180,67 @@ class SqlValidator:
         available_aliases = {source.get('alias', '') for source in sources}
         available_aliases.discard('')  # Remove empty strings
         
+        # First, remove SQL functions and their contents to avoid false positives
+        # This handles COUNT(), SUM(), json_extract(), etc.
+        sql_cleaned = sql
+        function_pattern = r'\b(?:COUNT|SUM|AVG|MAX|MIN|LENGTH|SUBSTR|SUBSTRING|TRIM|UPPER|LOWER|COALESCE|CAST|CONVERT|DATE|TIME|YEAR|MONTH|DAY|jsonb_extract_path|jsonb_extract_path_text|json_build_object|json_agg)\s*\([^)]*\)'
+        sql_cleaned = re.sub(function_pattern, ' FUNCTION_PLACEHOLDER ', sql_cleaned, flags=re.IGNORECASE)
+        
+        # Remove string literals
+        sql_cleaned = re.sub(r"'[^']*'", " STRING_LITERAL ", sql_cleaned)
+        sql_cleaned = re.sub(r'"[^"]*"', " STRING_LITERAL ", sql_cleaned)
+        
+        # Remove numeric literals
+        sql_cleaned = re.sub(r'\b\d+\b', " NUMBER ", sql_cleaned)
+        
         # Find table references in SQL
-        # Match patterns like: FROM table, JOIN table, FROM table alias, etc.
+        # More specific patterns that only match actual table positions
         table_patterns = [
-            r'FROM\s+(\w+)(?:\s+(?:AS\s+)?(\w+))?',
-            r'JOIN\s+(\w+)(?:\s+(?:AS\s+)?(\w+))?',
-            r',\s*(\w+)(?:\s+(?:AS\s+)?(\w+))?'  # Multiple tables in FROM
+            # FROM table or FROM table alias
+            r'FROM\s+([a-zA-Z_]\w*)(?:\s+(?:AS\s+)?([a-zA-Z_]\w*))?',
+            # JOIN table or JOIN table alias  
+            r'(?:LEFT|RIGHT|INNER|OUTER|CROSS)?\s*JOIN\s+([a-zA-Z_]\w*)(?:\s+(?:AS\s+)?([a-zA-Z_]\w*))?',
+            # Additional tables in FROM clause (after commas)
+            r'FROM\s+[^,]+,\s*([a-zA-Z_]\w*)(?:\s+(?:AS\s+)?([a-zA-Z_]\w*))?'
         ]
         
+        found_tables = []
         for pattern in table_patterns:
-            matches = re.findall(pattern, sql, re.IGNORECASE)
+            matches = re.findall(pattern, sql_cleaned, re.IGNORECASE | re.MULTILINE)
             for match in matches:
                 table_name = match[0]
-                alias = match[1] if len(match) > 1 and match[1] else match[0]
+                alias = match[1] if len(match) > 1 and match[1] else None
                 
+                # Skip SQL keywords that might be caught
+                sql_keywords = {'DUAL', 'VALUES', 'LATERAL', 'UNNEST', 'TABLE', 'ONLY'}
+                if table_name.upper() in sql_keywords:
+                    continue
+                    
+                found_tables.append((table_name, alias))
                 used_tables.append(table_name)
-                
-                # Check if this is supposed to be a source alias
-                if table_name in available_aliases:
-                    continue
-                elif alias in available_aliases:
-                    continue
-                else:
-                    # Check if it might be a CTE or subquery
-                    if not self._is_cte_or_subquery(sql, table_name):
-                        errors.append(f"Table '{table_name}' not found in available sources")
         
-        # Check for unused sources (warning, not error)
-        used_aliases = set()
-        for alias in available_aliases:
-            if re.search(r'\b' + re.escape(alias) + r'\b', sql):
-                used_aliases.add(alias)
+        # Validate found tables against available sources
+        for table_name, alias in found_tables:
+            # Check if the table reference matches an available alias
+            if table_name in available_aliases:
+                continue
+            elif alias and alias in available_aliases:
+                # Table name doesn't matter if alias matches
+                continue
+            else:
+                # Check if it might be a CTE or subquery
+                if not self._is_cte_or_subquery(sql, table_name):
+                    errors.append(f"Table '{table_name}' not found in available sources")
         
-        unused = available_aliases - used_aliases
-        if unused:
-            # This could be added as a warning instead of error
-            pass
+        # Check for column references that look like table.column
+        # but where 'table' is actually an alias
+        column_ref_pattern = r'([a-zA-Z_]\w*)\.([a-zA-Z_]\w*)'
+        column_refs = re.findall(column_ref_pattern, sql_cleaned)
+        for table_ref, column_name in column_refs:
+            if table_ref not in available_aliases and table_ref not in [t[1] for t in found_tables if t[1]]:
+                # Only report error if it's not a function name or keyword
+                if table_ref.upper() not in sql_keywords and table_ref.upper() not in ['COUNT', 'SUM', 'AVG', 'MAX', 'MIN']:
+                    errors.append(f"Table or alias '{table_ref}' not found in query")
         
         return errors, used_tables
     
@@ -253,16 +278,20 @@ class SqlValidator:
         tables = []
         
         # Remove string literals to avoid false matches
-        sql_cleaned = re.sub(r"'[^']*'", '', sql)
-        sql_cleaned = re.sub(r'"[^"]*"', '', sql_cleaned)
+        sql_cleaned = re.sub(r"'[^']*'", ' STRING ', sql)
+        sql_cleaned = re.sub(r'"[^"]*"', ' STRING ', sql_cleaned)
         
-        # Find tables in FROM and JOIN clauses
+        # Remove function calls to avoid matching function names
+        function_pattern = r'\b(?:COUNT|SUM|AVG|MAX|MIN|LENGTH|SUBSTR|SUBSTRING|TRIM|UPPER|LOWER|COALESCE|CAST|CONVERT|DATE|TIME|YEAR|MONTH|DAY|jsonb_extract_path|jsonb_extract_path_text|json_build_object|json_agg)\s*\([^)]*\)'
+        sql_cleaned = re.sub(function_pattern, ' FUNCTION ', sql_cleaned, flags=re.IGNORECASE)
+        
+        # Find tables in FROM and JOIN clauses - more specific patterns
         patterns = [
-            r'FROM\s+(\w+)',
-            r'JOIN\s+(\w+)',
-            r'INTO\s+(\w+)',
-            r'UPDATE\s+(\w+)',
-            r'TABLE\s+(\w+)'
+            r'FROM\s+([a-zA-Z_]\w*)(?:\s+(?:AS\s+)?[a-zA-Z_]\w*)?',
+            r'(?:LEFT|RIGHT|INNER|OUTER|CROSS)?\s*JOIN\s+([a-zA-Z_]\w*)',
+            r'INTO\s+([a-zA-Z_]\w*)',
+            r'UPDATE\s+([a-zA-Z_]\w*)',
+            r'DELETE\s+FROM\s+([a-zA-Z_]\w*)'
         ]
         
         for pattern in patterns:
@@ -270,8 +299,11 @@ class SqlValidator:
             tables.extend(matches)
         
         # Remove duplicates and common keywords that might be matched
-        tables = [t for t in set(tables) if t.upper() not in 
-                 ['SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER']]
+        sql_keywords = {'SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 
+                       'OUTER', 'CROSS', 'ON', 'AS', 'BY', 'GROUP', 'ORDER', 'HAVING',
+                       'LIMIT', 'OFFSET', 'UNION', 'ALL', 'DISTINCT', 'VALUES', 'DUAL'}
+        
+        tables = [t for t in set(tables) if t.upper() not in sql_keywords]
         
         return tables
     

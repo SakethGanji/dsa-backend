@@ -108,13 +108,24 @@ class SqlValidationService:
         if estimate['memory_usage'] == 'high':
             estimated_memory_mb *= 2
         
+        # Analyze SQL for operations
+        sql_upper = sql.upper()
+        operations = {
+            'has_join': bool(re.search(r'\bJOIN\b', sql_upper)),
+            'has_order_by': bool(re.search(r'\bORDER\s+BY\b', sql_upper)),
+            'has_group_by': bool(re.search(r'\bGROUP\s+BY\b', sql_upper)),
+            'has_distinct': 'DISTINCT' in sql_upper,
+            'has_aggregation': bool(re.search(r'\b(COUNT|SUM|AVG|MAX|MIN)\s*\(', sql_upper))
+        }
+        
         return {
             'estimated_rows': int(estimated_rows),
             'estimated_memory_mb': estimated_memory_mb,
             'estimated_time_ms': int(estimated_rows / 1000),  # 1ms per 1000 rows
             'complexity': estimate['complexity'],
             'estimated_runtime': estimate['estimated_runtime'],
-            'recommendations': estimate['recommendations']
+            'recommendations': estimate['recommendations'],
+            'operations': operations
         }
     
     def sanitize_query(self, sql: str) -> str:
@@ -186,19 +197,37 @@ class SqlExecutionService:
         
         async with self._db_pool.acquire() as conn:
             async with conn.transaction():
-                # Create temporary views for sources
-                view_names = await self._create_source_views(
-                    conn, plan.sources, job_id
-                )
-                
+                view_names = []
                 try:
+                    # Create temporary views for sources
+                    try:
+                        view_names = await self._create_source_views(
+                            conn, plan.sources, job_id
+                        )
+                    except Exception as e:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.error(f"Failed to create source views: {str(e)}")
+                        raise Exception(f"View creation failed: {str(e)}")
+                    
                     # Replace aliases with view names
                     modified_sql = self._replace_aliases_with_views(
                         plan.sql_query, view_names
                     )
                     
+                    # Log the modified SQL for debugging
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.info(f"Original SQL: {plan.sql_query}")
+                    logger.info(f"Modified SQL: {modified_sql}")
+                    
                     # Execute query
-                    result_rows = await conn.fetch(modified_sql)
+                    try:
+                        result_rows = await conn.fetch(modified_sql)
+                    except Exception as e:
+                        logger.error(f"SQL execution failed: {str(e)}")
+                        logger.error(f"Failed SQL was: {modified_sql}")
+                        raise Exception(f"SQL execution error: {str(e)}")
                     
                     # Create new commit with results
                     new_commit_id = await self._create_commit_with_results(
@@ -235,10 +264,22 @@ class SqlExecutionService:
                         output_branch_name=output_branch
                     )
                     
-                finally:
-                    # Clean up views
+                except Exception as e:
+                    # Ensure we clean up views even on error
                     for _, view_name in view_names:
-                        await conn.execute(f"DROP VIEW IF EXISTS {view_name}")
+                        try:
+                            await conn.execute(f"DROP VIEW IF EXISTS {view_name}")
+                        except:
+                            pass  # Ignore cleanup errors
+                    raise e
+                    
+                finally:
+                    # Final cleanup attempt
+                    for _, view_name in view_names:
+                        try:
+                            await conn.execute(f"DROP VIEW IF EXISTS {view_name}")
+                        except:
+                            pass
     
     async def preview_results(
         self,
@@ -310,12 +351,11 @@ class SqlExecutionService:
                 CREATE TEMPORARY VIEW {view_name} AS
                 SELECT 
                     cr.logical_row_id,
-                    r.data->'data' as data
+                    r.data as data
                 FROM dsa_core.commit_rows cr
                 JOIN dsa_core.rows r ON cr.row_hash = r.row_hash
                 WHERE cr.commit_id = '{commit_id}'
-                AND (cr.logical_row_id LIKE '{escaped_table_key}:%' 
-                     OR cr.logical_row_id LIKE '{escaped_table_key}\\_%')
+                AND cr.logical_row_id LIKE '{escaped_table_key}:%'
             """)
             
             view_names.append((source.alias, view_name))
@@ -334,21 +374,20 @@ class SqlExecutionService:
         sorted_views = sorted(view_names, key=lambda x: len(x[0]), reverse=True)
         
         for alias, view_name in sorted_views:
-            # Replace patterns
-            patterns = [
-                (f" {alias} ", f" {view_name} "),
-                (f" {alias}.", f" {view_name}."),
-                (f"FROM {alias}", f"FROM {view_name}"),
-                (f"JOIN {alias}", f"JOIN {view_name}"),
-                (f"({alias})", f"({view_name})"),
-            ]
+            # Replace alias as a standalone table reference
+            # This handles: FROM alias, JOIN alias, etc.
+            modified_sql = re.sub(
+                rf'\b{re.escape(alias)}\b(?!\s*\.)',
+                view_name,
+                modified_sql
+            )
             
-            for pattern, replacement in patterns:
-                modified_sql = modified_sql.replace(pattern, replacement)
-            
-            # Handle SELECT * case
-            if f"SELECT * FROM {view_name}" in modified_sql:
-                modified_sql = modified_sql.replace("SELECT *", "SELECT data")
+            # Replace alias when used as table prefix (e.g., alias.column)
+            modified_sql = re.sub(
+                rf'\b{re.escape(alias)}\.', 
+                f'{view_name}.',
+                modified_sql
+            )
         
         return modified_sql
     
@@ -360,9 +399,10 @@ class SqlExecutionService:
         user_id: int
     ) -> str:
         """Create a new commit with transformation results."""
-        # Generate commit ID
+        # Generate commit ID with random component to ensure uniqueness
+        import uuid
         commit_id = hashlib.sha256(
-            f"{target.dataset_id}:{target.message}:{datetime.utcnow().isoformat()}".encode()
+            f"{target.dataset_id}:{target.message}:{datetime.utcnow().isoformat()}:{uuid.uuid4()}".encode()
         ).hexdigest()
         
         # Get parent commit
@@ -435,6 +475,7 @@ class SqlExecutionService:
                 INSERT INTO dsa_core.commit_rows (
                     commit_id, logical_row_id, row_hash
                 ) VALUES ($1, $2, $3)
+                ON CONFLICT (commit_id, logical_row_id) DO NOTHING
                 """,
                 commit_id, logical_row_id, row_hash
             )
