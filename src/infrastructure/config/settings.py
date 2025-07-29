@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: List[str] = ["*"]
     
+    # Frontend URL
+    frontend_url: str = "http://localhost:3000"
+    
     # File storage
     upload_dir: str = "/tmp/dsa_uploads"
     max_upload_size: int = 5 * 1024 * 1024 * 1024  # 5GB

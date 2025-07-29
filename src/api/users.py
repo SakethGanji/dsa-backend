@@ -16,6 +16,7 @@ from .dependencies import get_db_pool, get_permission_service, get_uow
 from ..core.domain_exceptions import ConflictException
 from typing import Annotated, List, Optional
 from pydantic import BaseModel
+import jwt
 
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -27,6 +28,19 @@ class UpdateUserRequest(BaseModel):
     soeid: Optional[str] = None
     password: Optional[str] = None
     role_id: Optional[int] = None
+
+
+class GenerateInviteRequest(BaseModel):
+    """Request for generating invite link."""
+    sso_id: str
+    role_id: int = 2  # Default to 'user' role
+    expires_in: int = 24  # Hours
+
+
+class SignupWithTokenRequest(BaseModel):
+    """Request for signup with token."""
+    token: str
+    password: str
 
 
 class UserListResponse(BaseModel):
@@ -243,3 +257,88 @@ async def delete_user(
         "entity_type": result.entity_type,
         "entity_id": result.entity_id
     }
+
+
+@router.post("/generate-invite")
+async def generate_invite(
+    request: GenerateInviteRequest,
+    current_user: CurrentUser = Depends(require_admin_role)
+):
+    """Generate signup invitation link (admin only)."""
+    from ..core.auth import create_signup_token
+    from ..infrastructure.config import get_settings
+    from datetime import datetime, timedelta
+    
+    token = create_signup_token(
+        sso_id=request.sso_id,
+        role_id=request.role_id,
+        expires_delta=timedelta(hours=request.expires_in)
+    )
+    
+    settings = get_settings()
+    invite_url = f"{settings.frontend_url}/signup?token={token}"
+    
+    return {
+        "invite_url": invite_url,
+        "sso_id": request.sso_id,
+        "expires_at": (datetime.utcnow() + timedelta(hours=request.expires_in)).isoformat()
+    }
+
+
+@router.post("/signup-with-token", response_model=CreateUserResponse)
+async def signup_with_token(
+    request: SignupWithTokenRequest,
+    uow: PostgresUnitOfWork = Depends(get_uow),
+    user_repo: PostgresUserRepository = Depends(get_user_repo),
+    permission_service = Depends(get_permission_service)
+) -> CreateUserResponse:
+    """Complete signup using invitation token."""
+    from ..infrastructure.config import get_settings
+    from fastapi import HTTPException
+    
+    settings = get_settings()
+    
+    # Verify and decode signup token
+    try:
+        payload = jwt.decode(
+            request.token, 
+            settings.secret_key, 
+            algorithms=[settings.algorithm]
+        )
+        
+        if payload.get("type") != "signup":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid token type"
+            )
+            
+        sso_id = payload.get("sub")
+        role_id = payload.get("role_id", 2)
+        
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invitation link has expired"
+        )
+    except jwt.PyJWTError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid invitation token"
+        )
+    
+    # Create user with SSO ID as SOEID
+    service = UserService(uow, user_repo, permission_service)
+    result = await service.create_user_public(
+        soeid=sso_id,  # Using SSO ID as SOEID
+        password=request.password,
+        role_id=role_id
+    )
+    
+    return CreateUserResponse(
+        user_id=result.id,
+        soeid=result.soeid,
+        role_id=result.role_id,
+        role_name=result.role_name,
+        is_active=result.is_active,
+        created_at=result.created_at
+    )

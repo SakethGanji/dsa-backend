@@ -45,6 +45,26 @@ def create_refresh_token(
     return jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
 
 
+def create_signup_token(
+    sso_id: str,
+    role_id: int,
+    expires_delta: Optional[timedelta] = None
+) -> str:
+    """Create a JWT signup token."""
+    to_encode = {
+        "sub": sso_id,
+        "type": "signup",
+        "role_id": role_id
+    }
+    
+    expire = datetime.utcnow() + (
+        expires_delta or timedelta(hours=24)
+    )
+    to_encode.update({"exp": expire})
+    
+    return jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
+
+
 def verify_token(token: str, token_type: str = "access") -> Dict[str, Any]:
     """Verify and decode a JWT token."""
     credentials_exception = HTTPException(

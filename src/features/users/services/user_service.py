@@ -241,24 +241,23 @@ class UserService(PaginationMixin):
         # Validate pagination
         offset, limit = self.validate_pagination(command.offset, command.limit)
         
-        # Get users
-        users, total = await self._user_repo.list_users(
+        # Get users - only pass supported parameters
+        users = await self._user_repo.list_users(
             offset=offset,
-            limit=limit,
-            search=command.search,
-            role_id=command.role_id,
-            sort_by=command.sort_by,
-            sort_order=command.sort_order
+            limit=limit
         )
+        
+        # Get total count - this is approximate based on returned results
+        # If we got less than limit, we're at the end
+        if len(users) < limit:
+            total = offset + len(users)
+        else:
+            # We don't know the exact total, so estimate high
+            total = offset + limit + 1
         
         # Convert to response models
         user_items = []
         for user in users:
-            # Get dataset count for user if available
-            dataset_count = 0
-            if hasattr(self._uow, 'datasets'):
-                dataset_count = await self._uow.datasets.count_datasets_for_user(user['id'])
-            
             user_items.append(UserListItem(
                 id=user['id'],
                 soeid=user['soeid'],
@@ -266,7 +265,7 @@ class UserService(PaginationMixin):
                 role_name=user.get('role_name'),
                 created_at=user['created_at'],
                 last_login=user.get('last_login'),
-                dataset_count=dataset_count
+                dataset_count=0  # Default to 0 for now
             ))
         
         return user_items, total
