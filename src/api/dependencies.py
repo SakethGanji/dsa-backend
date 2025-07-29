@@ -8,7 +8,6 @@ from ..infrastructure.postgres.database import DatabasePool
 from ..core.events.publisher import EventBus
 from ..infrastructure.postgres.uow import PostgresUnitOfWork
 from src.features.file_processing.services.factory import FileParserFactory
-from src.features.statistics.services.calculator import DefaultStatisticsCalculator
 from ..core.permissions import PermissionService
 
 # OAuth2 scheme for token authentication
@@ -17,7 +16,6 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 # Global instances (these would be initialized in main.py)
 _db_pool: Optional[DatabasePool] = None
 _parser_factory: Optional[FileParserFactory] = None
-_stats_calculator: Optional[DefaultStatisticsCalculator] = None
 _event_bus: Optional[EventBus] = None
 
 
@@ -31,12 +29,6 @@ def set_parser_factory(factory: FileParserFactory) -> None:
     """Set the global parser factory instance."""
     global _parser_factory
     _parser_factory = factory
-
-
-def set_stats_calculator(calculator: DefaultStatisticsCalculator) -> None:
-    """Set the global statistics calculator instance."""
-    global _stats_calculator
-    _stats_calculator = calculator
 
 
 def set_event_bus(event_bus: EventBus) -> None:
@@ -72,13 +64,6 @@ async def get_parser_factory() -> FileParserFactory:
     if _parser_factory is None:
         raise RuntimeError("Parser factory not initialized")
     return _parser_factory
-
-
-async def get_stats_calculator() -> DefaultStatisticsCalculator:
-    """Get statistics calculator dependency."""
-    if _stats_calculator is None:
-        raise RuntimeError("Statistics calculator not initialized")
-    return _stats_calculator
 
 
 async def get_event_bus() -> Optional[EventBus]:
