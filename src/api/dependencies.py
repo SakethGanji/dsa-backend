@@ -10,7 +10,7 @@ from ..infrastructure.postgres.uow import PostgresUnitOfWork
 from ..core.permissions import PermissionService
 
 # OAuth2 scheme for token authentication
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/users/login")
 
 # Global instances (these would be initialized in main.py)
 _db_pool: Optional[DatabasePool] = None
