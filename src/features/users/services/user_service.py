@@ -442,8 +442,8 @@ class UserService(PaginationMixin):
         if existing_user and existing_user['id'] != exclude_user_id:
             raise ConflictException(
                 f"User with SOEID {soeid} already exists",
-                entity_type="User",
-                entity_id=soeid
+                conflicting_field="soeid",
+                existing_value=soeid
             )
     
     async def _ensure_admin_exists(self):
