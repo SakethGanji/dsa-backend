@@ -275,12 +275,10 @@ async def generate_invite(
         expires_delta=timedelta(hours=request.expires_in)
     )
     
-    settings = get_settings()
-    invite_url = f"{settings.frontend_url}/signup?token={token}"
-    
     return {
-        "invite_url": invite_url,
+        "token": token,
         "sso_id": request.sso_id,
+        "role_id": request.role_id,
         "expires_at": (datetime.utcnow() + timedelta(hours=request.expires_in)).isoformat()
     }
 
