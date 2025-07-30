@@ -4,12 +4,12 @@ import os
 import json
 import hashlib
 import asyncio
+import csv
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 from uuid import UUID
 
 import aiofiles
-from aiocsv import AsyncDictReader
 import openpyxl
 import pyarrow.parquet as pq
 
@@ -266,44 +266,48 @@ class ImportJobExecutor(JobExecutor):
         total_rows_processed = 0
         
         async with aiofiles.open(file_path, mode='r', encoding='utf-8', newline='') as afp:
-            reader = AsyncDictReader(afp)
-            batch = []
+            # Read the entire file content
+            content = await afp.read()
             
-            async for row_data in reader:
-                batch.append(row_data)
-                
-                if len(batch) >= self.batch_size:
-                    # Process and commit batch immediately
-                    await self._process_and_commit_batch(
-                        batch, sheet_name, total_rows_processed, commit_id, db_pool
-                    )
-                    total_rows_processed += len(batch)
-                    batch = []
-                    
-                    # Update progress
-                    try:
-                        bytes_processed = await afp.tell()
-                        percentage = (bytes_processed / file_size * 100) if file_size > 0 else 0
-                    except:
-                        # Fallback progress calculation
-                        percentage = min((total_rows_processed / 100000 * 100), 99)
-                    
-                    await self._update_job_progress(
-                        job_id,
-                        {
-                            "status": f"Processing: {total_rows_processed:,} rows",
-                            "percentage": round(percentage, 2),
-                            "rows_processed": total_rows_processed
-                        },
-                        db_pool
-                    )
+        # Process CSV content synchronously in chunks
+        lines = content.splitlines()
+        if not lines:
+            return 0
             
-            # Process remaining rows
-            if batch:
+        # Parse CSV
+        reader = csv.DictReader(lines)
+        batch = []
+        
+        for row_data in reader:
+            batch.append(row_data)
+            
+            if len(batch) >= self.batch_size:
+                # Process and commit batch immediately
                 await self._process_and_commit_batch(
                     batch, sheet_name, total_rows_processed, commit_id, db_pool
                 )
                 total_rows_processed += len(batch)
+                batch = []
+                
+                # Update progress
+                percentage = min((total_rows_processed / len(lines) * 100), 99)
+                
+                await self._update_job_progress(
+                    job_id,
+                    {
+                        "status": f"Processing: {total_rows_processed:,} rows",
+                        "percentage": round(percentage, 2),
+                        "rows_processed": total_rows_processed
+                    },
+                    db_pool
+                )
+        
+        # Process remaining rows
+        if batch:
+            await self._process_and_commit_batch(
+                batch, sheet_name, total_rows_processed, commit_id, db_pool
+            )
+            total_rows_processed += len(batch)
         
         return total_rows_processed
     
