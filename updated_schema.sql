@@ -12,7 +12,7 @@
 -- 6. Staging schema for data import (dsa_staging)
 --
 -- IMPORTANT CHANGES:
--- - Search similarity threshold is 0.05 for better fuzzy matching
+-- - Search similarity threshold is 0.02 for better fuzzy matching
 -- - Added table_analysis table for comprehensive table-level statistics
 -- - Removed commit_statistics table (replaced by table_analysis)
 -- - Fixed search function to handle empty queries after keyword extraction
@@ -449,7 +449,7 @@ BEGIN
     -- Build search condition (only if there's actual search text)
     IF v_main_query_text IS NOT NULL AND v_main_query_text <> '' THEN
         IF p_fuzzy THEN
-            v_where_clauses := v_where_clauses || format('similarity(s.search_text, %L) > 0.05', v_main_query_text);
+            v_where_clauses := v_where_clauses || format('similarity(s.search_text, %L) > 0.02', v_main_query_text);
         ELSE
             -- Additional safety check for tsquery
             DECLARE
@@ -677,37 +677,10 @@ INSERT INTO dsa_auth.roles (role_name, description) VALUES
 ON CONFLICT (role_name) DO NOTHING;
 
 -- =============================================================================
--- 11. PERMISSIONS
--- =============================================================================
-
--- Grant usage on schemas
-GRANT USAGE ON SCHEMA dsa_auth TO PUBLIC;
-GRANT USAGE ON SCHEMA dsa_core TO PUBLIC;
-GRANT USAGE ON SCHEMA dsa_jobs TO PUBLIC;
-GRANT USAGE ON SCHEMA dsa_search TO PUBLIC;
-GRANT USAGE ON SCHEMA dsa_events TO PUBLIC;
-GRANT USAGE ON SCHEMA dsa_audit TO PUBLIC;
-GRANT USAGE ON SCHEMA dsa_staging TO PUBLIC;
-
--- Grant select on materialized view
-GRANT SELECT ON dsa_search.datasets_summary TO PUBLIC;
-
--- Grant execute on functions
-GRANT EXECUTE ON FUNCTION dsa_search.search TO PUBLIC;
-GRANT EXECUTE ON FUNCTION dsa_search.suggest TO PUBLIC;
-
--- =============================================================================
--- 12. MAINTENANCE
--- =============================================================================
-
--- Initial refresh of the materialized view (only if data exists)
--- REFRESH MATERIALIZED VIEW dsa_search.datasets_summary;
-
--- =============================================================================
 --                                USAGE NOTES
 -- =============================================================================
--- 1. SIMILARITY THRESHOLD: The search function uses a similarity threshold of 0.05
---    (lowered from 0.2) for better fuzzy matching.
+-- 1. SIMILARITY THRESHOLD: The search function uses a similarity threshold of 0.02
+--    for very permissive fuzzy matching.
 --
 -- 2. MATERIALIZED VIEW REFRESH: The search index should be refreshed periodically:
 --    REFRESH MATERIALIZED VIEW CONCURRENTLY dsa_search.datasets_summary;

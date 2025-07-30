@@ -46,10 +46,10 @@ class ImportJobExecutor(JobExecutor):
             parameters = json.loads(parameters)
         
         # Extract parameters
-        temp_file_path = parameters['temp_file_path']
-        filename = parameters['filename']
+        temp_file_path = parameters.get('temp_file_path', parameters.get('file_path'))
+        filename = parameters.get('filename', parameters.get('file_name'))
         commit_message = parameters['commit_message']
-        target_ref = parameters['target_ref']
+        target_ref = parameters.get('target_ref', parameters.get('branch_name', 'main'))
         dataset_id = parameters['dataset_id']
         user_id = parameters['user_id']
         file_size = os.path.getsize(temp_file_path) if os.path.exists(temp_file_path) else 0
