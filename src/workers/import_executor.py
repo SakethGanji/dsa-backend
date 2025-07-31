@@ -262,7 +262,7 @@ class ImportJobExecutor(JobExecutor):
         db_pool: DatabasePool
     ) -> int:
         """Process CSV file with true streaming - no memory accumulation."""
-        sheet_name = os.path.splitext(os.path.basename(file_path))[0]
+        sheet_name = 'primary'
         total_rows_processed = 0
         
         async with aiofiles.open(file_path, mode='r', encoding='utf-8', newline='') as afp:
@@ -384,7 +384,7 @@ class ImportJobExecutor(JobExecutor):
         db_pool: DatabasePool
     ) -> int:
         """Process Parquet file with streaming."""
-        sheet_name = os.path.splitext(os.path.basename(file_path))[0]
+        sheet_name = 'primary'
         total_rows_processed = 0
         
         parquet_file = pq.ParquetFile(file_path)
