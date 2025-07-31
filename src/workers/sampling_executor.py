@@ -471,7 +471,10 @@ class SamplingJobExecutor(JobExecutor):
                         parameters['source_commit_id'].strip(),  # Remove any trailing spaces
                         parameters.get('user_id'),
                         parameters.get('commit_message', f'Sampled {total_sampled} rows'),
-                        round_results
+                        round_results,
+                        parameters.get('output_branch_name'),
+                        parameters.get('output_name'),
+                        parameters
                     )
                     
                     logger.info(f"Created output commit: {output_commit_id}")
@@ -503,6 +506,7 @@ class SamplingJobExecutor(JobExecutor):
                 'residual_count': residual_count,
                 'output_commit_id': output_commit_id,
                 'output_branch_name': parameters.get('output_branch_name') or output_commit_id,
+                'table_key': parameters.get('output_name') or parameters.get('output_branch_name') or 'sampled_data',
                 'round_results': round_results,
                 'execution_time_seconds': (end_time - start_time).total_seconds(),
                 'parameters_used': parameters
@@ -879,7 +883,10 @@ class SamplingJobExecutor(JobExecutor):
         parent_commit_id: str,
         user_id: Optional[int],
         message: str,
-        round_results: List[Dict[str, Any]]
+        round_results: List[Dict[str, Any]],
+        output_branch_name: Optional[str] = None,
+        output_name: Optional[str] = None,
+        parameters: Optional[Dict[str, Any]] = None
     ) -> str:
         """Create a new commit with sampled data."""
         import hashlib
@@ -897,10 +904,19 @@ class SamplingJobExecutor(JobExecutor):
         
         # Copy sampled rows to new commit
         # Use UNION to combine all rounds and remove duplicates
+        # Use output_name as table key for sampled data, fallback to output_branch_name or 'sampled_data'
+        new_table_key = output_name or output_branch_name or 'sampled_data'
+        
         union_parts = []
         for round_idx, _ in enumerate(round_results):
             round_table = f"temp_round_{round_idx + 1}_samples"
-            union_parts.append(f"SELECT logical_row_id, row_hash FROM {round_table}")
+            # Replace the original table key prefix with the new table key
+            union_parts.append(f"""
+                SELECT 
+                    '{new_table_key}:' || substr(logical_row_id, position(':' in logical_row_id) + 1) as logical_row_id,
+                    row_hash 
+                FROM {round_table}
+            """)
         
         union_query = " UNION ".join(union_parts)
         
@@ -910,17 +926,42 @@ class SamplingJobExecutor(JobExecutor):
             FROM ({union_query}) AS all_samples
         """, commit_id)
         
-        # Copy schema from parent
-        await conn.execute("""
-            INSERT INTO dsa_core.commit_schemas (commit_id, schema_definition)
-            SELECT $1, schema_definition
+        # Copy schema from parent but update the table key
+        # First get the parent schema
+        parent_schema = await conn.fetchval("""
+            SELECT schema_definition
             FROM dsa_core.commit_schemas
-            WHERE commit_id = $2
-        """, commit_id, parent_commit_id)
+            WHERE commit_id = $1
+        """, parent_commit_id)
+        
+        if parent_schema:
+            # Parse schema if it's a string
+            if isinstance(parent_schema, str):
+                parent_schema_dict = json.loads(parent_schema)
+            else:
+                parent_schema_dict = parent_schema
+            
+            # Update the schema to use the new table key
+            # Get the original table key from parameters
+            original_table_key = parameters.get('table_key', 'primary')
+            
+            # If the schema has the original table key, rename it to the new key
+            if original_table_key in parent_schema_dict:
+                updated_schema = parent_schema_dict.copy()
+                updated_schema[new_table_key] = updated_schema.pop(original_table_key)
+            else:
+                updated_schema = parent_schema_dict
+            
+            # Insert the updated schema
+            await conn.execute("""
+                INSERT INTO dsa_core.commit_schemas (commit_id, schema_definition)
+                VALUES ($1, $2)
+            """, commit_id, json.dumps(updated_schema))
         
         # Store sampling metadata in table_analysis
         total_rows = sum(r['rows_sampled'] for r in round_results)
-        table_key = 'primary'  # Default table key for sampling commits
+        # table_key is already set to new_table_key above
+        table_key = new_table_key
         
         # Create analysis data with sampling metadata
         analysis_data = {

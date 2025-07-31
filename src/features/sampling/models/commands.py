@@ -14,6 +14,7 @@ class CreateSamplingJobCommand:
     source_ref: str
     table_key: str
     output_branch_name: Optional[str]
+    output_name: Optional[str]
     commit_message: str
     rounds: List[Dict[str, Any]]
     export_residual: bool

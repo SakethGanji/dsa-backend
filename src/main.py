@@ -2,6 +2,7 @@
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
 import logging
 import asyncio
@@ -172,6 +173,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add GZIP compression middleware
+# This will automatically compress responses when client sends "Accept-Encoding: gzip"
+# minimum_size=1000 means responses smaller than 1KB won't be compressed (overhead not worth it)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # Register error handlers - NEW!
 register_error_handlers(app)

@@ -1,8 +1,11 @@
-"""Data download API endpoints - Streaming implementation."""
+"""Data download API endpoints - True streaming implementation."""
 
-from typing import Optional, AsyncIterator
-from fastapi import APIRouter, Depends, Query, Path
+from typing import Optional, AsyncIterator, List
+from fastapi import APIRouter, Depends, Query, Path, HTTPException, status
 from fastapi.responses import StreamingResponse
+import json
+import io
+import csv
 
 from ..api.models import CurrentUser
 from ..core.authorization import get_current_user_info, require_dataset_read
@@ -14,13 +17,73 @@ from ..core.domain_exceptions import EntityNotFoundException
 router = APIRouter(prefix="/datasets", tags=["downloads"])
 
 
-async def stream_dataset_as_csv(
+def _get_raw_connection_from_uow(uow: PostgresUnitOfWork):
+    """Pragmatic helper to get the raw asyncpg pool.
+    
+    TODO: A cleaner long-term solution would be to add a method to 
+    PostgresUnitOfWork like `async def get_streaming_connection()` 
+    that returns a raw connection for streaming use cases.
+    """
+    # This is a bit of a hack, but necessary if the UoW hides the pool.
+    return uow._pool._pool if hasattr(uow._pool, '_pool') else uow._pool
+
+
+def _parse_db_row(db_row: dict) -> dict:
+    """Parse potentially nested and stringified JSON from the database."""
+    row_data = db_row['data']
+    if isinstance(row_data, str):
+        row_data = json.loads(row_data)
+    
+    # Standardized data is nested under a 'data' key
+    return row_data.get('data', row_data) if isinstance(row_data, dict) else row_data
+
+
+async def _get_schema_headers(
+    conn,
+    commit_id: str,
+    table_key: Optional[str] = None
+) -> Optional[List[str]]:
+    """Fetch the canonical column headers from the commit schema.
+    
+    Returns:
+        List of column names in order, or None if schema not found
+    """
+    schema_row = await conn.fetchval(
+        "SELECT schema_definition FROM dsa_core.commit_schemas WHERE commit_id = $1",
+        commit_id
+    )
+    
+    if not schema_row:
+        return None
+        
+    schema_def = json.loads(schema_row) if isinstance(schema_row, str) else schema_row
+    
+    # If looking for a specific table
+    if table_key and table_key in schema_def:
+        columns = schema_def[table_key].get('columns', [])
+        return [col['name'] for col in columns]
+    
+    # For full dataset download, we need to combine all tables' columns
+    # or use the first table if there's only one
+    if not table_key:
+        all_columns = []
+        for table_data in schema_def.values():
+            if isinstance(table_data, dict) and 'columns' in table_data:
+                for col in table_data['columns']:
+                    if col['name'] not in all_columns:
+                        all_columns.append(col['name'])
+        return all_columns if all_columns else None
+    
+    return None
+
+
+async def _stream_csv_generator(
     conn,
     commit_id: str,
     table_key: Optional[str] = None
 ) -> AsyncIterator[bytes]:
     """
-    Stream CSV data directly from database using server-side cursors.
+    CORRECTLY streams CSV data using a server-side cursor with stable headers from schema.
     
     Args:
         conn: Database connection
@@ -30,15 +93,6 @@ async def stream_dataset_as_csv(
     Yields:
         CSV data chunks as bytes
     """
-    import io
-    import csv
-    
-    # Get the raw connection if it's wrapped
-    if hasattr(conn, '_conn'):
-        conn = conn._conn
-    elif hasattr(conn, 'raw_connection'):
-        conn = conn.raw_connection
-    
     # Build query based on whether we're filtering by table
     if table_key:
         # Handle both formats: "table_key:hash" and "table_key_hash"
@@ -55,7 +109,11 @@ async def stream_dataset_as_csv(
             AND (cr.logical_row_id LIKE $2 OR r.data->>'sheet_name' = $3)
             ORDER BY cr.logical_row_id
         """
-        params = (commit_id, pattern, table_key)
+        # TODO: For better performance on large datasets, consider:
+        # 1. Ensure logical_row_id always starts with sheet/table name
+        # 2. Create a GIN index on r.data->>'sheet_name' if needed
+        # 3. Then simplify to just: WHERE cr.logical_row_id LIKE $2
+        params = [commit_id, pattern, table_key]
     else:
         # Get all data for the commit
         query = """
@@ -65,68 +123,85 @@ async def stream_dataset_as_csv(
             WHERE cr.commit_id = $1
             ORDER BY cr.logical_row_id
         """
-        params = (commit_id,)
+        params = [commit_id]
     
-    # Simple version without server-side cursors for debugging
-    try:
-        # Fetch all data (not ideal for large datasets, but let's test)
-        rows = await conn.fetch(query, *params)
+    # First, fetch the schema headers before starting the cursor
+    headers = await _get_schema_headers(conn, commit_id, table_key)
+    
+    if not headers:
+        # Fallback: if no schema found, we'll use headers from first row
+        # This handles legacy data or schema-less imports
+        headers = None
+        use_first_row_headers = True
+    else:
+        use_first_row_headers = False
+    
+    # THIS IS THE CRITICAL FIX: Use a transaction and a cursor
+    async with conn.transaction():
+        # Create cursor without prefetch - asyncpg will handle buffering
+        cursor = conn.cursor(query, *params)
         
-        if not rows:
-            yield b"No data found for this dataset/table\n"
-            return
-            
-        # Get first row to determine headers
-        first_row = rows[0]
-        
-        # Extract data from the row
-        row_data = first_row['data']
-        
-        # Handle different data structures
-        if isinstance(row_data, str):
-            # If data is a JSON string, parse it
-            import json
-            row_data = json.loads(row_data)
-        
-        if isinstance(row_data, dict) and 'data' in row_data:
-            # Handle nested data structure
-            actual_data = row_data['data']
-        else:
-            actual_data = row_data
-        
-        headers = list(actual_data.keys())
-        
-        # Setup CSV formatting with proper edge case handling
         output = io.StringIO()
         writer = csv.writer(output, quoting=csv.QUOTE_MINIMAL)
+        headers_written = False
         
-        # Write headers
-        writer.writerow(headers)
-        yield output.getvalue().encode('utf-8')
-        output.seek(0)
-        output.truncate(0)
-        
-        # Write all rows
-        for row in rows:
-            row_data = row['data']
+        async for db_row in cursor:
+            actual_data = _parse_db_row(db_row)
             
-            # Handle different data structures
-            if isinstance(row_data, str):
-                # If data is a JSON string, parse it
-                row_data = json.loads(row_data)
-            
-            if isinstance(row_data, dict) and 'data' in row_data:
-                actual_data = row_data['data']
-            else:
-                actual_data = row_data
+            if not headers_written:
+                if use_first_row_headers:
+                    # Fallback: use keys from first row
+                    headers = list(actual_data.keys())
                 
+                writer.writerow(headers)
+                yield output.getvalue().encode('utf-8')
+                output.seek(0)
+                output.truncate(0)
+                headers_written = True
+            
+            # Use the stable headers from schema (or first row fallback)
             writer.writerow([actual_data.get(h) for h in headers])
             yield output.getvalue().encode('utf-8')
             output.seek(0)
             output.truncate(0)
-            
-    except Exception as e:
-        yield f"Error during export: {str(e)}\n".encode('utf-8')
+        
+        if not headers_written:
+            # If we have headers from schema but no data
+            if headers:
+                writer.writerow(headers)
+                yield output.getvalue().encode('utf-8')
+            else:
+                yield b"No data found for this dataset/table\n"
+
+
+async def _create_streaming_download_response(
+    dataset: dict,
+    ref: dict,
+    uow: PostgresUnitOfWork,
+    table_key: Optional[str] = None
+) -> StreamingResponse:
+    """Helper to create the streaming response, removing code duplication.
+    
+    Note: Compression should be handled by FastAPI's GZipMiddleware at the
+    application level, which will automatically compress responses when the
+    client sends 'Accept-Encoding: gzip' header.
+    """
+    
+    async def generate_csv_stream():
+        pool = _get_raw_connection_from_uow(uow)
+        async with pool.acquire() as conn:
+            async for chunk in _stream_csv_generator(conn, ref['commit_id'], table_key):
+                yield chunk
+    
+    filename = f"{dataset['name']}.csv"
+    if table_key:
+        filename = f"{dataset['name']}_{table_key}.csv"
+    
+    return StreamingResponse(
+        generate_csv_stream(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
 
 
 @router.get("/{dataset_id}/refs/{ref_name}/download")
@@ -138,9 +213,12 @@ async def download_dataset(
     uow: PostgresUnitOfWork = Depends(get_uow),
     _: CurrentUser = Depends(require_dataset_read)
 ):
-    """Download entire dataset using streaming (low memory usage)."""
+    """Download entire dataset using true, memory-efficient streaming."""
     if format != "csv":
-        raise ValueError(f"Format {format} not yet supported. Only CSV is currently available.")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Format '{format}' not supported. Only 'csv' is currently available."
+        )
     
     # Get dataset and ref
     dataset = await uow.datasets.get_dataset_by_id(dataset_id)
@@ -151,26 +229,7 @@ async def download_dataset(
     if not ref:
         raise EntityNotFoundException("Ref", ref_name)
     
-    # Create streaming response
-    async def generate():
-        try:
-            # Get a dedicated connection for streaming
-            # We need to get the pool from somewhere accessible
-            pool = uow._pool._pool if hasattr(uow._pool, '_pool') else uow._pool
-            async with pool.acquire() as conn:
-                async for chunk in stream_dataset_as_csv(conn, ref['commit_id']):
-                    yield chunk
-        except Exception as e:
-            yield f"Error in generate: {str(e)}\n".encode('utf-8')
-    
-    # Return streaming response
-    return StreamingResponse(
-        generate(),
-        media_type="text/csv",
-        headers={
-            "Content-Disposition": f'attachment; filename="{dataset["name"]}.csv"'
-        }
-    )
+    return await _create_streaming_download_response(dataset, ref, uow)
 
 
 @router.get("/{dataset_id}/refs/{ref_name}/tables/{table_key}/download")
@@ -184,12 +243,18 @@ async def download_table(
     uow: PostgresUnitOfWork = Depends(get_uow),
     _: CurrentUser = Depends(require_dataset_read)
 ):
-    """Download specific table using streaming (low memory usage)."""
+    """Download specific table using true, memory-efficient streaming."""
     if format != "csv":
-        raise ValueError(f"Format {format} not yet supported. Only CSV is currently available.")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Format '{format}' not supported. Only 'csv' is currently available."
+        )
     
     if columns:
-        raise ValueError("Column selection not yet supported in streaming implementation")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Column selection not yet supported in streaming implementation"
+        )
     
     # Get dataset and ref
     dataset = await uow.datasets.get_dataset_by_id(dataset_id)
@@ -200,24 +265,5 @@ async def download_table(
     if not ref:
         raise EntityNotFoundException("Ref", ref_name)
     
-    # Create streaming response
-    async def generate():
-        try:
-            # Get a dedicated connection for streaming
-            # We need to get the pool from somewhere accessible
-            pool = uow._pool._pool if hasattr(uow._pool, '_pool') else uow._pool
-            async with pool.acquire() as conn:
-                async for chunk in stream_dataset_as_csv(conn, ref['commit_id'], table_key):
-                    yield chunk
-        except Exception as e:
-            yield f"Error in generate: {str(e)}\n".encode('utf-8')
-    
-    # Return streaming response
-    return StreamingResponse(
-        generate(),
-        media_type="text/csv",
-        headers={
-            "Content-Disposition": f'attachment; filename="{dataset["name"]}_{table_key}.csv"'
-        }
-    )
+    return await _create_streaming_download_response(dataset, ref, uow, table_key)
 

@@ -64,6 +64,7 @@ class SamplingService:
                 'table_key': command.table_key,
                 'create_output_commit': True,  # Always create output commit
                 'output_branch_name': command.output_branch_name,
+                'output_name': command.output_name,
                 'commit_message': command.commit_message,
                 'user_id': command.user_id,
                 'rounds': command.rounds,
@@ -129,6 +130,13 @@ class SamplingService:
         if not output_commit_id:
             raise HTTPException(status_code=400, detail=f"Job {job_id} has no output commit")
         
+        # Get the actual table key from the job output summary
+        # This is important because the output may use a different table key (output_name)
+        actual_table_key = output_summary.get('table_key')
+        if not actual_table_key:
+            # Fallback to the table_key parameter if not in output_summary
+            actual_table_key = table_key
+        
         # Check if this is a residual data request
         is_residual = table_key == "residual"
         if is_residual:
@@ -136,33 +144,35 @@ class SamplingService:
             if not residual_commit_id:
                 raise HTTPException(status_code=400, detail=f"Job {job_id} has no residual data")
             output_commit_id = residual_commit_id
+            # For residual, always use "primary" as table key
+            actual_table_key = "primary"
         
         if not self._table_reader:
             raise HTTPException(status_code=500, detail="Table reader not available")
         
-        # Get table row count
+        # Get table row count using the actual table key
         total_rows = await self._table_reader.count_table_rows(
-            output_commit_id, table_key if not is_residual else "primary"
+            output_commit_id, actual_table_key
         )
         
         if total_rows == 0:
             # Check if table exists by trying to get schema
             table_schema = await self._table_reader.get_table_schema(
-                output_commit_id, table_key if not is_residual else "primary"
+                output_commit_id, actual_table_key
             )
             if not table_schema:
-                raise HTTPException(status_code=404, detail=f"Table '{table_key}' not found in output")
+                raise HTTPException(status_code=404, detail=f"Table '{actual_table_key}' not found in output")
         
         # For CSV format, return a streaming response
         if format == "csv":
             return await self._generate_csv_response(
-                output_commit_id, table_key, columns, job_id
+                output_commit_id, actual_table_key, columns, job_id
             )
         
         # Get paginated data
         table_data = await self._table_reader.get_table_data(
             output_commit_id,
-            table_key if not is_residual else "primary",
+            actual_table_key,
             offset=offset,
             limit=limit
         )
@@ -182,7 +192,7 @@ class SamplingService:
             'job_id': job_id,
             'dataset_id': dataset_id,
             'commit_id': output_commit_id,
-            'table_key': table_key,
+            'table_key': actual_table_key,
             'data': table_data,
             'pagination': {
                 'total': total_rows,
@@ -192,7 +202,8 @@ class SamplingService:
             },
             'metadata': {
                 'sampling_summary': sampling_metadata,
-                'is_residual': is_residual
+                'is_residual': is_residual,
+                'original_table_key': table_key  # Include the requested table key for reference
             },
             'columns': list(table_data[0].keys()) if table_data else []
         }
