@@ -32,7 +32,7 @@ class DatabasePool:
     
     async def _init_connection(self, conn):
         """Initialize each connection with the proper search_path."""
-        await conn.execute("SET search_path TO dsa_core, dsa_jobs, dsa_auth, public")
+        await conn.execute("SET search_path TO dsa_core, dsa_jobs, dsa_auth, dsa_search, dsa_events, dsa_audit, dsa_staging")
     
     async def close(self):
         """Close all connections in the pool."""

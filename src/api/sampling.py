@@ -116,6 +116,7 @@ class CreateSamplingJobRequest(BaseModel):
     source_ref: str = Field("main", description="Source ref/branch name")
     table_key: str = Field("primary", description="Table to sample from")
     output_branch_name: Optional[str] = Field(None, description="Name for the output branch (defaults to commit ID)")
+    output_name: Optional[str] = Field(None, description="Name for the output table/sheet (used as table_key in the sampled commit)")
     commit_message: Optional[str] = Field(None, description="Message for output commit")
     rounds: List[SamplingRoundConfig] = Field(..., description="Sampling rounds to execute")
     export_residual: bool = Field(False, description="Export unsampled records")
@@ -171,6 +172,7 @@ async def create_sampling_job(
         source_ref=request.source_ref,
         table_key=request.table_key,
         output_branch_name=request.output_branch_name,  # Can be None
+        output_name=request.output_name,  # Can be None
         commit_message=request.commit_message or f"Sampled data from {request.source_ref}",
         rounds=rounds,
         export_residual=request.export_residual,

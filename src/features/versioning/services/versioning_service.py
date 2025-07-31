@@ -1,5 +1,6 @@
 """Consolidated service for all versioning operations including refs."""
 
+import json
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 
@@ -756,12 +757,19 @@ class VersioningService(PaginationMixin):
         
         # Get schema to count tables
         schema = await self._uow.commits.get_commit_schema(commit_id)
-        table_count = len(schema) if schema else 0
+        
+        # Parse schema if it's a string
+        if schema and isinstance(schema, str):
+            schema_dict = json.loads(schema)
+        else:
+            schema_dict = schema if schema else {}
+            
+        table_count = len(schema_dict)
         
         # Get total row count across all tables
         total_rows = 0
-        if schema:
-            for table_key in schema.keys():
+        if schema_dict:
+            for table_key in schema_dict.keys():
                 row_count = await self._uow.commits.get_commit_table_row_count(commit_id, table_key)
                 total_rows += row_count
         
@@ -782,7 +790,13 @@ class VersioningService(PaginationMixin):
             
             tables = []
             if ref_schema:
-                for table_key, table_schema in ref_schema.items():
+                # Parse schema if it's a string
+                if isinstance(ref_schema, str):
+                    ref_schema_dict = json.loads(ref_schema)
+                else:
+                    ref_schema_dict = ref_schema
+                    
+                for table_key, table_schema in ref_schema_dict.items():
                     # Get row count for this table
                     table_row_count = await self._uow.commits.get_commit_table_row_count(ref_commit_id, table_key)
                     tables.append({
