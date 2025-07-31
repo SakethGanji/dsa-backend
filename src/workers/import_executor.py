@@ -11,6 +11,7 @@ from uuid import UUID
 
 import aiofiles
 import openpyxl
+import pandas as pd
 import pyarrow.parquet as pq
 
 from src.workers.job_worker import JobExecutor
@@ -45,24 +46,26 @@ class ImportJobExecutor(JobExecutor):
         if isinstance(parameters, str):
             parameters = json.loads(parameters)
         
+        logger.info(f"Import job {job_id} - Parameters: {parameters}")
+        
         # Extract parameters
         temp_file_path = parameters.get('temp_file_path', parameters.get('file_path'))
         filename = parameters.get('filename', parameters.get('file_name'))
         commit_message = parameters['commit_message']
         target_ref = parameters.get('target_ref', parameters.get('branch_name', 'main'))
-        dataset_id = parameters['dataset_id']
-        user_id = parameters['user_id']
         file_size = os.path.getsize(temp_file_path) if os.path.exists(temp_file_path) else 0
         
         # Get job details from database
         async with db_pool.acquire() as conn:
             job = await conn.fetchrow(
-                "SELECT source_commit_id FROM dsa_jobs.analysis_runs WHERE id = $1",
+                "SELECT source_commit_id, dataset_id, user_id FROM dsa_jobs.analysis_runs WHERE id = $1",
                 UUID(job_id)
             )
             if not job:
                 raise ValueError(f"Job with ID {job_id} not found.")
             parent_commit_id = job['source_commit_id']
+            dataset_id = parameters.get('dataset_id', job['dataset_id'])
+            user_id = parameters.get('user_id', job['user_id'])
         
         try:
             # Publish job started event
@@ -82,14 +85,21 @@ class ImportJobExecutor(JobExecutor):
             )
             
             # Determine file type and process with appropriate method
+            logger.info(f"Import job {job_id} - Filename: {filename}")
             file_ext = os.path.splitext(filename)[1].lower()
+            logger.info(f"Import job {job_id} - File extension: '{file_ext}'")
             
             if file_ext == '.csv':
                 total_rows_processed = await self._process_csv_file(
                     commit_id, temp_file_path, job_id, file_size, db_pool
                 )
-            elif file_ext in ['.xlsx', '.xls']:
+            elif file_ext == '.xlsx':
                 total_rows_processed = await self._process_excel_file(
+                    commit_id, temp_file_path, job_id, db_pool
+                )
+            elif file_ext == '.xls':
+                # Use pandas for .xls files as openpyxl doesn't support them
+                total_rows_processed = await self._process_xls_file(
                     commit_id, temp_file_path, job_id, db_pool
                 )
             elif file_ext == '.parquet':
@@ -97,7 +107,7 @@ class ImportJobExecutor(JobExecutor):
                     commit_id, temp_file_path, job_id, db_pool
                 )
             else:
-                raise ValueError(f"Unsupported file format: {file_ext}")
+                raise ValueError(f"Unsupported file format: {file_ext}. Supported formats are: .csv, .xlsx, .xls, .parquet")
             
             # Update ref to point to new commit
             await self._update_ref(db_pool, dataset_id, target_ref, commit_id)
@@ -311,6 +321,63 @@ class ImportJobExecutor(JobExecutor):
         
         return total_rows_processed
     
+    async def _process_xls_file(
+        self, 
+        commit_id: str,
+        file_path: str, 
+        job_id: str, 
+        db_pool: DatabasePool
+    ) -> int:
+        """Process .xls file using pandas as openpyxl doesn't support it."""
+        
+        total_rows_processed = 0
+        
+        # Read all sheets from the .xls file
+        xls_file = pd.ExcelFile(file_path)
+        
+        for sheet_name in xls_file.sheet_names:
+            # Read sheet data
+            df = pd.read_excel(xls_file, sheet_name=sheet_name)
+            
+            # Convert DataFrame to list of dictionaries
+            batch = []
+            sheet_rows_processed = 0
+            
+            for idx, row in df.iterrows():
+                row_data = row.to_dict()
+                # Convert NaN values to None
+                row_data = {k: (v if pd.notna(v) else None) for k, v in row_data.items()}
+                
+                batch.append(row_data)
+                
+                if len(batch) >= self.batch_size:
+                    # Process and commit batch
+                    await self._process_and_commit_batch(
+                        batch, sheet_name, sheet_rows_processed, commit_id, db_pool
+                    )
+                    sheet_rows_processed += len(batch)
+                    total_rows_processed += len(batch)
+                    batch = []
+                    
+                    # Update progress
+                    await self._update_job_progress(
+                        job_id,
+                        {
+                            "status": f"Processing {sheet_name}: {sheet_rows_processed:,} rows",
+                            "rows_processed": total_rows_processed
+                        },
+                        db_pool
+                    )
+            
+            # Process remaining rows for this sheet
+            if batch:
+                await self._process_and_commit_batch(
+                    batch, sheet_name, sheet_rows_processed, commit_id, db_pool
+                )
+                total_rows_processed += len(batch)
+        
+        return total_rows_processed
+    
     async def _process_excel_file(
         self, 
         commit_id: str,
@@ -318,9 +385,46 @@ class ImportJobExecutor(JobExecutor):
         job_id: str, 
         db_pool: DatabasePool
     ) -> int:
-        """Process Excel file with streaming - no memory accumulation."""
-        # Open workbook in read-only mode for memory efficiency
-        wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+        """Process Excel (.xlsx) file with streaming - no memory accumulation."""
+        import logging
+        import shutil
+        logger = logging.getLogger(__name__)
+        
+        # Debug logging
+        logger.info(f"Processing Excel file: {file_path}")
+        logger.info(f"File exists: {os.path.exists(file_path)}")
+        logger.info(f"File size: {os.path.getsize(file_path) if os.path.exists(file_path) else 'N/A'}")
+        
+        # Check file header
+        if os.path.exists(file_path):
+            with open(file_path, 'rb') as f:
+                header = f.read(4)
+                logger.info(f"File header: {header.hex()}")
+        
+        # If the file doesn't have an extension, create a copy with .xlsx extension
+        # This is needed because openpyxl validates the file extension
+        temp_xlsx_path = None
+        if not file_path.endswith(('.xlsx', '.xlsm', '.xltx', '.xltm')):
+            temp_xlsx_path = file_path + '.xlsx'
+            shutil.copy2(file_path, temp_xlsx_path)
+            file_path = temp_xlsx_path
+            logger.info(f"Created temporary file with .xlsx extension: {temp_xlsx_path}")
+        
+        try:
+            # Open workbook in read-only mode for memory efficiency
+            wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+        except Exception as e:
+            logger.error(f"Error opening Excel file: {type(e).__name__}: {str(e)}")
+            # Clean up temporary file if we created one
+            if temp_xlsx_path and os.path.exists(temp_xlsx_path):
+                os.remove(temp_xlsx_path)
+            # Check if this might be an .xls file mistakenly sent here
+            if "not supported" in str(e).lower() or "not a zip file" in str(e).lower():
+                raise ValueError(
+                    f"Failed to open Excel file. This might be an .xls file (Excel 97-2003) "
+                    f"which requires a different format. Error: {str(e)}"
+                )
+            raise
         
         total_rows_processed = 0
         
@@ -374,6 +478,12 @@ class ImportJobExecutor(JobExecutor):
                 total_rows_processed += len(batch)
         
         wb.close()
+        
+        # Clean up temporary file if we created one
+        if temp_xlsx_path and os.path.exists(temp_xlsx_path):
+            os.remove(temp_xlsx_path)
+            logger.info(f"Cleaned up temporary file: {temp_xlsx_path}")
+        
         return total_rows_processed
     
     async def _process_parquet_file(
