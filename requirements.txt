@@ -237,6 +237,7 @@ wordcloud
 wrapt
 wsproto
 xmltodict
+xxhash
 yarg
 yarl
 ydata-profiling
