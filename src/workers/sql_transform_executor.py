@@ -68,7 +68,8 @@ class SqlTransformExecutor(JobExecutor):
             ref=parameters['target']['ref'],
             table_key=parameters['target']['table_key'],
             message=parameters['target']['message'],
-            output_branch_name=parameters['target'].get('output_branch_name')
+            output_branch_name=parameters['target'].get('output_branch_name'),
+            expected_head_commit_id=parameters['target'].get('expected_head_commit_id')
         )
         
         try:
