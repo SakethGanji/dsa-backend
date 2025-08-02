@@ -5,14 +5,17 @@ import json
 import hashlib
 import asyncio
 import csv
-from typing import Dict, Any, List, Optional
+import zipfile
+from typing import Dict, Any, List, Optional, AsyncIterator
 from datetime import datetime
 from uuid import UUID
 
 import aiofiles
+import aiofiles.os
 import openpyxl
-import pandas as pd
+import pyarrow as pa
 import pyarrow.parquet as pq
+from openpyxl.utils.exceptions import InvalidFileException
 
 from src.workers.job_worker import JobExecutor
 from src.infrastructure.postgres.database import DatabasePool
@@ -28,7 +31,6 @@ class ImportJobExecutor(JobExecutor):
     def __init__(self):
         self.settings = get_settings()
         self.batch_size = self.settings.import_batch_size
-        self.chunk_size = self.settings.import_chunk_size
     
     async def execute(self, job_id: str, parameters: Dict[str, Any], db_pool: DatabasePool) -> Dict[str, Any]:
         """Execute import job with streaming pipeline."""
@@ -51,9 +53,10 @@ class ImportJobExecutor(JobExecutor):
         # Extract parameters
         temp_file_path = parameters.get('temp_file_path', parameters.get('file_path'))
         filename = parameters.get('filename', parameters.get('file_name'))
-        commit_message = parameters['commit_message']
-        target_ref = parameters.get('target_ref', parameters.get('branch_name', 'main'))
-        file_size = os.path.getsize(temp_file_path) if os.path.exists(temp_file_path) else 0
+        
+        # Ensure temp_file_path exists before proceeding
+        if not await aiofiles.os.path.exists(temp_file_path):
+            raise FileNotFoundError(f"Temporary import file not found at path: {temp_file_path}")
         
         # Get job details from database
         async with db_pool.acquire() as conn:
@@ -77,29 +80,23 @@ class ImportJobExecutor(JobExecutor):
             ))
             
             # Update job progress - starting
-            await self._update_job_progress(job_id, {"status": "Parsing file", "percentage": 0}, db_pool)
+            await self._update_job_progress(job_id, {"status": "Starting import", "percentage": 0}, db_pool)
             
             # Create commit first
             commit_id = await self._create_commit(
-                db_pool, dataset_id, parent_commit_id, user_id, commit_message
+                db_pool, dataset_id, parent_commit_id, user_id, parameters['commit_message']
             )
             
             # Determine file type and process with appropriate method
-            logger.info(f"Import job {job_id} - Filename: {filename}")
+            logger.info(f"Import job {job_id} - Processing file '{filename}' with extension '{os.path.splitext(filename)[1].lower()}'")
             file_ext = os.path.splitext(filename)[1].lower()
-            logger.info(f"Import job {job_id} - File extension: '{file_ext}'")
             
             if file_ext == '.csv':
                 total_rows_processed = await self._process_csv_file(
-                    commit_id, temp_file_path, job_id, file_size, db_pool
+                    commit_id, temp_file_path, job_id, db_pool
                 )
             elif file_ext == '.xlsx':
                 total_rows_processed = await self._process_excel_file(
-                    commit_id, temp_file_path, job_id, db_pool
-                )
-            elif file_ext == '.xls':
-                # Use pandas for .xls files as openpyxl doesn't support them
-                total_rows_processed = await self._process_xls_file(
                     commit_id, temp_file_path, job_id, db_pool
                 )
             elif file_ext == '.parquet':
@@ -107,10 +104,10 @@ class ImportJobExecutor(JobExecutor):
                     commit_id, temp_file_path, job_id, db_pool
                 )
             else:
-                raise ValueError(f"Unsupported file format: {file_ext}. Supported formats are: .csv, .xlsx, .xls, .parquet")
+                raise ValueError(f"Unsupported file format: {file_ext}. Supported formats are: .csv, .xlsx, .parquet")
             
             # Update ref to point to new commit
-            await self._update_ref(db_pool, dataset_id, target_ref, commit_id)
+            await self._update_ref(db_pool, dataset_id, parameters.get('target_ref', 'main'), commit_id)
             
             # Analyze tables after import
             logger.info(f"Import job {job_id} - Analyzing imported tables")
@@ -120,10 +117,6 @@ class ImportJobExecutor(JobExecutor):
             logger.info(f"Import job {job_id} - Refreshing search index")
             async with db_pool.acquire() as conn:
                 await conn.execute("REFRESH MATERIALIZED VIEW CONCURRENTLY dsa_search.datasets_summary")
-            
-            # Clean up temp file
-            if os.path.exists(temp_file_path):
-                os.remove(temp_file_path)
             
             # Update final job status
             await self._update_job_progress(
@@ -152,8 +145,7 @@ class ImportJobExecutor(JobExecutor):
         except Exception as e:
             # Mark job as failed
             import traceback
-            logger.error(f"Import job {job_id} failed: {str(e)}")
-            logger.error(f"Full traceback:\n{traceback.format_exc()}")
+            logger.error(f"Import job {job_id} failed: {e}\n{traceback.format_exc()}")
             
             # Publish job failed event
             await event_bus.publish(JobFailedEvent(
@@ -163,16 +155,16 @@ class ImportJobExecutor(JobExecutor):
             ))
             
             async with db_pool.acquire() as conn:
-                await conn.execute("""
-                    UPDATE dsa_jobs.analysis_runs 
-                    SET status = 'failed', error_message = $2
-                    WHERE id = $1
-                """, UUID(job_id), str(e))
-            
-            # Clean up temp file on error
-            if os.path.exists(temp_file_path):
-                os.remove(temp_file_path)
+                await conn.execute(
+                    "UPDATE dsa_jobs.analysis_runs SET status = 'failed', error_message = $2 WHERE id = $1",
+                    UUID(job_id), str(e)
+                )
             raise
+        finally:
+            # IMPROVEMENT: Use a finally block to guarantee cleanup
+            if await aiofiles.os.path.exists(temp_file_path):
+                await aiofiles.os.remove(temp_file_path)
+                logger.info(f"Import job {job_id} - Cleaned up temp file: {temp_file_path}")
     
     async def _process_and_commit_batch(
         self, 
@@ -182,85 +174,44 @@ class ImportJobExecutor(JobExecutor):
         commit_id: str, 
         db_pool: DatabasePool
     ) -> None:
-        """
-        Process and immediately commit a batch to the database.
-        This is the key improvement - no accumulation in memory.
-        """
+        """Process and immediately commit a batch to the database."""
         if not batch:
             return
 
-        # Create temporary table name - use simple counter
-        import random
-        temp_table = f"temp_import_{random.randint(1000, 9999)}"
-        
         async with db_pool.acquire() as conn:
             async with conn.transaction():
-                # Create temp table that auto-drops
-                await conn.execute(f"""
-                    CREATE TEMP TABLE {temp_table} (
-                        logical_row_id TEXT,
-                        row_hash VARCHAR(64),
-                        data JSONB
-                    ) ON COMMIT DROP
-                """)
+                # Using a generator expression to build copy_data is more memory-efficient
+                def prepare_copy_data():
+                    for idx, row_data in enumerate(batch):
+                        data_json = json.dumps(row_data, sort_keys=True, separators=(',', ':'))
+                        data_hash = hashlib.sha256(data_json.encode()).hexdigest()
+                        logical_row_id = f"{sheet_name}:{data_hash}"
+                        
+                        row_to_store = {
+                            "sheet_name": sheet_name,
+                            "row_number": start_row_idx + idx + 2,  # 1-indexed, +1 for header
+                            "data": row_data
+                        }
+                        row_json = json.dumps(row_to_store)
+                        yield (logical_row_id, data_hash, row_json)
+
+                # Use COPY directly with pg_temp schema
+                await conn.copy_records_to_table(
+                    'dsa_core_temp_import_rows',
+                    records=list(prepare_copy_data()),
+                    columns=['logical_row_id', 'row_hash', 'data'],
+                    schema_name='pg_temp'
+                )
                 
-                # Prepare data for COPY
-                copy_data = []
-                for idx, row_data in enumerate(batch):
-                    # Calculate hash of data only (for both row_hash and logical_row_id)
-                    data_json = json.dumps(row_data, sort_keys=True, separators=(',', ':'))
-                    data_hash = hashlib.sha256(data_json.encode()).hexdigest()
-                    
-                    # Create logical row ID using the data hash
-                    logical_row_id = f"{sheet_name}:{data_hash}"
-                    
-                    # Create standardized row format for storage
-                    row = {
-                        "sheet_name": sheet_name,
-                        "row_number": start_row_idx + idx + 2,  # 1-indexed, +1 for header
-                        "data": row_data
-                    }
-                    row_json = json.dumps(row, sort_keys=True)
-                    
-                    # Use the data hash as the row_hash (content-addressable storage)
-                    row_hash = data_hash
-                    
-                    copy_data.append((logical_row_id, row_hash, row_json))
-                
-                # Use COPY to bulk insert into temp table
-                # Check if we have the method directly or need to use raw connection
-                if hasattr(conn, 'copy_records_to_table'):
-                    await conn.copy_records_to_table(
-                        temp_table,
-                        records=copy_data,
-                        columns=['logical_row_id', 'row_hash', 'data']
-                    )
-                elif hasattr(conn, 'raw_connection'):
-                    await conn.raw_connection.copy_records_to_table(
-                        temp_table,
-                        records=copy_data,
-                        columns=['logical_row_id', 'row_hash', 'data']
-                    )
-                else:
-                    # Fallback to executemany
-                    await conn.executemany(
-                        f"INSERT INTO {temp_table} (logical_row_id, row_hash, data) VALUES ($1, $2, $3)",
-                        copy_data
-                    )
-                
-                # Insert only new rows into dsa_core.rows
-                await conn.execute(f"""
+                await conn.execute("""
                     INSERT INTO dsa_core.rows (row_hash, data)
-                    SELECT DISTINCT t.row_hash, t.data::jsonb
-                    FROM {temp_table} t
-                    LEFT JOIN dsa_core.rows r ON t.row_hash = r.row_hash
-                    WHERE r.row_hash IS NULL
+                    SELECT t.row_hash, t.data::jsonb FROM pg_temp.dsa_core_temp_import_rows t
+                    ON CONFLICT (row_hash) DO NOTHING
                 """)
                 
-                # Insert commit_rows entries immediately - this is the key change
-                await conn.execute(f"""
+                await conn.execute("""
                     INSERT INTO dsa_core.commit_rows (commit_id, logical_row_id, row_hash)
-                    SELECT $1, logical_row_id, row_hash FROM {temp_table}
+                    SELECT $1, t.logical_row_id, t.row_hash FROM pg_temp.dsa_core_temp_import_rows t
                 """, commit_id)
     
     async def _process_csv_file(
@@ -268,115 +219,45 @@ class ImportJobExecutor(JobExecutor):
         commit_id: str,
         file_path: str, 
         job_id: str, 
-        file_size: int, 
         db_pool: DatabasePool
     ) -> int:
-        """Process CSV file with true streaming - no memory accumulation."""
+        """Process CSV file with true streaming, avoiding loading the whole file into memory."""
         sheet_name = 'primary'
         total_rows_processed = 0
         
-        async with aiofiles.open(file_path, mode='r', encoding='utf-8', newline='') as afp:
-            # Read the entire file content
-            content = await afp.read()
-            
-        # Process CSV content synchronously in chunks
-        lines = content.splitlines()
-        if not lines:
-            return 0
-            
-        # Parse CSV
-        reader = csv.DictReader(lines)
-        batch = []
-        
-        for row_data in reader:
-            batch.append(row_data)
-            
-            if len(batch) >= self.batch_size:
-                # Process and commit batch immediately
-                await self._process_and_commit_batch(
-                    batch, sheet_name, total_rows_processed, commit_id, db_pool
-                )
-                total_rows_processed += len(batch)
+        try:
+            async with aiofiles.open(file_path, mode='r', encoding='utf-8-sig', newline='') as afp:
+                # Get headers first
+                header_line = await afp.readline()
+                headers = next(csv.reader([header_line]))
+                
                 batch = []
+                # Process line by line without loading the whole file
+                async for line in afp:
+                    # Create a dict from headers and the current line's values
+                    row_data = dict(zip(headers, next(csv.reader([line]))))
+                    batch.append(row_data)
+
+                    if len(batch) >= self.batch_size:
+                        await self._process_and_commit_batch(batch, sheet_name, total_rows_processed, commit_id, db_pool)
+                        total_rows_processed += len(batch)
+                        batch = []
+                        
+                        await self._update_job_progress(
+                            job_id,
+                            {"status": f"Processing: {total_rows_processed:,} rows", "rows_processed": total_rows_processed},
+                            db_pool
+                        )
                 
-                # Update progress
-                percentage = min((total_rows_processed / len(lines) * 100), 99)
-                
-                await self._update_job_progress(
-                    job_id,
-                    {
-                        "status": f"Processing: {total_rows_processed:,} rows",
-                        "percentage": round(percentage, 2),
-                        "rows_processed": total_rows_processed
-                    },
-                    db_pool
-                )
-        
-        # Process remaining rows
-        if batch:
-            await self._process_and_commit_batch(
-                batch, sheet_name, total_rows_processed, commit_id, db_pool
-            )
-            total_rows_processed += len(batch)
-        
+                if batch:
+                    await self._process_and_commit_batch(batch, sheet_name, total_rows_processed, commit_id, db_pool)
+                    total_rows_processed += len(batch)
+
+        except (UnicodeDecodeError, csv.Error) as e:
+            raise ValueError(f"Failed to parse CSV file. Ensure it is a valid UTF-8 encoded CSV. Error: {e}")
+
         return total_rows_processed
     
-    async def _process_xls_file(
-        self, 
-        commit_id: str,
-        file_path: str, 
-        job_id: str, 
-        db_pool: DatabasePool
-    ) -> int:
-        """Process .xls file using pandas as openpyxl doesn't support it."""
-        
-        total_rows_processed = 0
-        
-        # Read all sheets from the .xls file
-        xls_file = pd.ExcelFile(file_path)
-        
-        for sheet_name in xls_file.sheet_names:
-            # Read sheet data
-            df = pd.read_excel(xls_file, sheet_name=sheet_name)
-            
-            # Convert DataFrame to list of dictionaries
-            batch = []
-            sheet_rows_processed = 0
-            
-            for idx, row in df.iterrows():
-                row_data = row.to_dict()
-                # Convert NaN values to None
-                row_data = {k: (v if pd.notna(v) else None) for k, v in row_data.items()}
-                
-                batch.append(row_data)
-                
-                if len(batch) >= self.batch_size:
-                    # Process and commit batch
-                    await self._process_and_commit_batch(
-                        batch, sheet_name, sheet_rows_processed, commit_id, db_pool
-                    )
-                    sheet_rows_processed += len(batch)
-                    total_rows_processed += len(batch)
-                    batch = []
-                    
-                    # Update progress
-                    await self._update_job_progress(
-                        job_id,
-                        {
-                            "status": f"Processing {sheet_name}: {sheet_rows_processed:,} rows",
-                            "rows_processed": total_rows_processed
-                        },
-                        db_pool
-                    )
-            
-            # Process remaining rows for this sheet
-            if batch:
-                await self._process_and_commit_batch(
-                    batch, sheet_name, sheet_rows_processed, commit_id, db_pool
-                )
-                total_rows_processed += len(batch)
-        
-        return total_rows_processed
     
     async def _process_excel_file(
         self, 
@@ -385,105 +266,58 @@ class ImportJobExecutor(JobExecutor):
         job_id: str, 
         db_pool: DatabasePool
     ) -> int:
-        """Process Excel (.xlsx) file with streaming - no memory accumulation."""
-        import logging
-        import shutil
-        logger = logging.getLogger(__name__)
+        """Process Excel (.xlsx) file using a thread to avoid blocking the event loop."""
         
-        # Debug logging
-        logger.info(f"Processing Excel file: {file_path}")
-        logger.info(f"File exists: {os.path.exists(file_path)}")
-        logger.info(f"File size: {os.path.getsize(file_path) if os.path.exists(file_path) else 'N/A'}")
-        
-        # Check file header
-        if os.path.exists(file_path):
-            with open(file_path, 'rb') as f:
-                header = f.read(4)
-                logger.info(f"File header: {header.hex()}")
-        
-        # If the file doesn't have an extension, create a copy with .xlsx extension
-        # This is needed because openpyxl validates the file extension
-        temp_xlsx_path = None
-        if not file_path.endswith(('.xlsx', '.xlsm', '.xltx', '.xltm')):
-            temp_xlsx_path = file_path + '.xlsx'
-            shutil.copy2(file_path, temp_xlsx_path)
-            file_path = temp_xlsx_path
-            logger.info(f"Created temporary file with .xlsx extension: {temp_xlsx_path}")
-        
-        try:
-            # Open workbook in read-only mode for memory efficiency
-            wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
-        except Exception as e:
-            logger.error(f"Error opening Excel file: {type(e).__name__}: {str(e)}")
-            # Clean up temporary file if we created one
-            if temp_xlsx_path and os.path.exists(temp_xlsx_path):
-                os.remove(temp_xlsx_path)
-            # Check if this might be an .xls file mistakenly sent here
-            if "not supported" in str(e).lower() or "not a zip file" in str(e).lower():
-                raise ValueError(
-                    f"Failed to open Excel file. This might be an .xls file (Excel 97-2003) "
-                    f"which requires a different format. Error: {str(e)}"
-                )
-            raise
-        
-        total_rows_processed = 0
-        
-        for sheet_name in wb.sheetnames:
-            sheet = wb[sheet_name]
-            rows_iter = sheet.iter_rows(min_row=1)
-            
-            # Get headers
+        def blocking_excel_read():
+            """Synchronous function to run in a separate thread."""
             try:
-                headers = [cell.value for cell in next(rows_iter)]
-            except StopIteration:
-                continue  # Skip empty sheet
-            
-            batch = []
-            sheet_rows_processed = 0
-            
-            for row in rows_iter:
-                # Convert row to dictionary
-                row_data = {
-                    headers[i]: cell.value
-                    for i, cell in enumerate(row)
-                    if i < len(headers)
-                }
+                wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+            except (InvalidFileException, zipfile.BadZipFile) as e:
+                raise ValueError(f"Failed to open Excel file. It may be corrupt or an unsupported format (e.g., .xls instead of .xlsx). Error: {e}")
+
+            # This generator yields batches to the async part of the code
+            for sheet_name in wb.sheetnames:
+                sheet = wb[sheet_name]
+                rows_iter = sheet.iter_rows()
                 
-                batch.append(row_data)
+                try:
+                    headers = [cell.value for cell in next(rows_iter)]
+                except StopIteration:
+                    continue  # Skip empty sheet
                 
-                if len(batch) >= self.batch_size:
-                    # Process and commit batch immediately
-                    await self._process_and_commit_batch(
-                        batch, sheet_name, sheet_rows_processed, commit_id, db_pool
-                    )
-                    sheet_rows_processed += len(batch)
-                    total_rows_processed += len(batch)
-                    batch = []
+                batch = []
+                sheet_row_count = 0  # Track rows per sheet, not globally
+                
+                for row in rows_iter:
+                    row_data = {headers[i]: cell.value for i, cell in enumerate(row) if i < len(headers)}
+                    batch.append(row_data)
                     
-                    # Update progress
-                    await self._update_job_progress(
-                        job_id,
-                        {
-                            "status": f"Processing {sheet_name}: {sheet_rows_processed:,} rows",
-                            "rows_processed": total_rows_processed
-                        },
-                        db_pool
-                    )
+                    if len(batch) >= self.batch_size:
+                        yield batch, sheet_name, sheet_row_count
+                        sheet_row_count += len(batch)
+                        batch = []
+                
+                if batch:
+                    yield batch, sheet_name, sheet_row_count
+                    # No need to update sheet_row_count here since we're done with the sheet
             
-            # Process remaining rows for this sheet
-            if batch:
-                await self._process_and_commit_batch(
-                    batch, sheet_name, sheet_rows_processed, commit_id, db_pool
-                )
-                total_rows_processed += len(batch)
-        
-        wb.close()
-        
-        # Clean up temporary file if we created one
-        if temp_xlsx_path and os.path.exists(temp_xlsx_path):
-            os.remove(temp_xlsx_path)
-            logger.info(f"Cleaned up temporary file: {temp_xlsx_path}")
-        
+            wb.close()
+
+        total_rows_processed = 0
+        # Run the blocking generator in a thread pool
+        loop = asyncio.get_running_loop()
+        blocking_iterator = await loop.run_in_executor(None, blocking_excel_read)
+
+        for batch, sheet_name, sheet_start_index in blocking_iterator:
+            await self._process_and_commit_batch(batch, sheet_name, sheet_start_index, commit_id, db_pool)
+            total_rows_processed += len(batch)
+            
+            await self._update_job_progress(
+                job_id,
+                {"status": f"Processing {sheet_name}: {total_rows_processed:,} total rows", "rows_processed": total_rows_processed},
+                db_pool
+            )
+
         return total_rows_processed
     
     async def _process_parquet_file(
@@ -493,28 +327,30 @@ class ImportJobExecutor(JobExecutor):
         job_id: str, 
         db_pool: DatabasePool
     ) -> int:
-        """Process Parquet file with streaming."""
+        """Process Parquet file using a thread to avoid blocking CPU-bound conversion."""
         sheet_name = 'primary'
         total_rows_processed = 0
+
+        def blocking_parquet_read():
+            """Process Parquet file in a thread to avoid blocking the event loop."""
+            parquet_file = pq.ParquetFile(file_path)
+            # Instead of to_pylist(), convert to pandas for more efficient processing
+            for batch in parquet_file.iter_batches(batch_size=self.batch_size):
+                # Convert Arrow batch to pandas DataFrame for efficient columnar processing
+                df = batch.to_pandas()
+                # Convert to list of dicts more efficiently than to_pylist()
+                yield df.to_dict('records')
+
+        loop = asyncio.get_running_loop()
+        blocking_iterator = await loop.run_in_executor(None, blocking_parquet_read)
         
-        parquet_file = pq.ParquetFile(file_path)
-        
-        # Process file in batches
-        for batch_data in parquet_file.iter_batches(batch_size=self.batch_size):
-            batch = batch_data.to_pylist()
-            
-            await self._process_and_commit_batch(
-                batch, sheet_name, total_rows_processed, commit_id, db_pool
-            )
+        for batch in blocking_iterator:
+            await self._process_and_commit_batch(batch, sheet_name, total_rows_processed, commit_id, db_pool)
             total_rows_processed += len(batch)
             
-            # Update progress
             await self._update_job_progress(
                 job_id,
-                {
-                    "status": f"Processing: {total_rows_processed:,} rows",
-                    "rows_processed": total_rows_processed
-                },
+                {"status": f"Processing: {total_rows_processed:,} rows", "rows_processed": total_rows_processed},
                 db_pool
             )
         
@@ -526,18 +362,14 @@ class ImportJobExecutor(JobExecutor):
     ) -> str:
         """Create a new commit."""
         import uuid
-        # Generate a 64-character commit ID by padding with zeros
-        timestamp_uuid = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex}"
-        commit_id = timestamp_uuid[:64].ljust(64, '0')
-        
+        # Use standard UUID v4 for guaranteed uniqueness
+        commit_id = uuid.uuid4().hex
         async with db_pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO dsa_core.commits 
-                    (commit_id, dataset_id, parent_commit_id, author_id, message,
-                     authored_at, committed_at)
-                VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-            """, commit_id, dataset_id, parent_commit_id, user_id, message)
-        
+            await conn.execute(
+                "INSERT INTO dsa_core.commits (commit_id, dataset_id, parent_commit_id, author_id, message, authored_at, committed_at) "
+                "VALUES ($1, $2, $3, $4, $5, NOW(), NOW())",
+                commit_id, dataset_id, parent_commit_id, user_id, message
+            )
         return commit_id
     
     async def _update_ref(
@@ -545,22 +377,25 @@ class ImportJobExecutor(JobExecutor):
     ) -> None:
         """Update reference to point to new commit."""
         async with db_pool.acquire() as conn:
+            # Using ON CONFLICT makes this operation idempotent - it can create or update the ref
             await conn.execute("""
-                UPDATE dsa_core.refs 
-                SET commit_id = $1
-                WHERE dataset_id = $2 AND name = $3
-            """, commit_id, dataset_id, ref_name)
+                INSERT INTO dsa_core.refs (dataset_id, name, commit_id)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (dataset_id, name) DO UPDATE 
+                SET commit_id = $3
+            """, dataset_id, ref_name, commit_id)
     
     async def _update_job_progress(
         self, job_id: str, progress_info: Dict[str, Any], db_pool: DatabasePool
     ) -> None:
         """Update job progress in analysis_runs table."""
         async with db_pool.acquire() as conn:
-            await conn.execute("""
-                UPDATE dsa_jobs.analysis_runs 
-                SET run_parameters = run_parameters || jsonb_build_object('progress', $1::jsonb)
-                WHERE id = $2
-            """, json.dumps(progress_info), UUID(job_id))
+            await conn.execute(
+                "UPDATE dsa_jobs.analysis_runs "
+                "SET run_parameters = jsonb_set(run_parameters, '{progress}', $1::jsonb, true) "
+                "WHERE id = $2",
+                json.dumps(progress_info), UUID(job_id)
+            )
     
     async def _analyze_imported_tables(self, commit_id: str, db_pool: DatabasePool) -> None:
         """Analyze imported tables and store schema/statistics."""
@@ -595,12 +430,8 @@ class ImportJobExecutor(JobExecutor):
                 unique_values = {}
                 
                 for row in sample_rows:
+                    # The data column in dsa_core.rows should be jsonb, so no need for json.loads
                     data = row['data']
-                    
-                    # Handle different data structures
-                    if isinstance(data, str):
-                        # Data is JSON string, need to parse it
-                        data = json.loads(data)
                     
                     # All data follows the standardized format
                     if not isinstance(data, dict) or 'data' not in data:
@@ -614,31 +445,42 @@ class ImportJobExecutor(JobExecutor):
                         continue
                     
                     for col, value in row_data.items():
-                        if col not in ['sheet_name', 'row_number']:
-                            all_columns.add(col)
+                        all_columns.add(col)
+                        
+                        # Track nulls
+                        if col not in null_counts:
+                            null_counts[col] = 0
+                        if value is None:
+                            null_counts[col] += 1
+                        
+                        # Track unique values
+                        if col not in unique_values:
+                            unique_values[col] = set()
+                        if value is not None and len(unique_values[col]) < 100:
+                            unique_values[col].add(str(value))
+                        
+                        # Improved type inference - check all values, not just the first
+                        if value is not None:
+                            current_type = column_types.get(col, None)
+                            value_type = None
                             
-                            # Track nulls
-                            if col not in null_counts:
-                                null_counts[col] = 0
-                            if value is None:
-                                null_counts[col] += 1
+                            if isinstance(value, bool):
+                                value_type = 'boolean'
+                            elif isinstance(value, int):
+                                value_type = 'integer'
+                            elif isinstance(value, float):
+                                value_type = 'float'
+                            else:
+                                value_type = 'string'
                             
-                            # Track unique values
-                            if col not in unique_values:
-                                unique_values[col] = set()
-                            if value is not None and len(unique_values[col]) < 100:
-                                unique_values[col].add(str(value))
-                            
-                            # Infer type
-                            if col not in column_types and value is not None:
-                                if isinstance(value, bool):
-                                    column_types[col] = 'boolean'
-                                elif isinstance(value, int):
-                                    column_types[col] = 'integer'
-                                elif isinstance(value, float):
-                                    column_types[col] = 'float'
-                                else:
-                                    column_types[col] = 'string'
+                            # Type promotion logic
+                            if current_type is None:
+                                column_types[col] = value_type
+                            elif current_type != value_type:
+                                # Promote types: boolean < integer < float < string
+                                type_hierarchy = {'boolean': 0, 'integer': 1, 'float': 2, 'string': 3}
+                                if type_hierarchy.get(value_type, 3) > type_hierarchy.get(current_type, 3):
+                                    column_types[col] = value_type
                 
                 # Get total row count
                 count_result = await conn.fetchrow("""
