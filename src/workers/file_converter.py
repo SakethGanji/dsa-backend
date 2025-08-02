@@ -3,6 +3,7 @@
 import os
 import json
 import time
+import zipfile
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Any
 import tempfile
@@ -38,7 +39,8 @@ class FileConverter:
         start_time = time.time()
         source_path = Path(source_path)
         output_dir = Path(output_dir)
-        file_ext = source_path.suffix.lower()
+        # Use original filename for extension detection, not temp file
+        file_ext = Path(original_filename).suffix.lower()
         
         # Ensure output directory exists
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -183,16 +185,14 @@ class FileConverter:
         conversion_errors = []
         
         try:
-            # Read all sheets at once using Polars
-            # This is more efficient than opening/closing the file multiple times
-            all_sheets = pl.read_excel(
-                source_path, 
-                sheet_id=None,  # None means read all sheets
-                read_csv_options={'infer_schema_length': 10000}
-            )
+            # Get sheet names first
+            import pandas as pd
+            xl_file = pd.ExcelFile(source_path)
+            sheet_names = xl_file.sheet_names
+            xl_file.close()
             
             # Process each sheet
-            for sheet_name, df in all_sheets.items():
+            for sheet_name in sheet_names:
                 if sheet_name in completed_tables:
                     # Check if file exists from previous run
                     safe_name = self._sanitize_filename(sheet_name)
@@ -202,6 +202,9 @@ class FileConverter:
                         continue
                 
                 try:
+                    # Read single sheet using Polars
+                    df = pl.read_excel(source_path, sheet_name=sheet_name)
+                    
                     if df.is_empty():
                         continue
                     

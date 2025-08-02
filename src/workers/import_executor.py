@@ -3,7 +3,7 @@
 import os
 import json
 import asyncio
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 from uuid import UUID
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -61,6 +61,10 @@ class ImportJobExecutor(JobExecutor):
         
         if not await aiofiles.os.path.exists(temp_file_path):
             raise FileNotFoundError(f"Import file not found: {temp_file_path}")
+        
+        # Ensure filename is available for proper extension detection
+        if not filename:
+            raise ValueError("Filename is required for file type detection")
         
         # Get job details
         async with db_pool.acquire() as conn:
@@ -225,6 +229,19 @@ class ImportJobExecutor(JobExecutor):
         else:
             import hashlib
             return hashlib.sha256(data).hexdigest()
+    
+    def _convert_datetimes(self, obj: Any) -> Any:
+        """Recursively convert datetime objects to ISO format strings."""
+        from datetime import datetime, date
+        
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        elif isinstance(obj, dict):
+            return {k: self._convert_datetimes(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self._convert_datetimes(item) for item in obj]
+        else:
+            return obj
     
     async def _process_parquet_file(
         self,
@@ -402,6 +419,8 @@ class ImportJobExecutor(JobExecutor):
         # Prepare parameters
         params = []
         for line_number, row_data in batch:
+            # Convert datetime objects to ISO format strings
+            row_data = self._convert_datetimes(row_data)
             data_json = json.dumps(row_data, sort_keys=True, separators=(',', ':'))
             data_hash = self._calculate_hash(data_json.encode('utf-8'))
             logical_row_id = f"{table_key}:{line_number}"
@@ -457,8 +476,8 @@ class ImportJobExecutor(JobExecutor):
             await conn.execute(
                 "INSERT INTO dsa_core.commits "
                 "(commit_id, dataset_id, parent_commit_id, author_id, message, authored_at, committed_at) "
-                "VALUES ($1, $2, $3, $4, $5, $6, $6)",
-                commit_id, dataset_id, parent_commit_id, user_id, message, timestamp
+                "VALUES ($1, $2, $3, $4, $5, NOW(), NOW())",
+                commit_id, dataset_id, parent_commit_id, user_id, message
             )
         return commit_id
     
@@ -636,6 +655,7 @@ def _process_parquet_worker(
     import psycopg
     import logging
     import pyarrow.parquet as pq
+    from datetime import datetime, date
     
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(f"worker_{worker_id}")
@@ -645,6 +665,17 @@ def _process_parquet_worker(
             return xxhash.xxh64(data, seed=xxhash_seed).hexdigest()
         else:
             return hashlib.sha256(data).hexdigest()
+    
+    def convert_datetimes_worker(obj):
+        """Convert datetime objects to ISO strings."""
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        elif isinstance(obj, dict):
+            return {k: convert_datetimes_worker(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [convert_datetimes_worker(item) for item in obj]
+        else:
+            return obj
     
     try:
         # Open Parquet file and read specific row groups
@@ -680,6 +711,8 @@ def _process_parquet_worker(
                 batch_data = []
                 for row in df_batch.iter_rows(named=True):
                     logical_row_id = f"{table_key}:{current_line}"
+                    # Convert datetime objects to strings
+                    row = convert_datetimes_worker(row)
                     data_json = json.dumps(row, sort_keys=True, separators=(',', ':'))
                     data_hash = calculate_hash(data_json.encode('utf-8'))
                     
@@ -713,6 +746,8 @@ def _commit_batch_worker(conn, batch: List[Tuple[str, str, str]], commit_id: str
     
     buffer = io.StringIO()
     for logical_row_id, row_hash, data_json in batch:
+        # Escape tabs and newlines in JSON to avoid COPY issues
+        data_json = data_json.replace('\\', '\\\\').replace('\t', '\\t').replace('\n', '\\n').replace('\r', '\\r')
         buffer.write(f"{logical_row_id}\t{row_hash}\t{data_json}\n")
     
     buffer.seek(0)
