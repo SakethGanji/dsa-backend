@@ -32,16 +32,15 @@ The DSA sampling system provides:
 POST /api/sampling/datasets/{dataset_id}/jobs
 ```
 
-Creates a multi-round sampling job with optional residual export.
+Creates a multi-round sampling job with optional residual export. The system creates a single commit containing both sampled and residual data.
 
 **Request Body:**
 ```json
 {
   "source_ref": "main",
   "table_key": "primary",
-  "output_branch_name": "sample_v1",
-  "output_name": "sampled_data",
-  "commit_message": "Sampled data from main branch",
+  "output_name": "customer_analysis",
+  "commit_message": "Sampled customer data from main branch",
   "rounds": [
     {
       "round_number": 1,
@@ -61,10 +60,14 @@ Creates a multi-round sampling job with optional residual export.
       }
     }
   ],
-  "export_residual": true,
-  "residual_output_name": "unsampled_data"
+  "export_residual": true
 }
 ```
+
+**Notes:**
+- `output_name` becomes the branch name with "smpl-" prefix (e.g., "smpl-customer_analysis")
+- The commit contains two tables: "sample" (sampled data) and "residual" (unsampled data)
+- `output_branch_name` and `residual_output_name` are deprecated
 
 **Response:**
 ```json
@@ -219,14 +222,22 @@ Returns available sampling methods with their parameter schemas.
 GET /api/sampling/jobs/{job_id}/data
 ```
 
-Retrieves sampled data in JSON or CSV format.
+Retrieves sampled or residual data in JSON or CSV format.
 
 **Query Parameters:**
 - `format`: "json" (default) or "csv"
-- `table_key`: Table identifier (default: "primary", use "residual" for residual data)
+- `table_key`: "sample" (default) or "residual" for residual data
 - `offset`: Pagination offset (default: 0)
 - `limit`: Items per page (default: 100, max: 1000)
 - `columns`: Comma-separated column names to include
+
+**Alternative Access via Branch:**
+```
+GET /api/datasets/{dataset_id}/refs/smpl-{output_name}/tables/{table_key}/data
+```
+Where:
+- `{output_name}` is from your sampling job request
+- `{table_key}` is either "sample" or "residual"
 
 **Response (JSON):**
 ```json
@@ -234,7 +245,7 @@ Retrieves sampled data in JSON or CSV format.
   "job_id": "550e8400-e29b-41d4-a716-446655440000",
   "dataset_id": 123,
   "commit_id": "commit_abc123",
-  "table_key": "adults_nyc",
+  "table_key": "sample",
   "data": [
     {
       "id": 1,
@@ -257,7 +268,7 @@ Retrieves sampled data in JSON or CSV format.
       "methods_used": ["random"]
     },
     "is_residual": false,
-    "original_table_key": "primary",
+    "original_table_key": "sample",
     "round_details": [
       {
         "round_number": 1,
@@ -269,7 +280,7 @@ Retrieves sampled data in JSON or CSV format.
     "residual_info": {
       "has_residual": true,
       "residual_count": 5000,
-      "residual_commit_id": "commit_def456"
+      "table_key": "residual"
     }
   },
   "columns": ["id", "name", "age", "city", "_logical_row_id"]
@@ -304,7 +315,7 @@ GET /api/sampling/datasets/{dataset_id}/history
       "completed_at": "2025-01-02T10:05:00Z",
       "user_id": 456,
       "source_ref": "main",
-      "output_branch_name": "sample_v1",
+      "output_branch_name": "smpl-customer_analysis",
       "rounds": 2,
       "total_sampled": 15000,
       "has_residual": true
@@ -347,7 +358,7 @@ GET /api/sampling/users/{user_id}/history
       "created_at": "2025-01-02T10:00:00Z",
       "completed_at": "2025-01-02T10:05:00Z",
       "source_ref": "main",
-      "output_branch_name": "sample_v1",
+      "output_branch_name": "smpl-customer_analysis",
       "rounds": 2,
       "total_sampled": 15000,
       "has_residual": true
@@ -501,7 +512,7 @@ Multi-round sampling allows sequential sampling with different methods and filte
 {
   "source_ref": "main",
   "table_key": "primary",
-  "output_branch_name": "multi_round_sample",
+  "output_name": "multi_round_analysis",
   "commit_message": "Multi-round sampling with residual export",
   "rounds": [
     {
@@ -539,33 +550,39 @@ Multi-round sampling allows sequential sampling with different methods and filte
       "output_name": "department_sample"
     }
   ],
-  "export_residual": true,
-  "residual_output_name": "unsampled_records"
+  "export_residual": true
 }
 ```
 
+**Result:**
+- Branch: `smpl-multi_round_analysis`
+- Tables: `sample` (combined results from all rounds), `residual` (unsampled data)
+
 ## Residual Datasets
 
-Residual datasets contain all rows not selected in any sampling round.
+Residual datasets contain all rows not selected in any sampling round and are stored in the same commit as the sampled data.
 
 ### Enabling Residual Export
 
-Set `export_residual: true` and provide `residual_output_name` in your request:
+Simply set `export_residual: true` in your request:
 
 ```json
 {
   "rounds": [...],
-  "export_residual": true,
-  "residual_output_name": "unsampled_data"
+  "export_residual": true
 }
 ```
 
 ### Accessing Residual Data
 
-Use the same data retrieval endpoint with `table_key="residual"`:
-
+Option 1 - Via job endpoint:
 ```
 GET /api/sampling/jobs/{job_id}/data?table_key=residual
+```
+
+Option 2 - Via branch endpoint:
+```
+GET /api/datasets/{dataset_id}/refs/smpl-{output_name}/tables/residual/data
 ```
 
 ### Use Cases
@@ -663,7 +680,7 @@ Sample different customer segments with specific proportions:
 {
   "source_ref": "main",
   "table_key": "primary",
-  "output_branch_name": "customer_segments_sample",
+  "output_name": "customer_segments",
   "commit_message": "Customer segmentation sampling analysis",
   "rounds": [
     {
@@ -696,10 +713,13 @@ Sample different customer segments with specific proportions:
       }
     }
   ],
-  "export_residual": true,
-  "residual_output_name": "unsampled_customers"
+  "export_residual": true
 }
 ```
+
+**Access:**
+- Sampled data: `/api/datasets/{id}/refs/smpl-customer_segments/tables/sample/data`
+- Residual data: `/api/datasets/{id}/refs/smpl-customer_segments/tables/residual/data`
 
 ### Example 2: Time-Based Systematic Sampling
 
@@ -709,7 +729,7 @@ Sample records at regular intervals over time:
 {
   "source_ref": "main",
   "table_key": "primary",
-  "output_branch_name": "time_series_sample",
+  "output_name": "time_series",
   "commit_message": "Time series systematic sampling",
   "rounds": [
     {
@@ -740,7 +760,7 @@ Sample stores and then customers within selected stores:
 {
   "source_ref": "main",
   "table_key": "primary",
-  "output_branch_name": "store_customer_sample",
+  "output_name": "store_customers",
   "commit_message": "Hierarchical cluster sampling of retail stores",
   "rounds": [
     {

@@ -596,14 +596,8 @@ class VersioningService(PaginationMixin):
         # Extract table information
         tables = []
         for table_key, table_schema in schema.items():
-            if isinstance(table_schema, dict) and 'fields' in table_schema:
-                row_count = await self._uow.commits.get_commit_table_row_count(commit_id, table_key)
-                tables.append({
-                    'table_key': table_key,
-                    'row_count': row_count,
-                    'column_count': len(table_schema['fields']),
-                    'columns': [field['name'] for field in table_schema['fields']]
-                })
+            if isinstance(table_schema, dict) and ('fields' in table_schema or 'columns' in table_schema):
+                tables.append(table_key)
         
         return {'tables': tables}
     

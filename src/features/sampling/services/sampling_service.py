@@ -130,22 +130,22 @@ class SamplingService:
         if not output_commit_id:
             raise HTTPException(status_code=400, detail=f"Job {job_id} has no output commit")
         
-        # Get the actual table key from the job output summary
-        # This is important because the output may use a different table key (output_name)
-        actual_table_key = output_summary.get('table_key')
-        if not actual_table_key:
-            # Fallback to the table_key parameter if not in output_summary
-            actual_table_key = table_key
-        
-        # Check if this is a residual data request
-        is_residual = table_key == "residual"
-        if is_residual:
-            residual_commit_id = output_summary.get('residual_commit_id')
-            if not residual_commit_id:
+        # With the new structure, we use fixed table keys: 'sample' and 'residual'
+        # Map the requested table_key parameter to the actual table key
+        if table_key in ["primary", "sample"]:
+            actual_table_key = "sample"
+            is_residual = False
+        elif table_key == "residual":
+            actual_table_key = "residual"
+            is_residual = True
+            # Check if residual data exists
+            residual_count = output_summary.get('residual_count', 0)
+            if residual_count == 0:
                 raise HTTPException(status_code=400, detail=f"Job {job_id} has no residual data")
-            output_commit_id = residual_commit_id
-            # For residual, always use "primary" as table key
-            actual_table_key = "primary"
+        else:
+            # For backward compatibility, default to 'sample'
+            actual_table_key = "sample"
+            is_residual = False
         
         if not self._table_reader:
             raise HTTPException(status_code=500, detail="Table reader not available")
@@ -213,11 +213,11 @@ class SamplingService:
             response['metadata']['round_details'] = sampling_metadata['round_details']
         
         # Add residual info if this is the main sample
-        if not is_residual and output_summary.get('residual_commit_id'):
+        if not is_residual and output_summary.get('residual_count', 0) > 0:
             response['metadata']['residual_info'] = {
                 'has_residual': True,
                 'residual_count': output_summary.get('residual_count', 0),
-                'residual_commit_id': output_summary['residual_commit_id']
+                'table_key': 'residual'  # Now in the same commit
             }
         
         return response

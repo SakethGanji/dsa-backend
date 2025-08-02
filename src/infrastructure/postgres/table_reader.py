@@ -105,11 +105,11 @@ class PostgresTableReader:
                 FROM dsa_core.commit_rows cr
                 JOIN dsa_core.rows r ON cr.row_hash = r.row_hash
                 WHERE cr.commit_id = $1 
-                AND (cr.logical_row_id LIKE $2 OR r.data->>'sheet_name' = $3)
+                AND cr.logical_row_id LIKE $2
                 ORDER BY cr.logical_row_id
-                OFFSET $4
+                OFFSET $3
             """
-            rows = await self._conn.fetch(query, commit_id, pattern, table_key, offset)
+            rows = await self._conn.fetch(query, commit_id, pattern, offset)
         else:
             # Get paginated rows
             query = """
@@ -117,11 +117,11 @@ class PostgresTableReader:
                 FROM dsa_core.commit_rows cr
                 JOIN dsa_core.rows r ON cr.row_hash = r.row_hash
                 WHERE cr.commit_id = $1 
-                AND (cr.logical_row_id LIKE $2 OR r.data->>'sheet_name' = $3)
+                AND cr.logical_row_id LIKE $2
                 ORDER BY cr.logical_row_id
-                OFFSET $4 LIMIT $5
+                OFFSET $3 LIMIT $4
             """
-            rows = await self._conn.fetch(query, commit_id, pattern, table_key, offset, limit)
+            rows = await self._conn.fetch(query, commit_id, pattern, offset, limit)
         
         # Parse data and include row index
         result = []
@@ -131,13 +131,17 @@ class PostgresTableReader:
             if isinstance(data, str):
                 data = json.loads(data)
             
-            # All data follows the standardized format:
-            # { "sheet_name": "...", "row_number": N, "data": {...} }
-            if 'data' not in data or not isinstance(data['data'], dict):
-                raise ValueError(f"Invalid data format - expected standardized format with 'data' field")
+            # Handle both standardized and raw formats
+            if isinstance(data, dict) and 'sheet_name' in data and 'data' in data:
+                # Standardized format: { "sheet_name": "...", "row_number": N, "data": {...} }
+                actual_data = data['data']
+            else:
+                # Raw format: direct data object
+                actual_data = data
             
-            # Extract the actual data from the standardized structure
-            actual_data = data['data']
+            # Ensure actual_data is a dict
+            if not isinstance(actual_data, dict):
+                raise ValueError(f"Invalid data format - expected dict but got {type(actual_data)}")
             
             result.append({
                 '_logical_row_id': row['logical_row_id'],
@@ -180,9 +184,17 @@ class PostgresTableReader:
                 if isinstance(data, str):
                     data = json.loads(data)
                 
+                # Handle both standardized and raw formats
+                if isinstance(data, dict) and 'sheet_name' in data and 'data' in data:
+                    # Standardized format
+                    actual_data = data['data']
+                else:
+                    # Raw format
+                    actual_data = data
+                
                 batch.append({
                     '_logical_row_id': row['logical_row_id'],
-                    **data
+                    **actual_data
                 })
             
             yield batch
@@ -207,9 +219,9 @@ class PostgresTableReader:
             FROM dsa_core.commit_rows cr
             JOIN dsa_core.rows r ON cr.row_hash = r.row_hash
             WHERE cr.commit_id = $1 
-            AND (cr.logical_row_id LIKE $2 OR r.data->>'sheet_name' = $3)
+            AND cr.logical_row_id LIKE $2
         """
-        count = await self._conn.fetchval(query, commit_id, pattern, table_key)
+        count = await self._conn.fetchval(query, commit_id, pattern)
         return count or 0
     
     

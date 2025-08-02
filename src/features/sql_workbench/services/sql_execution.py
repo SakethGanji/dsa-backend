@@ -245,8 +245,13 @@ class SqlExecutionService:
                         plan.target.expected_head_commit_id
                     )
                     
-                    # Create output branch if specified
-                    output_branch = plan.target.output_branch_name or new_commit_id
+                    # Create output branch with wkbh- prefix
+                    if plan.target.output_branch_name:
+                        output_branch = f"wkbh-{plan.target.output_branch_name}"
+                    else:
+                        # Use timestamp-based name if not specified
+                        output_branch = f"wkbh-transform-{int(time.time())}"
+                    
                     await self._create_branch(
                         conn,
                         plan.target.dataset_id,
@@ -260,7 +265,7 @@ class SqlExecutionService:
                         new_commit_id=new_commit_id,
                         rows_processed=rows_processed,
                         execution_time_ms=execution_time_ms,
-                        table_key=plan.target.table_key,
+                        table_key='primary',  # Always use 'primary' for workbench
                         output_branch_name=output_branch
                     )
                     
@@ -424,15 +429,15 @@ class SqlExecutionService:
             target.message, user_id, datetime.utcnow()
         )
         
-        # Copy existing tables except the target
+        # Copy existing tables except the primary table (which we're replacing)
         if parent_commit_id:
             await conn.execute("""
                 INSERT INTO dsa_core.commit_rows (commit_id, logical_row_id, row_hash)
                 SELECT $1, logical_row_id, row_hash
                 FROM dsa_core.commit_rows
                 WHERE commit_id = $2
-                AND NOT (logical_row_id LIKE $3 || ':%' OR logical_row_id LIKE $3 || '\\_%')
-            """, commit_id, parent_commit_id, target.table_key)
+                AND NOT (logical_row_id LIKE 'primary:%' OR logical_row_id LIKE 'primary\\_%')
+            """, commit_id, parent_commit_id)
         
         # Use server-side processing to insert transformation results
         # This never loads data into application memory
@@ -451,7 +456,7 @@ class SqlExecutionService:
             prepared_rows AS (
                 SELECT 
                     json_build_object(
-                        'sheet_name', '{table_key}',
+                        'sheet_name', 'primary',
                         'row_number', row_num,
                         'data', result_data
                     )::jsonb as full_data,
@@ -479,11 +484,12 @@ class SqlExecutionService:
         """
         
         # Format the query with actual values
-        # Note: commit_id and table_key are safe as they come from our system
+        # Note: commit_id is safe as it comes from our system
+        # Always use 'primary' as table key for workbench transformations
         final_query = query_template.format(
             transformation_sql=transformation_sql,
             commit_id=commit_id,
-            table_key=target.table_key
+            table_key='primary'  # Workbench always outputs to primary table
         )
         
         rows_processed = await conn.execute(final_query)
@@ -492,7 +498,43 @@ class SqlExecutionService:
         row_count = await conn.fetchval("""
             SELECT COUNT(*) FROM dsa_core.commit_rows 
             WHERE commit_id = $1 AND logical_row_id LIKE $2 || ':%'
-        """, commit_id, target.table_key)
+        """, commit_id, 'primary')  # Always use 'primary' for workbench
+        
+        # Create schema for the workbench output
+        # First, get a sample row to extract column names
+        sample_row = await conn.fetchrow("""
+            SELECT r.data
+            FROM dsa_core.commit_rows cr
+            JOIN dsa_core.rows r ON cr.row_hash = r.row_hash
+            WHERE cr.commit_id = $1 AND cr.logical_row_id LIKE 'primary:%'
+            LIMIT 1
+        """, commit_id)
+        
+        columns_list = []
+        if sample_row and sample_row['data']:
+            data = sample_row['data']
+            if isinstance(data, str):
+                data = json.loads(data)
+            
+            # Extract actual data from standardized format
+            if isinstance(data, dict) and 'data' in data:
+                actual_data = data['data']
+                if isinstance(actual_data, dict):
+                    columns_list = list(actual_data.keys())
+        
+        # Create schema with 'primary' table
+        schema = {
+            'primary': {
+                'columns': columns_list
+            }
+        }
+        
+        # Insert the schema
+        await conn.execute("""
+            INSERT INTO dsa_core.commit_schemas (commit_id, schema_definition)
+            VALUES ($1, $2)
+            ON CONFLICT (commit_id) DO UPDATE SET schema_definition = EXCLUDED.schema_definition
+        """, commit_id, json.dumps(schema))
         
         return commit_id, row_count or 0
     

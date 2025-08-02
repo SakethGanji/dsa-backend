@@ -10,7 +10,7 @@ class SqlTransformTarget(BaseModel):
     """Target configuration for SQL transformation."""
     dataset_id: int = Field(..., description="Dataset ID to update")
     ref: str = Field(..., description="Git ref to update (e.g., 'main')")
-    table_key: str = Field(..., description="Table key to update or create")
+    table_key: str = Field('primary', description="Table key to update or create (always 'primary' for workbench)")
     message: str = Field(..., description="Commit message for the transformation")
     output_branch_name: Optional[str] = Field(None, description="Name for the output branch (defaults to commit ID)")
     expected_head_commit_id: Optional[str] = Field(None, description="Expected commit ID of ref for optimistic locking")
@@ -64,15 +64,15 @@ class SqlTransformRequest(BaseModel):
                             "alias": "customers",
                             "dataset_id": 123,
                             "ref": "main",
-                            "table_key": "customers_table"
+                            "table_key": "primary"
                         }],
                         "sql": "SELECT *, age * 12 as age_months FROM customers",
                         "target": {
                             "dataset_id": 123,
                             "ref": "main",
-                            "table_key": "customers_enriched",
+                            "table_key": "primary",
                             "message": "Added age in months column",
-                            "output_branch_name": "transform-2024-01-15",
+                            "output_branch_name": "age-months-transform",
                             "create_new_dataset": False
                         },
                         "save": True,
@@ -86,7 +86,7 @@ class SqlTransformRequest(BaseModel):
                             "alias": "customers",
                             "dataset_id": 123,
                             "ref": "main",
-                            "table_key": "customers_table"
+                            "table_key": "primary"
                         }],
                         "sql": "SELECT * FROM customers WHERE age > 25",
                         "save": False,

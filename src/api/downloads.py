@@ -204,7 +204,7 @@ async def _create_streaming_download_response(
     )
 
 
-@router.get("/{dataset_id}/refs/{ref_name}/download")
+@router.get("/{dataset_id}/refs/{ref_name:path}/download")
 async def download_dataset(
     dataset_id: int = Path(..., description="Dataset ID"),
     ref_name: str = Path(..., description="Ref/branch name"),
@@ -232,7 +232,7 @@ async def download_dataset(
     return await _create_streaming_download_response(dataset, ref, uow)
 
 
-@router.get("/{dataset_id}/refs/{ref_name}/tables/{table_key}/download")
+@router.get("/{dataset_id}/refs/{ref_name:path}/tables/{table_key}/download")
 async def download_table(
     dataset_id: int = Path(..., description="Dataset ID"),
     ref_name: str = Path(..., description="Ref/branch name"),
