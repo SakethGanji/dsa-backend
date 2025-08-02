@@ -300,11 +300,8 @@ class FilterExpressionParser:
             type_cast = self._get_type_cast(col_type)
             
             # Build SQL based on operator
-            # Handle nested data structure (data might be under 'data' key)
-            data_extract = """(CASE 
-                             WHEN r.data ? 'data' THEN r.data->'data'->>'{0}'
-                             ELSE r.data->>'{0}'
-                             END)""".format(cond.column)
+            # Data is at top level, no nesting needed
+            data_extract = f"r.data->>'{cond.column}'"
             
             if cond.operator in ['IS NULL', 'IS NOT NULL']:
                 return f"{data_extract} {sql_op}"
@@ -312,12 +309,14 @@ class FilterExpressionParser:
             elif cond.operator in ['IN', 'NOT IN']:
                 placeholders = []
                 for val in cond.value:
-                    params.append(val)
+                    # Convert value to string for JSONB comparison
+                    params.append(str(val))
                     placeholders.append(f"${len(params) + param_offset - 1}")
                 return f"{data_extract}{type_cast} {sql_op} ({', '.join(placeholders)})"
             
             else:
-                params.append(cond.value)
+                # Convert value to string for JSONB comparison
+                params.append(str(cond.value))
                 param_num = len(params) + param_offset - 1
                 return f"{data_extract}{type_cast} {sql_op} ${param_num}"
         

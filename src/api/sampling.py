@@ -60,6 +60,17 @@ class SamplingRoundConfig(BaseModel):
     filters: Optional[FilterSpec] = Field(None, description="Row filters for this round")
     selection: Optional[SelectionSpec] = Field(None, description="Column selection for this round")
     
+    @validator('method')
+    def validate_method(cls, v):
+        """Validate that method is supported."""
+        valid_methods = ['random', 'stratified', 'systematic', 'cluster']
+        if v not in valid_methods:
+            raise ValidationException(
+                f"Invalid sampling method '{v}'. Supported methods: {', '.join(valid_methods)}", 
+                field="method"
+            )
+        return v
+    
     @validator('parameters')
     def validate_parameters(cls, v, values):
         """Validate method-specific parameters."""

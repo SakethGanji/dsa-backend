@@ -497,6 +497,17 @@ class SamplingJobExecutor(JobExecutor):
                     )
                     logger.info(f"Created output branch: {output_branch_name}")
                     
+                    # Create residual branch if residual data was exported
+                    if parameters.get('export_residual', False) and residual_count > 0:
+                        residual_branch_name = f"smpl-{output_name}_residual"
+                        await self._create_output_branch(
+                            conn,
+                            parameters['dataset_id'],
+                            residual_branch_name,
+                            output_commit_id
+                        )
+                        logger.info(f"Created residual branch: {residual_branch_name}")
+                    
                     # Clean up temporary tables
                     for round_idx in range(len(round_results)):
                         round_table = f"temp_round_{round_idx + 1}_samples"
@@ -622,6 +633,11 @@ class SamplingJobExecutor(JobExecutor):
             valid_columns = await self._get_valid_columns(conn, source_commit_id, table_key)
             column_types = await self._get_column_types(conn, source_commit_id, table_key)
             
+            # Debug logging
+            logger.info(f"Valid columns found: {valid_columns}")
+            logger.info(f"Filter expression: {params.get('filters')}")
+            logger.info(f"Column types: {column_types}")
+            
             where_clause, where_params = self._build_where_clause(
                 params['filters'], 
                 valid_columns, 
@@ -630,6 +646,8 @@ class SamplingJobExecutor(JobExecutor):
             )
             
             # Inject WHERE clause into query
+            # Note: we need to apply filters to the JSONB data structure
+            # The data is stored as r.data -> 'data' -> column_name
             query = query.replace(
                 "WHERE m.commit_id = $1 AND m.logical_row_id LIKE ($2 || ':%')",
                 f"WHERE m.commit_id = $1 AND m.logical_row_id LIKE ($2 || ':%'){where_clause}"
@@ -840,7 +858,18 @@ class SamplingJobExecutor(JobExecutor):
             WHERE commit_id = $1
         """, commit_id, table_key)
         
-        if not schema_json:
+        logger.info(f"Schema lookup for commit {commit_id}, table {table_key}: {schema_json}")
+        
+        # Check if schema is empty or has no columns
+        has_columns = False
+        if schema_json:
+            if isinstance(schema_json, str):
+                schema_json = json.loads(schema_json)
+            if 'columns' in schema_json and schema_json['columns']:
+                has_columns = True
+        
+        if not has_columns:
+            logger.info("Schema empty or no columns, falling back to data sampling")
             # Fallback: sample data to get columns
             sample_row = await conn.fetchrow("""
                 SELECT r.data
@@ -852,19 +881,22 @@ class SamplingJobExecutor(JobExecutor):
             
             if sample_row and sample_row['data']:
                 data = json.loads(sample_row['data']) if isinstance(sample_row['data'], str) else sample_row['data']
-                return set(data.keys())
+                # Data is at top level, no nesting
+                logger.info(f"Sample row data structure: {list(data.keys()) if isinstance(data, dict) else 'not a dict'}")
+                return set(data.keys()) if isinstance(data, dict) else set()
+            logger.warning("No sample row found for column detection")
             return set()
         
-        # Extract column names from schema
-        if isinstance(schema_json, str):
-            schema_json = json.loads(schema_json)
-        
-        columns = set()
-        if 'columns' in schema_json:
+        # Extract column names from schema if we have them
+        if has_columns:
+            columns = set()
             for col in schema_json['columns']:
                 columns.add(col['name'])
+            logger.info(f"Found columns in schema: {columns}")
+            return columns
         
-        return columns
+        # If we get here, we should have already handled the fallback
+        return set()
     
     async def _get_column_types(self, conn: Connection, commit_id: str, table_key: str) -> Dict[str, str]:
         """Get column types from schema."""
