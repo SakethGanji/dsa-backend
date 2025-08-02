@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     import_batch_size: int = 10000
     import_chunk_size: int = 1048576  # 1MB
     import_parallel_workers: int = 4
+    import_parallel_threshold_mb: int = 100  # Use parallel processing for files > 100MB
     import_progress_update_interval: int = 10
     
     class Config:

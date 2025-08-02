@@ -42,6 +42,7 @@ class ImportJobExecutor(JobExecutor):
         self.xxhash_seed = 0
         # Parallel processing settings
         self.parallel_workers = self.settings.import_parallel_workers
+        self.parallel_threshold_mb = self.settings.import_parallel_threshold_mb
         # Construct database URL for worker processes
         self.db_url = f"postgresql://{self.settings.POSTGRESQL_USER}:{self.settings.POSTGRESQL_PASSWORD}@{self.settings.POSTGRESQL_HOST}:{self.settings.POSTGRESQL_PORT}/{self.settings.POSTGRESQL_DATABASE}"
     
@@ -122,14 +123,8 @@ class ImportJobExecutor(JobExecutor):
             # Update ref to point to new commit
             await self._update_ref(db_pool, dataset_id, parameters.get('target_ref', 'main'), commit_id)
             
-            # Analyze tables after import
-            logger.info(f"Import job {job_id} - Analyzing imported tables")
-            await self._analyze_imported_tables(commit_id, db_pool)
-            
-            # Refresh search index
-            logger.info(f"Import job {job_id} - Refreshing search index")
-            async with db_pool.acquire() as conn:
-                await conn.execute("REFRESH MATERIALIZED VIEW CONCURRENTLY dsa_search.datasets_summary")
+            # Run post-import maintenance tasks
+            await self._run_post_import_maintenance(commit_id, job_id, db_pool)
             
             # Update final job status
             await self._update_job_progress(
@@ -188,9 +183,8 @@ class ImportJobExecutor(JobExecutor):
     
     async def _process_and_commit_batch(
         self, 
-        batch: List[Dict], 
+        batch: List[Tuple[int, Dict]], 
         sheet_name: str, 
-        start_row_idx: int, 
         commit_id: str, 
         db_pool: DatabasePool
     ) -> None:
@@ -202,18 +196,13 @@ class ImportJobExecutor(JobExecutor):
             async with conn.transaction():
                 # Using a generator expression to build copy_data is more memory-efficient
                 def prepare_copy_data():
-                    for idx, row_data in enumerate(batch):
+                    for line_num, row_data in batch:
                         data_json = json.dumps(row_data, sort_keys=True, separators=(',', ':'))
                         data_hash = self._calculate_hash(data_json)
-                        logical_row_id = f"{sheet_name}:{data_hash}"
+                        logical_row_id = f"{sheet_name}:{line_num}"  # Use line number instead of hash
                         
-                        row_to_store = {
-                            "sheet_name": sheet_name,
-                            "row_number": start_row_idx + idx + 2,  # 1-indexed, +1 for header
-                            "data": row_data
-                        }
-                        row_json = json.dumps(row_to_store)
-                        yield (logical_row_id, data_hash, row_json)
+                        # Store only the raw row data, metadata is in logical_row_id
+                        yield (logical_row_id, data_hash, data_json)
 
                 # Use COPY directly with pg_temp schema
                 await conn.copy_records_to_table(
@@ -257,14 +246,17 @@ class ImportJobExecutor(JobExecutor):
                 headers = next(csv.reader([header_line]))
                 
                 batch = []
+                line_number = 2  # Start at line 2 (after header)
+                
                 # Process line by line without loading the whole file
                 async for line in afp:
                     # Create a dict from headers and the current line's values
                     row_data = dict(zip(headers, next(csv.reader([line]))))
-                    batch.append(row_data)
+                    batch.append((line_number, row_data))
+                    line_number += 1
 
                     if len(batch) >= self.batch_size:
-                        await self._process_and_commit_batch(batch, sheet_name, total_rows_processed, commit_id, db_pool)
+                        await self._process_and_commit_batch(batch, sheet_name, commit_id, db_pool)
                         total_rows_processed += len(batch)
                         batch = []
                         
@@ -275,7 +267,7 @@ class ImportJobExecutor(JobExecutor):
                         )
                 
                 if batch:
-                    await self._process_and_commit_batch(batch, sheet_name, total_rows_processed, commit_id, db_pool)
+                    await self._process_and_commit_batch(batch, sheet_name, commit_id, db_pool)
                     total_rows_processed += len(batch)
 
         except (UnicodeDecodeError, csv.Error) as e:
@@ -311,19 +303,18 @@ class ImportJobExecutor(JobExecutor):
                     continue  # Skip empty sheet
                 
                 batch = []
-                sheet_row_count = 0  # Track rows per sheet, not globally
+                sheet_row_count = 2  # Start at row 2 (after header)
                 
-                for row in rows_iter:
+                for row_idx, row in enumerate(rows_iter, start=2):
                     row_data = {headers[i]: cell.value for i, cell in enumerate(row) if i < len(headers)}
-                    batch.append(row_data)
+                    batch.append((row_idx, row_data))
                     
                     if len(batch) >= self.batch_size:
-                        yield batch, sheet_name, sheet_row_count
-                        sheet_row_count += len(batch)
+                        yield batch, sheet_name
                         batch = []
                 
                 if batch:
-                    yield batch, sheet_name, sheet_row_count
+                    yield batch, sheet_name
                     # No need to update sheet_row_count here since we're done with the sheet
             
             wb.close()
@@ -333,8 +324,8 @@ class ImportJobExecutor(JobExecutor):
         loop = asyncio.get_running_loop()
         blocking_iterator = await loop.run_in_executor(None, blocking_excel_read)
 
-        for batch, sheet_name, sheet_start_index in blocking_iterator:
-            await self._process_and_commit_batch(batch, sheet_name, sheet_start_index, commit_id, db_pool)
+        for batch, sheet_name in blocking_iterator:
+            await self._process_and_commit_batch(batch, sheet_name, commit_id, db_pool)
             total_rows_processed += len(batch)
             
             await self._update_job_progress(
@@ -357,20 +348,31 @@ class ImportJobExecutor(JobExecutor):
         total_rows_processed = 0
 
         def blocking_parquet_read():
-            """Process Parquet file in a thread to avoid blocking the event loop."""
+            """Process Parquet file in a thread using Polars for high performance."""
+            import polars as pl
+            
+            row_number = 2  # Start at row 2 (treating as if there's a header)
+            
+            # Polars can work directly with Arrow batches from PyArrow
             parquet_file = pq.ParquetFile(file_path)
-            # Instead of to_pylist(), convert to pandas for more efficient processing
+            
             for batch in parquet_file.iter_batches(batch_size=self.batch_size):
-                # Convert Arrow batch to pandas DataFrame for efficient columnar processing
-                df = batch.to_pandas()
-                # Convert to list of dicts more efficiently than to_pylist()
-                yield df.to_dict('records')
+                # Convert arrow batch directly to Polars DF (zero-copy when possible)
+                df_chunk = pl.from_arrow(batch)
+                
+                # iter_rows with named=True creates dicts one-by-one (memory efficient)
+                batch_with_nums = [
+                    (row_number + i, record) 
+                    for i, record in enumerate(df_chunk.iter_rows(named=True))
+                ]
+                row_number += len(batch_with_nums)
+                yield batch_with_nums
 
         loop = asyncio.get_running_loop()
         blocking_iterator = await loop.run_in_executor(None, blocking_parquet_read)
         
         for batch in blocking_iterator:
-            await self._process_and_commit_batch(batch, sheet_name, total_rows_processed, commit_id, db_pool)
+            await self._process_and_commit_batch(batch, sheet_name, commit_id, db_pool)
             total_rows_processed += len(batch)
             
             await self._update_job_progress(
@@ -456,14 +458,7 @@ class ImportJobExecutor(JobExecutor):
                 
                 for row in sample_rows:
                     # The data column in dsa_core.rows should be jsonb, so no need for json.loads
-                    data = row['data']
-                    
-                    # All data follows the standardized format
-                    if not isinstance(data, dict) or 'data' not in data:
-                        raise ValueError(f"Invalid data format in analysis - expected standardized format")
-                    
-                    # Extract actual data from the standardized structure
-                    row_data = data['data']
+                    row_data = row['data']
                     
                     # Skip if row_data is not a dict
                     if not isinstance(row_data, dict):
@@ -565,44 +560,102 @@ class ImportJobExecutor(JobExecutor):
                         VALUES ($1, $2)
                     """, commit_id, json.dumps(schema_data))
     
-    async def _find_line_boundaries(self, file_path: str, num_chunks: int, start_offset: int = 0) -> List[int]:
-        """Find byte positions for clean file splitting, starting after an offset."""
-        file_size = os.path.getsize(file_path)
+    async def _run_post_import_maintenance(self, commit_id: str, job_id: str, db_pool: DatabasePool) -> None:
+        """Run database maintenance tasks after a successful import."""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Analyze imported tables
+        logger.info(f"Import job {job_id} - Analyzing imported tables")
+        await self._analyze_imported_tables(commit_id, db_pool)
+        
+        # Run VACUUM ANALYZE on the affected tables
+        logger.info(f"Import job {job_id} - Running VACUUM ANALYZE on core tables")
+        async with db_pool.acquire() as conn:
+            # Using a longer statement timeout for potentially long-running maintenance
+            await conn.execute("SET statement_timeout = '30min';")
+            await conn.execute("VACUUM (VERBOSE, ANALYZE) dsa_core.rows;")
+            await conn.execute("VACUUM (VERBOSE, ANALYZE) dsa_core.commit_rows;")
+        
+        # Refresh materialized views
+        logger.info(f"Import job {job_id} - Refreshing search index")
+        async with db_pool.acquire() as conn:
+            await conn.execute("REFRESH MATERIALIZED VIEW CONCURRENTLY dsa_search.datasets_summary;")
+    
+    async def _find_line_boundaries(self, file_path: str, num_chunks: int, start_offset: int = 0) -> List[Tuple[int, int]]:
+        """
+        Finds byte positions and line numbers for clean file splitting in a single pass.
+        """
+        file_size = await aiofiles.os.path.getsize(file_path)
         data_size = file_size - start_offset
         if data_size <= 0:
-            return [start_offset, file_size]
-            
-        chunk_size = data_size // num_chunks
-        boundaries = [start_offset]
-
-        async with aiofiles.open(file_path, 'rb') as f:
-            for i in range(1, num_chunks):
-                target_pos = start_offset + (i * chunk_size)
-                await f.seek(target_pos)
-                
-                # Read forward to find the next newline
-                buffer = await f.read(8192)
-                if not buffer:
-                    break
-                    
-                newline_pos = buffer.find(b'\n')
-                if newline_pos != -1:
-                    # Append position of the start of the next line
-                    boundaries.append(target_pos + newline_pos + 1)
-                else:
-                    # If no newline, this chunk might be the last.
-                    # Don't add a boundary; let the last worker handle it.
-                    pass
+            return [(start_offset, 2), (file_size, -1)]
         
-        boundaries.append(file_size)
-        # Remove duplicates that can occur if a chunk is smaller than the buffer
-        return sorted(list(set(boundaries)))
+        # Calculate target byte offsets for each chunk start
+        chunk_size = data_size // num_chunks
+        target_offsets = {start_offset + (i * chunk_size) for i in range(1, num_chunks)}
+        
+        boundaries = [(start_offset, 2)]  # First chunk always starts at offset and line 2
+        next_target = min(target_offsets) if target_offsets else file_size + 1
+        
+        current_pos = start_offset
+        line_count = 2
+        
+        async with aiofiles.open(file_path, 'rb') as f:
+            await f.seek(start_offset)
+            
+            # Use a large, efficient read buffer
+            read_buffer_size = 16 * 1024 * 1024  # 16MB
+            
+            while current_pos < file_size and target_offsets:
+                chunk = await f.read(read_buffer_size)
+                if not chunk:
+                    break
+                
+                chunk_start_pos = current_pos
+                
+                # While there are targets within our current chunk
+                while next_target < chunk_start_pos + len(chunk):
+                    # Find the position of the target relative to the start of the chunk
+                    relative_pos = int(next_target - chunk_start_pos)
+                    
+                    # Count newlines up to that relative position
+                    lines_in_prefix = chunk[:relative_pos].count(b'\n')
+                    
+                    # Find the next newline *after* the target position
+                    newline_offset = chunk.find(b'\n', relative_pos)
+                    
+                    if newline_offset != -1:
+                        # Found a clean break point
+                        absolute_boundary = chunk_start_pos + newline_offset + 1
+                        lines_up_to_boundary = line_count + chunk[:newline_offset + 1].count(b'\n')
+                        
+                        boundaries.append((absolute_boundary, lines_up_to_boundary))
+                        
+                        # Remove the target we just processed and find the next one
+                        target_offsets.discard(next_target)
+                        next_target = min(target_offsets) if target_offsets else file_size + 1
+                    else:
+                        # No newline found in the rest of this chunk, break to read more data
+                        break
+                
+                # Update position and line count for the next iteration
+                line_count += chunk.count(b'\n')
+                current_pos += len(chunk)
+
+        # De-duplicate and sort, just in case
+        final_boundaries = sorted(list(set(boundaries)), key=lambda x: x[0])
+        
+        # Ensure the last boundary points to the end of the file
+        if not final_boundaries or final_boundaries[-1][0] < file_size:
+            final_boundaries.append((file_size, -1))  # Line number for end doesn't matter
+
+        return final_boundaries
     
     async def _should_use_parallel_processing(self, file_path: str) -> bool:
         """Determine if parallel processing would be beneficial based on file size."""
-        file_size = os.path.getsize(file_path)
-        # Use parallel processing for files larger than 100MB
-        return file_size > 100 * 1024 * 1024 and self.parallel_workers > 1
+        file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+        return file_size_mb > self.parallel_threshold_mb and self.parallel_workers > 1
     
     async def _process_csv_file_parallel(
         self, 
@@ -611,19 +664,38 @@ class ImportJobExecutor(JobExecutor):
         job_id: str, 
         db_pool: DatabasePool
     ) -> int:
-        """Process large CSV files in parallel using multiple processes."""
+        """Process large CSV files in parallel using Polars for high performance."""
         import logging
+        import polars as pl
+        
         logger = logging.getLogger(__name__)
         logger.info(f"Import job {job_id} - Starting parallel CSV processing with {self.parallel_workers} workers")
 
-        # 1. Get header and find start of data
-        async with aiofiles.open(file_path, 'r', encoding='utf-8-sig') as f:
-            header_line = await f.readline()
-            headers = next(csv.reader([header_line]))
-            data_start_pos = await f.tell()  # Data starts after the header
-
-        # 2. Find clean boundaries for data chunks
-        boundaries = await self._find_line_boundaries(file_path, self.parallel_workers, data_start_pos)
+        # 1. Get total row count and column names using Polars (very fast)
+        loop = asyncio.get_running_loop()
+        
+        def get_csv_info():
+            # Quick scan to get row count and columns
+            df = pl.scan_csv(file_path).select(pl.count()).collect()
+            total_rows = df[0, 0]
+            # Get column names from the first row
+            columns = pl.read_csv(file_path, n_rows=1).columns
+            return total_rows, columns
+        
+        total_rows, column_names = await loop.run_in_executor(None, get_csv_info)
+        logger.info(f"Import job {job_id} - Found {total_rows:,} rows to process")
+        
+        # 2. Calculate row ranges for each worker
+        rows_per_worker = total_rows // self.parallel_workers
+        boundaries = []
+        for i in range(self.parallel_workers):
+            start_row = i * rows_per_worker
+            if i == self.parallel_workers - 1:
+                # Last worker handles any remaining rows
+                num_rows = total_rows - start_row
+            else:
+                num_rows = rows_per_worker
+            boundaries.append((start_row, num_rows))
         
         total_rows_processed = 0
         
@@ -650,14 +722,15 @@ class ImportJobExecutor(JobExecutor):
         
         try:
             with ProcessPoolExecutor(max_workers=self.parallel_workers) as executor:
-                futures = [
-                    executor.submit(
-                        _process_csv_chunk_worker_refactored,
-                        file_path, headers, boundaries[i], boundaries[i+1],
+                futures = []
+                for i, (start_row, num_rows) in enumerate(boundaries):
+                    future = executor.submit(
+                        _process_csv_chunk_worker_polars,
+                        file_path, column_names, start_row, num_rows,
                         commit_id, self.db_url, self.batch_size, 
                         self.use_xxhash, self.xxhash_seed, progress_queue, i
-                    ) for i in range(len(boundaries) - 1)
-                ]
+                    )
+                    futures.append(future)
 
                 # Wait for all futures to complete
                 for future in as_completed(futures):
@@ -682,61 +755,7 @@ class ImportJobExecutor(JobExecutor):
 
 
 # Module-level worker functions (must be at module level for multiprocessing)
-def _process_csv_chunk_worker_refactored(
-    file_path: str, headers: List[str], start_byte: int, end_byte: int,
-    commit_id: str, db_url: str, batch_size: int,
-    use_xxhash: bool, xxhash_seed: int, progress_queue: mp.Queue, worker_id: int
-) -> int:
-    """Refactored worker to be more robust and efficient."""
-    import csv, json, io, xxhash, hashlib, psycopg, logging
-
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    logger = logging.getLogger(f"worker_{worker_id}")
-
-    def calculate_hash(data: bytes) -> str:
-        if use_xxhash:
-            return xxhash.xxh64(data, seed=xxhash_seed).hexdigest()
-        else:
-            return hashlib.sha256(data).hexdigest()
-
-    # Read the entire assigned chunk into an in-memory buffer.
-    with open(file_path, 'rb') as f:
-        f.seek(start_byte)
-        chunk_data = f.read(end_byte - start_byte)
-    
-    # Use io.StringIO for efficient text processing in memory.
-    string_io_chunk = io.StringIO(chunk_data.decode('utf-8-sig'))
-    reader = csv.DictReader(string_io_chunk, fieldnames=headers)
-    
-    total_rows = 0
-    batch = []
-    
-    try:
-        with psycopg.connect(db_url) as conn:
-            # Create the temp table ONCE per worker.
-            with conn.cursor() as cur:
-                cur.execute("CREATE TEMP TABLE import_batch (logical_row_id TEXT, row_hash TEXT, data JSONB) ON COMMIT DROP;")
-
-            for row_data in reader:
-                batch.append(row_data)
-                if len(batch) >= batch_size:
-                    _commit_batch_sync_refactored(conn, batch, total_rows, commit_id, calculate_hash)
-                    progress_queue.put(len(batch))
-                    total_rows += len(batch)
-                    batch = []
-            
-            if batch:
-                _commit_batch_sync_refactored(conn, batch, total_rows, commit_id, calculate_hash)
-                progress_queue.put(len(batch))
-                total_rows += len(batch)
-
-        logger.info(f"Worker {worker_id} completed successfully. Processed {total_rows} rows.")
-        return total_rows
-    except Exception as e:
-        logger.error(f"Worker {worker_id} failed: {e}", exc_info=True)
-        raise
-
-def _commit_batch_sync_refactored(conn, batch: List[Dict], start_row_idx: int, commit_id: str, hash_func):
+def _commit_batch_sync_refactored(conn, batch: List[Tuple[int, Dict]], commit_id: str, hash_func):
     """Refactored commit function using efficient in-memory buffer for COPY."""
     if not batch:
         return
@@ -744,20 +763,16 @@ def _commit_batch_sync_refactored(conn, batch: List[Dict], start_row_idx: int, c
     sheet_name = 'primary'
     buffer = io.StringIO()
 
-    for idx, row_data in enumerate(batch):
+    for line_num, row_data in batch:
         data_json_bytes = json.dumps(row_data, sort_keys=True, separators=(',', ':')).encode('utf-8')
         data_hash = hash_func(data_json_bytes)
-        logical_row_id = f"{sheet_name}:{data_hash}"
+        logical_row_id = f"{sheet_name}:{line_num}"  # Use line number instead of hash
         
-        row_to_store = {
-            "sheet_name": sheet_name,
-            "row_number": start_row_idx + idx + 2,  # This row number will be inconsistent across workers
-            "data": row_data
-        }
-        row_json = json.dumps(row_to_store)
+        # Store only the raw row data, metadata is in logical_row_id
+        data_json = data_json_bytes.decode('utf-8')
         
         # Write tab-separated values to the buffer
-        buffer.write(f"{logical_row_id}\t{data_hash}\t{row_json}\n")
+        buffer.write(f"{logical_row_id}\t{data_hash}\t{data_json}\n")
 
     buffer.seek(0)
     
@@ -771,3 +786,71 @@ def _commit_batch_sync_refactored(conn, batch: List[Dict], start_row_idx: int, c
         with conn.transaction():
             cur.execute("INSERT INTO dsa_core.rows (row_hash, data) SELECT row_hash, data FROM import_batch ON CONFLICT (row_hash) DO NOTHING;")
             cur.execute("INSERT INTO dsa_core.commit_rows (commit_id, logical_row_id, row_hash) SELECT %s, logical_row_id, row_hash FROM import_batch;", (commit_id,))
+
+
+# New Polars-based worker function
+def _process_csv_chunk_worker_polars(
+    file_path: str, column_names: List[str], start_row: int, num_rows: int,
+    commit_id: str, db_url: str, batch_size: int,
+    use_xxhash: bool, xxhash_seed: int, progress_queue: mp.Queue, worker_id: int
+) -> int:
+    """Process CSV chunk using Polars for maximum performance."""
+    import polars as pl
+    import json, xxhash, hashlib, psycopg, logging, io
+    
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    logger = logging.getLogger(f"worker_{worker_id}")
+    
+    def calculate_hash(data: bytes) -> str:
+        if use_xxhash:
+            return xxhash.xxh64(data, seed=xxhash_seed).hexdigest()
+        else:
+            return hashlib.sha256(data).hexdigest()
+    
+    try:
+        # Use Polars to read specific rows from CSV - extremely fast
+        df_chunk = pl.read_csv(
+            file_path,
+            skip_rows=start_row + 1,  # +1 to skip header
+            n_rows=num_rows,
+            has_header=False,
+            new_columns=column_names  # Apply the column names
+        )
+        
+        total_rows = 0
+        batch_with_line_nums = []
+        # Global line numbers start at 2 (after header) + start_row
+        current_line = start_row + 2
+        
+        with psycopg.connect(db_url) as conn:
+            # Create the temp table ONCE per worker
+            with conn.cursor() as cur:
+                # Optimize session for bulk loading
+                cur.execute("SET work_mem = '256MB';")
+                cur.execute("SET maintenance_work_mem = '256MB';")
+                cur.execute("SET synchronous_commit = OFF;")
+                # TEMP tables are already unlogged and use temp_buffers
+                cur.execute("CREATE TEMP TABLE import_batch (logical_row_id TEXT, row_hash TEXT, data JSONB) ON COMMIT DROP;")
+            
+            # Use iter_rows for memory efficiency
+            for row_data in df_chunk.iter_rows(named=True):
+                batch_with_line_nums.append((current_line, row_data))
+                current_line += 1
+                
+                if len(batch_with_line_nums) >= batch_size:
+                    _commit_batch_sync_refactored(conn, batch_with_line_nums, commit_id, calculate_hash)
+                    progress_queue.put(len(batch_with_line_nums))
+                    total_rows += len(batch_with_line_nums)
+                    batch_with_line_nums = []
+            
+            if batch_with_line_nums:
+                _commit_batch_sync_refactored(conn, batch_with_line_nums, commit_id, calculate_hash)
+                progress_queue.put(len(batch_with_line_nums))
+                total_rows += len(batch_with_line_nums)
+        
+        logger.info(f"Worker {worker_id} completed successfully. Processed {total_rows} rows.")
+        return total_rows
+        
+    except Exception as e:
+        logger.error(f"Worker {worker_id} failed: {e}", exc_info=True)
+        raise

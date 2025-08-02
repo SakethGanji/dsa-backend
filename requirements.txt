@@ -139,7 +139,7 @@ pipreqs
 platformdirs
 pluggy
 ply
-polars
+polars>=0.20.0
 prompt_toolkit
 propcache
 psutil
