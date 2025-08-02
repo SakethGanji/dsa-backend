@@ -204,13 +204,23 @@ class ImportJobExecutor(JobExecutor):
                         # Store only the raw row data, metadata is in logical_row_id
                         yield (logical_row_id, data_hash, data_json)
 
-                # Use COPY directly with pg_temp schema
-                await conn.copy_records_to_table(
-                    'dsa_core_temp_import_rows',
-                    records=list(prepare_copy_data()),
-                    columns=['logical_row_id', 'row_hash', 'data'],
-                    schema_name='pg_temp'
-                )
+                # First create temp table
+                await conn.execute("""
+                    CREATE TEMP TABLE IF NOT EXISTS dsa_core_temp_import_rows (
+                        logical_row_id TEXT,
+                        row_hash TEXT,
+                        data TEXT
+                    ) ON COMMIT DROP
+                """)
+                
+                # Use standard INSERT for compatibility
+                # Convert generator to list for executemany
+                records = list(prepare_copy_data())
+                if records:
+                    await conn.executemany(
+                        "INSERT INTO pg_temp.dsa_core_temp_import_rows (logical_row_id, row_hash, data) VALUES ($1, $2, $3)",
+                        records
+                    )
                 
                 await conn.execute("""
                     INSERT INTO dsa_core.rows (row_hash, data)
