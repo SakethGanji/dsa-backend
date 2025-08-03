@@ -379,18 +379,34 @@ class SqlExecutionService:
         sorted_views = sorted(view_names, key=lambda x: len(x[0]), reverse=True)
         
         for alias, view_name in sorted_views:
-            # Replace alias as a standalone table reference
-            # This handles: FROM alias, JOIN alias, etc.
-            modified_sql = re.sub(
-                rf'\b{re.escape(alias)}\b(?!\s*\.)',
-                view_name,
-                modified_sql
-            )
-            
             # Replace alias when used as table prefix (e.g., alias.column)
+            # Do this FIRST to handle explicit table references
             modified_sql = re.sub(
                 rf'\b{re.escape(alias)}\.', 
                 f'{view_name}.',
+                modified_sql
+            )
+            
+            # Replace alias as a standalone table reference in FROM/JOIN clauses
+            # More specific patterns to avoid replacing column references
+            # This handles: FROM alias, JOIN alias, etc.
+            # but NOT: SELECT alias->>'field' or WHERE alias = 'value'
+            modified_sql = re.sub(
+                rf'(\bFROM\s+){re.escape(alias)}\b',
+                rf'\1{view_name}',
+                modified_sql,
+                flags=re.IGNORECASE
+            )
+            modified_sql = re.sub(
+                rf'(\bJOIN\s+){re.escape(alias)}\b',
+                rf'\1{view_name}',
+                modified_sql,
+                flags=re.IGNORECASE
+            )
+            # Handle comma-separated tables: FROM table1, alias
+            modified_sql = re.sub(
+                rf'(,\s*){re.escape(alias)}\b(?!\s*\.|\s*->>|\s*->)',
+                rf'\1{view_name}',
                 modified_sql
             )
         

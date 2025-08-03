@@ -22,7 +22,21 @@ def optimize_preview_query(user_sql: str, limit: int, offset: int) -> Tuple[str,
     has_order_by = re.search(r'\bORDER\s+BY\b', clean_sql, re.IGNORECASE)
     has_distinct = re.search(r'\bDISTINCT\b', clean_sql, re.IGNORECASE)
     
-    # Case 1: Simple SELECT without aggregation - inject LIMIT early
+    # Check if query starts with WITH (CTE)
+    has_cte = re.match(r'^\s*WITH\b', clean_sql, re.IGNORECASE)
+    
+    # Case 1: Query has CTE - don't wrap it, append LIMIT/OFFSET at the end
+    if has_cte:
+        if not has_limit:
+            if offset > 0:
+                return f"{user_sql}\nLIMIT {limit}\nOFFSET {offset}", True
+            else:
+                return f"{user_sql}\nLIMIT {limit}", True
+        else:
+            # Already has limit, return as-is
+            return user_sql, False
+    
+    # Case 2: Simple SELECT without aggregation - inject LIMIT early
     if not has_limit and not has_aggregation and not has_distinct:
         if offset > 0:
             # Need to wrap for offset
@@ -42,7 +56,7 @@ def optimize_preview_query(user_sql: str, limit: int, offset: int) -> Tuple[str,
                 # Add LIMIT to the end
                 return f"{user_sql}\nLIMIT {limit}", True
     
-    # Case 2: Query with aggregation or DISTINCT - wrap to ensure correctness
+    # Case 3: Query with aggregation or DISTINCT - wrap to ensure correctness
     # This is the current behavior and safest option
     return f"""
     SELECT * FROM (
