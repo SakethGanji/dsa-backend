@@ -107,6 +107,32 @@ class ImportJobExecutor(JobExecutor):
             
             logger.info(f"Import job {job_id} - Conversion complete. Created {len(converted_files)} Parquet files")
             
+            # Check for conversion errors
+            if 'conversion_errors' in conversion_metadata and conversion_metadata['conversion_errors']:
+                error_details = []
+                for error in conversion_metadata['conversion_errors']:
+                    sheet_name = error.get('sheet_name', 'unknown')
+                    error_msg = error.get('error', 'Unknown error')
+                    error_details.append(f"Sheet '{sheet_name}': {error_msg}")
+                
+                full_error_msg = f"File conversion failed with {len(conversion_metadata['conversion_errors'])} error(s):\n" + "\n".join(error_details)
+                logger.error(f"Import job {job_id} - {full_error_msg}")
+                
+                # Store metadata even on failure for debugging
+                await self._store_conversion_metadata(job_id, conversion_metadata, db_pool)
+                
+                raise ValueError(full_error_msg)
+            
+            # Check if any files were converted
+            if not converted_files:
+                error_msg = f"No data could be imported from '{filename}'. The file may be empty or in an unsupported format."
+                logger.error(f"Import job {job_id} - {error_msg}")
+                
+                # Store metadata even on failure for debugging
+                await self._store_conversion_metadata(job_id, conversion_metadata, db_pool)
+                
+                raise ValueError(error_msg)
+            
             # Store conversion metadata in job parameters
             await self._store_conversion_metadata(job_id, conversion_metadata, db_pool)
             

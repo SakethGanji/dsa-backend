@@ -53,3 +53,4 @@ archive.zip
 /src/data/
 /workbench_json_practical.sql
 /workbench_json_queries.sql
+/optimized_downloads.py
