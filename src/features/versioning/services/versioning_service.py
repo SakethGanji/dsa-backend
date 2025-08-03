@@ -709,17 +709,33 @@ class VersioningService(PaginationMixin):
                         row[col] = analysis.sample_values[col][i]
                 sample_data.append(row)
         
-        return TableAnalysisResponse(
-            table_key=table_key,
-            sheet_name=table_key,  # Using table_key as sheet_name
-            column_stats=column_stats,
-            sample_data=sample_data,
-            row_count=row_count,
-            null_counts=null_counts,
-            unique_counts=unique_counts,
-            data_types=data_types,
-            columns=columns
-        )
+        # For sampled branches (starting with 'smpl-'), swap table_key and sheet_name
+        if ref_name.startswith('smpl-'):
+            # For sampled data: table_key should be the ref_name, sheet_name should be the original table_key
+            return TableAnalysisResponse(
+                table_key=ref_name,
+                sheet_name=table_key,
+                column_stats=column_stats,
+                sample_data=sample_data,
+                row_count=row_count,
+                null_counts=null_counts,
+                unique_counts=unique_counts,
+                data_types=data_types,
+                columns=columns
+            )
+        else:
+            # For regular data: keep original behavior
+            return TableAnalysisResponse(
+                table_key=table_key,
+                sheet_name=table_key,
+                column_stats=column_stats,
+                sample_data=sample_data,
+                row_count=row_count,
+                null_counts=null_counts,
+                unique_counts=unique_counts,
+                data_types=data_types,
+                columns=columns
+            )
     
     # ========== Overview and Import ==========
     
