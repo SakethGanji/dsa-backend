@@ -77,15 +77,30 @@ async def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
     
-    # Mock implementation - replace with real JWT validation
-    # For testing, accept any token (even empty) and return admin user
-    # This is ONLY for POC testing - remove in production!
-    return {
-        "sub": "bg54677",  # This should be soeid
-        "soeid": "bg54677",
-        "role_id": 1,  # Admin role
-        "role_name": "admin"
-    }
+    # Dev implementation - try to decode JWT to get actual user
+    # but always return admin role for testing
+    try:
+        from ..core.auth import verify_token
+        
+        # Try to decode the actual token
+        user_data = verify_token(token, token_type="access")
+        
+        # For dev: keep the actual user's SOEID but force admin role
+        return {
+            "sub": user_data.get("soeid"),
+            "soeid": user_data.get("soeid"),
+            "role_id": 1,  # Force admin role for dev
+            "role_name": "admin"  # Force admin role for dev
+        }
+    except:
+        # If token decode fails, return default dev user as admin
+        # This allows testing without valid tokens
+        return {
+            "sub": "dev_user",
+            "soeid": "dev_user",
+            "role_id": 1,  # Admin role
+            "role_name": "admin"
+        }
 
 
 async def require_admin(

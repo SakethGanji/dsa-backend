@@ -204,34 +204,6 @@ async def _create_streaming_download_response(
     )
 
 
-@router.get("/{dataset_id}/refs/{ref_name}/download")
-async def download_dataset(
-    dataset_id: int = Path(..., description="Dataset ID"),
-    ref_name: str = Path(..., description="Ref/branch name"),
-    format: str = Query("csv", description="Export format (currently only csv supported)"),
-    current_user: CurrentUser = Depends(get_current_user_info),
-    uow: PostgresUnitOfWork = Depends(get_uow),
-    _: CurrentUser = Depends(require_dataset_read)
-):
-    """Download entire dataset using true, memory-efficient streaming."""
-    if format != "csv":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Format '{format}' not supported. Only 'csv' is currently available."
-        )
-    
-    # Get dataset and ref
-    dataset = await uow.datasets.get_dataset_by_id(dataset_id)
-    if not dataset:
-        raise EntityNotFoundException("Dataset", dataset_id)
-    
-    ref = await uow.commits.get_ref(dataset_id, ref_name)
-    if not ref:
-        raise EntityNotFoundException("Ref", ref_name)
-    
-    return await _create_streaming_download_response(dataset, ref, uow)
-
-
 @router.get("/{dataset_id}/refs/{ref_name}/tables/{table_key}/download")
 async def download_table(
     dataset_id: int = Path(..., description="Dataset ID"),
@@ -266,4 +238,32 @@ async def download_table(
         raise EntityNotFoundException("Ref", ref_name)
     
     return await _create_streaming_download_response(dataset, ref, uow, table_key)
+
+
+@router.get("/{dataset_id}/refs/{ref_name}/download")
+async def download_dataset(
+    dataset_id: int = Path(..., description="Dataset ID"),
+    ref_name: str = Path(..., description="Ref/branch name"),
+    format: str = Query("csv", description="Export format (currently only csv supported)"),
+    current_user: CurrentUser = Depends(get_current_user_info),
+    uow: PostgresUnitOfWork = Depends(get_uow),
+    _: CurrentUser = Depends(require_dataset_read)
+):
+    """Download entire dataset using true, memory-efficient streaming."""
+    if format != "csv":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Format '{format}' not supported. Only 'csv' is currently available."
+        )
+    
+    # Get dataset and ref
+    dataset = await uow.datasets.get_dataset_by_id(dataset_id)
+    if not dataset:
+        raise EntityNotFoundException("Dataset", dataset_id)
+    
+    ref = await uow.commits.get_ref(dataset_id, ref_name)
+    if not ref:
+        raise EntityNotFoundException("Ref", ref_name)
+    
+    return await _create_streaming_download_response(dataset, ref, uow)
 

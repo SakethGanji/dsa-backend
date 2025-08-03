@@ -2,6 +2,7 @@
 
 from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 from src.core.domain_exceptions import DomainException
 import logging
 import uuid
@@ -82,6 +83,39 @@ async def permission_error_handler(request: Request, exc: PermissionError):
     )
 
 
+async def request_validation_error_handler(request: Request, exc: RequestValidationError):
+    """
+    Handle Pydantic request validation errors.
+    
+    Args:
+        request: The FastAPI request
+        exc: The RequestValidationError
+        
+    Returns:
+        JSON response with validation error details
+    """
+    request_id = getattr(request.state, 'request_id', str(uuid.uuid4()))
+    
+    # Extract the first validation error for a cleaner message
+    errors = exc.errors()
+    if errors:
+        first_error = errors[0]
+        field_path = " -> ".join(str(loc) for loc in first_error['loc'])
+        message = f"{first_error['msg']} (field: {field_path})"
+    else:
+        message = "Request validation failed"
+    
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": "VALIDATION_ERROR",
+            "message": message,
+            "details": {"validation_errors": errors},
+            "request_id": request_id
+        }
+    )
+
+
 async def generic_exception_handler(request: Request, exc: Exception):
     """
     Handle unexpected exceptions.
@@ -123,6 +157,9 @@ def register_error_handlers(app):
     Args:
         app: The FastAPI application instance
     """
+    # FastAPI/Pydantic exceptions
+    app.add_exception_handler(RequestValidationError, request_validation_error_handler)
+    
     # Domain exceptions
     app.add_exception_handler(DomainException, domain_exception_handler)
     

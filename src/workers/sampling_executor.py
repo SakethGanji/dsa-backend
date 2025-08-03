@@ -49,8 +49,8 @@ class SamplingJobExecutor(JobExecutor):
             WITH source_data AS (
                 SELECT m.logical_row_id, m.row_hash, 
                        CASE 
-                           WHEN r.data ? 'data' THEN r.data->'data'
-                           ELSE r.data
+                           WHEN r.data ? 'sheet_name' AND r.data ? 'data' THEN r.data
+                           ELSE jsonb_build_object('sheet_name', 'primary', 'row_number', 1, 'data', r.data)
                        END as row_data_json
                 FROM dsa_core.commit_rows m
                 JOIN dsa_core.rows r ON m.row_hash = r.row_hash
@@ -73,7 +73,11 @@ class SamplingJobExecutor(JobExecutor):
                     ) as estimated_rows
             ),
             source_data AS (
-                SELECT m.logical_row_id, m.row_hash, r.data as row_data_json
+                SELECT m.logical_row_id, m.row_hash, 
+                       CASE 
+                           WHEN r.data ? 'sheet_name' AND r.data ? 'data' THEN r.data
+                           ELSE jsonb_build_object('sheet_name', 'primary', 'row_number', 1, 'data', r.data)
+                       END as row_data_json
                 FROM dsa_core.commit_rows m
                 JOIN dsa_core.rows r ON m.row_hash = r.row_hash
                 CROSS JOIN sample_params sp
@@ -94,7 +98,11 @@ class SamplingJobExecutor(JobExecutor):
         'random_seeded_exact': """
             -- ORDER BY approach - use only for smaller datasets where exact counts matter
             WITH source_data AS (
-                SELECT m.logical_row_id, m.row_hash, r.data as row_data_json,
+                SELECT m.logical_row_id, m.row_hash, 
+                       CASE 
+                           WHEN r.data ? 'sheet_name' AND r.data ? 'data' THEN r.data
+                           ELSE jsonb_build_object('sheet_name', 'primary', 'row_number', 1, 'data', r.data)
+                       END as row_data_json,
                        md5(logical_row_id || $4::text) as seeded_random
                 FROM dsa_core.commit_rows m
                 JOIN dsa_core.rows r ON m.row_hash = r.row_hash
@@ -113,7 +121,11 @@ class SamplingJobExecutor(JobExecutor):
         'systematic': """
             WITH numbered_data AS (
                 SELECT 
-                    m.logical_row_id, m.row_hash, r.data as row_data_json,
+                    m.logical_row_id, m.row_hash, 
+                    CASE 
+                        WHEN r.data ? 'sheet_name' AND r.data ? 'data' THEN r.data
+                        ELSE jsonb_build_object('sheet_name', 'primary', 'row_number', 1, 'data', r.data)
+                    END as row_data_json,
                     ROW_NUMBER() OVER (ORDER BY m.logical_row_id) as rn
                 FROM dsa_core.commit_rows m
                 JOIN dsa_core.rows r ON m.row_hash = r.row_hash
@@ -207,7 +219,10 @@ class SamplingJobExecutor(JobExecutor):
                 SELECT
                     m.logical_row_id,
                     m.row_hash,
-                    r.data as row_data_json,
+                    CASE 
+                        WHEN r.data ? 'sheet_name' AND r.data ? 'data' THEN r.data
+                        ELSE jsonb_build_object('sheet_name', 'primary', 'row_number', 1, 'data', r.data)
+                    END as row_data_json,
                     -- Use ROW_NUMBER() to rank rows randomly within each stratum
                     ROW_NUMBER() OVER (
                         PARTITION BY {strata_grouping_sql}
@@ -453,35 +468,27 @@ class SamplingJobExecutor(JobExecutor):
                         
                         logger.info(f"Round {round_idx + 1} sampled {count} rows")
                     
-                    # Export residual if requested
-                    residual_count = 0
-                    if parameters.get('export_residual', False):
-                        residual_count = await self._export_residual_data(
-                            conn,
-                            parameters['source_commit_id'].strip(),  # Remove any trailing spaces
-                            parameters.get('table_key', 'primary'),
-                            parameters.get('residual_output_name', 'Residual Data')
-                        )
-                        logger.info(f"Exported {residual_count} residual rows")
-                    
-                    # Create output commit (always)
-                    output_commit_id = await self._create_output_commit(
+                    # Create output commit with both sample and residual data
+                    output_commit_id, residual_count = await self._create_output_commit_with_residual(
                         conn,
                         parameters['dataset_id'],
-                        parameters['source_commit_id'].strip(),  # Remove any trailing spaces
+                        parameters['source_commit_id'].strip(),
+                        parameters.get('table_key', 'primary'),
                         parameters.get('user_id'),
                         parameters.get('commit_message', f'Sampled {total_sampled} rows'),
                         round_results,
-                        parameters.get('output_branch_name'),
-                        parameters.get('output_name'),
+                        parameters.get('output_name', 'sampling_output'),
+                        parameters.get('export_residual', False),
                         parameters
                     )
                     
                     logger.info(f"Created output commit: {output_commit_id}")
+                    if residual_count > 0:
+                        logger.info(f"Included {residual_count} residual rows in commit")
                     
-                    # Create branch for the output commit
-                    # Use provided branch name or default to commit ID
-                    output_branch_name = parameters.get('output_branch_name') or output_commit_id
+                    # Create branch with smpl- prefix
+                    output_name = parameters.get('output_name', 'sampling_output')
+                    output_branch_name = f"smpl-{output_name}"
                     await self._create_output_branch(
                         conn,
                         parameters['dataset_id'],
@@ -489,6 +496,17 @@ class SamplingJobExecutor(JobExecutor):
                         output_commit_id
                     )
                     logger.info(f"Created output branch: {output_branch_name}")
+                    
+                    # Create residual branch if residual data was exported
+                    if parameters.get('export_residual', False) and residual_count > 0:
+                        residual_branch_name = f"smpl-{output_name}_residual"
+                        await self._create_output_branch(
+                            conn,
+                            parameters['dataset_id'],
+                            residual_branch_name,
+                            output_commit_id
+                        )
+                        logger.info(f"Created residual branch: {residual_branch_name}")
                     
                     # Clean up temporary tables
                     for round_idx in range(len(round_results)):
@@ -498,16 +516,21 @@ class SamplingJobExecutor(JobExecutor):
                     # Also drop residual table if it was created
                     await conn.execute("DROP TABLE IF EXISTS temp_residual_data")
             
-            # Return job summary
+            # Return job summary with proper structure
             end_time = datetime.utcnow()
             result = {
                 'status': 'completed',
                 'total_sampled': total_sampled,
                 'residual_count': residual_count,
                 'output_commit_id': output_commit_id,
-                'output_branch_name': parameters.get('output_branch_name') or output_commit_id,
-                'table_key': parameters.get('output_name') or parameters.get('output_branch_name') or 'sampled_data',
-                'round_results': round_results,
+                'output_branch_name': output_branch_name,
+                'table_keys': ['sample'] + (['residual'] if residual_count > 0 else []),
+                'sampling_summary': {
+                    'total_sampled': total_sampled,
+                    'rounds_executed': len(round_results),
+                    'methods_used': list(set(r['method'] for r in round_results)),
+                    'round_details': round_results
+                },
                 'execution_time_seconds': (end_time - start_time).total_seconds(),
                 'parameters_used': parameters
             }
@@ -610,6 +633,11 @@ class SamplingJobExecutor(JobExecutor):
             valid_columns = await self._get_valid_columns(conn, source_commit_id, table_key)
             column_types = await self._get_column_types(conn, source_commit_id, table_key)
             
+            # Debug logging
+            logger.info(f"Valid columns found: {valid_columns}")
+            logger.info(f"Filter expression: {params.get('filters')}")
+            logger.info(f"Column types: {column_types}")
+            
             where_clause, where_params = self._build_where_clause(
                 params['filters'], 
                 valid_columns, 
@@ -618,6 +646,8 @@ class SamplingJobExecutor(JobExecutor):
             )
             
             # Inject WHERE clause into query
+            # Note: we need to apply filters to the JSONB data structure
+            # The data is stored as r.data -> 'data' -> column_name
             query = query.replace(
                 "WHERE m.commit_id = $1 AND m.logical_row_id LIKE ($2 || ':%')",
                 f"WHERE m.commit_id = $1 AND m.logical_row_id LIKE ($2 || ':%'){where_clause}"
@@ -828,7 +858,18 @@ class SamplingJobExecutor(JobExecutor):
             WHERE commit_id = $1
         """, commit_id, table_key)
         
-        if not schema_json:
+        logger.info(f"Schema lookup for commit {commit_id}, table {table_key}: {schema_json}")
+        
+        # Check if schema is empty or has no columns
+        has_columns = False
+        if schema_json:
+            if isinstance(schema_json, str):
+                schema_json = json.loads(schema_json)
+            if 'columns' in schema_json and schema_json['columns']:
+                has_columns = True
+        
+        if not has_columns:
+            logger.info("Schema empty or no columns, falling back to data sampling")
             # Fallback: sample data to get columns
             sample_row = await conn.fetchrow("""
                 SELECT r.data
@@ -840,19 +881,22 @@ class SamplingJobExecutor(JobExecutor):
             
             if sample_row and sample_row['data']:
                 data = json.loads(sample_row['data']) if isinstance(sample_row['data'], str) else sample_row['data']
-                return set(data.keys())
+                # Data is at top level, no nesting
+                logger.info(f"Sample row data structure: {list(data.keys()) if isinstance(data, dict) else 'not a dict'}")
+                return set(data.keys()) if isinstance(data, dict) else set()
+            logger.warning("No sample row found for column detection")
             return set()
         
-        # Extract column names from schema
-        if isinstance(schema_json, str):
-            schema_json = json.loads(schema_json)
-        
-        columns = set()
-        if 'columns' in schema_json:
+        # Extract column names from schema if we have them
+        if has_columns:
+            columns = set()
             for col in schema_json['columns']:
                 columns.add(col['name'])
+            logger.info(f"Found columns in schema: {columns}")
+            return columns
         
-        return columns
+        # If we get here, we should have already handled the fallback
+        return set()
     
     async def _get_column_types(self, conn: Connection, commit_id: str, table_key: str) -> Dict[str, str]:
         """Get column types from schema."""
@@ -876,19 +920,24 @@ class SamplingJobExecutor(JobExecutor):
         
         return column_types
     
-    async def _create_output_commit(
+    async def _create_output_commit_with_residual(
         self,
         conn: Connection,
         dataset_id: int,
         parent_commit_id: str,
+        source_table_key: str,
         user_id: Optional[int],
         message: str,
         round_results: List[Dict[str, Any]],
-        output_branch_name: Optional[str] = None,
-        output_name: Optional[str] = None,
+        output_name: str,
+        export_residual: bool,
         parameters: Optional[Dict[str, Any]] = None
-    ) -> str:
-        """Create a new commit with sampled data."""
+    ) -> Tuple[str, int]:
+        """Create a new commit with both sampled and residual data.
+        
+        Returns:
+            Tuple of (commit_id, residual_count)
+        """
         import hashlib
         from datetime import datetime
         
@@ -902,18 +951,13 @@ class SamplingJobExecutor(JobExecutor):
             VALUES ($1, $2, $3, $4, $5)
         """, commit_id, dataset_id, parent_commit_id, message, user_id)
         
-        # Copy sampled rows to new commit
-        # Use UNION to combine all rounds and remove duplicates
-        # Use output_name as table key for sampled data, fallback to output_branch_name or 'sampled_data'
-        new_table_key = output_name or output_branch_name or 'sampled_data'
-        
+        # 1. Copy sampled rows with 'sample' as table key
         union_parts = []
         for round_idx, _ in enumerate(round_results):
             round_table = f"temp_round_{round_idx + 1}_samples"
-            # Replace the original table key prefix with the new table key
             union_parts.append(f"""
                 SELECT 
-                    '{new_table_key}:' || substr(logical_row_id, position(':' in logical_row_id) + 1) as logical_row_id,
+                    'sample:' || substr(logical_row_id, position(':' in logical_row_id) + 1) as logical_row_id,
                     row_hash 
                 FROM {round_table}
             """)
@@ -926,47 +970,115 @@ class SamplingJobExecutor(JobExecutor):
             FROM ({union_query}) AS all_samples
         """, commit_id)
         
-        # Copy schema from parent but update the table key
-        # First get the parent schema
+        # 2. Export residual data if requested
+        residual_count = 0
+        if export_residual:
+            # Create temporary table for residual data
+            residual_table = "temp_residual_data"
+            
+            await conn.execute(f"""
+                CREATE TEMP TABLE {residual_table} AS
+                WITH sampled_ids AS (
+                    SELECT row_id FROM temp_sampling_exclusions
+                )
+                SELECT m.logical_row_id, m.row_hash
+                FROM dsa_core.commit_rows m
+                LEFT JOIN sampled_ids si ON m.logical_row_id = si.row_id
+                WHERE m.commit_id = $1 
+                AND m.logical_row_id LIKE ($2 || ':%')
+                AND si.row_id IS NULL
+            """, parent_commit_id, source_table_key)
+            
+            # Get count
+            residual_count = await conn.fetchval(f"SELECT COUNT(*) FROM {residual_table}")
+            
+            if residual_count > 0:
+                # Copy residual rows with 'residual' as table key
+                await conn.execute(f"""
+                    INSERT INTO dsa_core.commit_rows (commit_id, logical_row_id, row_hash)
+                    SELECT $1, 
+                           'residual:' || substr(logical_row_id, position(':' in logical_row_id) + 1) as logical_row_id,
+                           row_hash
+                    FROM {residual_table}
+                """, commit_id)
+            
+            # Drop temp table
+            await conn.execute(f"DROP TABLE IF EXISTS {residual_table}")
+        
+        # 3. Copy schema from parent and create schemas for both tables
         parent_schema = await conn.fetchval("""
             SELECT schema_definition
             FROM dsa_core.commit_schemas
             WHERE commit_id = $1
         """, parent_commit_id)
         
+        # If parent schema is missing or has empty columns, extract from data
+        columns_list = []
         if parent_schema:
-            # Parse schema if it's a string
+            # Parse schema
             if isinstance(parent_schema, str):
                 parent_schema_dict = json.loads(parent_schema)
             else:
                 parent_schema_dict = parent_schema
             
-            # Update the schema to use the new table key
-            # Get the original table key from parameters
-            original_table_key = parameters.get('table_key', 'primary')
-            
-            # If the schema has the original table key, rename it to the new key
-            if original_table_key in parent_schema_dict:
-                updated_schema = parent_schema_dict.copy()
-                updated_schema[new_table_key] = updated_schema.pop(original_table_key)
-            else:
-                updated_schema = parent_schema_dict
-            
-            # Insert the updated schema
-            await conn.execute("""
-                INSERT INTO dsa_core.commit_schemas (commit_id, schema_definition)
-                VALUES ($1, $2)
-            """, commit_id, json.dumps(updated_schema))
+            # Get the original table schema
+            original_schema = parent_schema_dict.get(source_table_key, {})
+            columns_list = original_schema.get('columns', [])
         
-        # Store sampling metadata in table_analysis
+        # If no columns found, extract from sampled data
+        # Calculate total sampled first
+        total_sampled = sum(r['rows_sampled'] for r in round_results)
+        
+        if not columns_list and total_sampled > 0:
+            # Get a sample row to extract columns
+            sample_row = await conn.fetchrow(f"""
+                SELECT r.data
+                FROM temp_round_1_samples t
+                JOIN dsa_core.rows r ON t.row_hash = r.row_hash
+                LIMIT 1
+            """)
+            
+            if sample_row and sample_row['data']:
+                data = sample_row['data']
+                if isinstance(data, str):
+                    data = json.loads(data)
+                
+                # Extract actual data
+                if isinstance(data, dict) and 'data' in data:
+                    actual_data = data['data']
+                else:
+                    actual_data = data
+                
+                # Get column names
+                if isinstance(actual_data, dict):
+                    columns_list = list(actual_data.keys())
+        
+        # Create schema with extracted columns
+        table_schema = {
+            'columns': columns_list
+        }
+        
+        # Create new schema with both 'sample' and 'residual' tables
+        new_schema = {
+            'sample': table_schema
+        }
+        
+        if export_residual and residual_count > 0:
+            new_schema['residual'] = table_schema
+        
+        # Insert the schema
+        await conn.execute("""
+            INSERT INTO dsa_core.commit_schemas (commit_id, schema_definition)
+            VALUES ($1, $2)
+        """, commit_id, json.dumps(new_schema))
+        
+        # 4. Store sampling metadata in table_analysis for 'sample' table
         total_rows = sum(r['rows_sampled'] for r in round_results)
-        # table_key is already set to new_table_key above
-        table_key = new_table_key
         
-        # Create analysis data with sampling metadata
-        analysis_data = {
+        # Create analysis data for sample table
+        sample_analysis = {
             'total_rows': total_rows,
-            'columns': [],  # Sampling doesn't analyze columns
+            'columns': [],
             'column_types': {},
             'null_counts': {},
             'sample_values': {},
@@ -974,7 +1086,9 @@ class SamplingJobExecutor(JobExecutor):
                 'sampling_metadata': {
                     'parent_commit': parent_commit_id,
                     'rounds': round_results,
-                    'total_sampled': total_rows
+                    'total_sampled': total_rows,
+                    'has_residual': export_residual and residual_count > 0,
+                    'residual_count': residual_count if export_residual else 0
                 }
             }
         }
@@ -984,44 +1098,34 @@ class SamplingJobExecutor(JobExecutor):
             VALUES ($1, $2, $3)
             ON CONFLICT (commit_id, table_key) 
             DO UPDATE SET analysis = EXCLUDED.analysis
-        """, commit_id, table_key, json.dumps(analysis_data))
+        """, commit_id, 'sample', json.dumps(sample_analysis))
         
-        return commit_id
+        # Create analysis data for residual table if it exists
+        if export_residual and residual_count > 0:
+            residual_analysis = {
+                'total_rows': residual_count,
+                'columns': [],
+                'column_types': {},
+                'null_counts': {},
+                'sample_values': {},
+                'statistics': {
+                    'residual_metadata': {
+                        'parent_commit': parent_commit_id,
+                        'is_residual': True,
+                        'total_rows': residual_count
+                    }
+                }
+            }
+            
+            await conn.execute("""
+                INSERT INTO dsa_core.table_analysis (commit_id, table_key, analysis)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (commit_id, table_key) 
+                DO UPDATE SET analysis = EXCLUDED.analysis
+            """, commit_id, 'residual', json.dumps(residual_analysis))
+        
+        return commit_id, residual_count
     
-    async def _export_residual_data(
-        self,
-        conn: Connection,
-        source_commit_id: str,
-        table_key: str,
-        output_name: str
-    ) -> int:
-        """Export all unsampled rows as residual data."""
-        # Create residual table using anti-join pattern
-        residual_table = "temp_residual_data"
-        
-        await conn.execute(f"""
-            CREATE TEMP TABLE {residual_table} AS
-            WITH sampled_ids AS (
-                SELECT row_id FROM temp_sampling_exclusions
-            )
-            SELECT m.logical_row_id, m.row_hash, r.data as row_data_json
-            FROM dsa_core.commit_rows m
-            JOIN dsa_core.rows r ON m.row_hash = r.row_hash
-            LEFT JOIN sampled_ids si ON m.logical_row_id = si.row_id
-            WHERE m.commit_id = $1 
-            AND m.logical_row_id LIKE ($2 || ':%')
-            AND si.row_id IS NULL
-        """, source_commit_id, table_key)
-        
-        # Get count
-        count = await conn.fetchval(f"SELECT COUNT(*) FROM {residual_table}")
-        
-        # For now, we'll just log the count
-        logger.info(f"Residual data '{output_name}': {count} rows not sampled")
-        
-        return count
-
-
     async def _create_output_branch(self, conn: Connection, dataset_id: int, branch_name: str, commit_id: str) -> None:
         """Create a new branch pointing to the output commit."""
         await conn.execute("""

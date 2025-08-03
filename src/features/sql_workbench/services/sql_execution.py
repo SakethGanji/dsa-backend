@@ -30,6 +30,7 @@ class SqlTarget:
     table_key: str
     message: str
     output_branch_name: Optional[str] = None
+    expected_head_commit_id: Optional[str] = None
 
 @dataclass
 class SqlExecutionPlan:
@@ -221,32 +222,36 @@ class SqlExecutionService:
                     logger.info(f"Original SQL: {plan.sql_query}")
                     logger.info(f"Modified SQL: {modified_sql}")
                     
-                    # Execute query
+                    # For save mode, use server-side processing
+                    # This avoids loading any data into application memory
                     try:
-                        result_rows = await conn.fetch(modified_sql)
+                        new_commit_id, rows_processed = await self._create_commit_with_results_server_side(
+                            conn,
+                            modified_sql,
+                            plan.target,
+                            user_id
+                        )
                     except Exception as e:
                         logger.error(f"SQL execution failed: {str(e)}")
                         logger.error(f"Failed SQL was: {modified_sql}")
                         raise Exception(f"SQL execution error: {str(e)}")
                     
-                    # Create new commit with results
-                    new_commit_id = await self._create_commit_with_results(
-                        conn,
-                        result_rows,
-                        plan.target,
-                        user_id
-                    )
-                    
-                    # Update ref
+                    # Update ref with optimistic locking if specified
                     await self._update_ref(
                         conn,
                         plan.target.dataset_id,
                         plan.target.ref,
-                        new_commit_id
+                        new_commit_id,
+                        plan.target.expected_head_commit_id
                     )
                     
-                    # Create output branch if specified
-                    output_branch = plan.target.output_branch_name or new_commit_id
+                    # Create output branch with wkbh- prefix
+                    if plan.target.output_branch_name:
+                        output_branch = f"wkbh-{plan.target.output_branch_name}"
+                    else:
+                        # Use timestamp-based name if not specified
+                        output_branch = f"wkbh-transform-{int(time.time())}"
+                    
                     await self._create_branch(
                         conn,
                         plan.target.dataset_id,
@@ -258,9 +263,9 @@ class SqlExecutionService:
                     
                     return SqlExecutionResult(
                         new_commit_id=new_commit_id,
-                        rows_processed=len(result_rows),
+                        rows_processed=rows_processed,
                         execution_time_ms=execution_time_ms,
-                        table_key=plan.target.table_key,
+                        table_key='primary',  # Always use 'primary' for workbench
                         output_branch_name=output_branch
                     )
                     
@@ -374,31 +379,47 @@ class SqlExecutionService:
         sorted_views = sorted(view_names, key=lambda x: len(x[0]), reverse=True)
         
         for alias, view_name in sorted_views:
-            # Replace alias as a standalone table reference
-            # This handles: FROM alias, JOIN alias, etc.
-            modified_sql = re.sub(
-                rf'\b{re.escape(alias)}\b(?!\s*\.)',
-                view_name,
-                modified_sql
-            )
-            
             # Replace alias when used as table prefix (e.g., alias.column)
+            # Do this FIRST to handle explicit table references
             modified_sql = re.sub(
                 rf'\b{re.escape(alias)}\.', 
                 f'{view_name}.',
                 modified_sql
             )
+            
+            # Replace alias as a standalone table reference in FROM/JOIN clauses
+            # More specific patterns to avoid replacing column references
+            # This handles: FROM alias, JOIN alias, etc.
+            # but NOT: SELECT alias->>'field' or WHERE alias = 'value'
+            modified_sql = re.sub(
+                rf'(\bFROM\s+){re.escape(alias)}\b',
+                rf'\1{view_name}',
+                modified_sql,
+                flags=re.IGNORECASE
+            )
+            modified_sql = re.sub(
+                rf'(\bJOIN\s+){re.escape(alias)}\b',
+                rf'\1{view_name}',
+                modified_sql,
+                flags=re.IGNORECASE
+            )
+            # Handle comma-separated tables: FROM table1, alias
+            modified_sql = re.sub(
+                rf'(,\s*){re.escape(alias)}\b(?!\s*\.|\s*->>|\s*->)',
+                rf'\1{view_name}',
+                modified_sql
+            )
         
         return modified_sql
     
-    async def _create_commit_with_results(
+    async def _create_commit_with_results_server_side(
         self,
         conn: asyncpg.Connection,
-        result_rows: List[asyncpg.Record],
+        transformation_sql: str,
         target: SqlTarget,
         user_id: int
-    ) -> str:
-        """Create a new commit with transformation results."""
+    ) -> tuple[str, int]:
+        """Create a new commit with transformation results using server-side processing."""
         # Generate commit ID with random component to ensure uniqueness
         import uuid
         commit_id = hashlib.sha256(
@@ -424,80 +445,150 @@ class SqlExecutionService:
             target.message, user_id, datetime.utcnow()
         )
         
-        # Copy existing tables except the target
+        # Copy existing tables except the primary table (which we're replacing)
         if parent_commit_id:
             await conn.execute("""
                 INSERT INTO dsa_core.commit_rows (commit_id, logical_row_id, row_hash)
                 SELECT $1, logical_row_id, row_hash
                 FROM dsa_core.commit_rows
                 WHERE commit_id = $2
-                AND NOT (logical_row_id LIKE $3 || ':%' OR logical_row_id LIKE $3 || '\\_%')
-            """, commit_id, parent_commit_id, target.table_key)
+                AND NOT (logical_row_id LIKE 'primary:%' OR logical_row_id LIKE 'primary\\_%')
+            """, commit_id, parent_commit_id)
         
-        # Process result rows
-        for idx, row in enumerate(result_rows):
-            row_dict = dict(row)
-            
-            # Handle data structure
-            if 'data' in row_dict and len(row_dict) == 1:
-                inner_data = row_dict['data']
-                if isinstance(inner_data, str):
-                    inner_data = json.loads(inner_data)
-            else:
-                inner_data = row_dict
-            
-            # Create row data
-            row_data = {
-                "sheet_name": target.table_key,
-                "row_number": idx + 1,
-                "data": inner_data
-            }
-            row_json = json.dumps(row_data, default=str)
-            
-            # Calculate hash
-            data_json = json.dumps(inner_data, sort_keys=True, separators=(',', ':'), default=str)
-            row_hash = hashlib.sha256(data_json.encode()).hexdigest()
-            
-            # Insert row
-            await conn.execute(
-                """
+        # Use server-side processing to insert transformation results
+        # This never loads data into application memory
+        # Build the query dynamically but safely
+        query_template = """
+            WITH transformation_results AS (
+                -- User's transformation SQL goes here
+                {transformation_sql}
+            ),
+            numbered_results AS (
+                SELECT 
+                    row_to_json(t.*)::jsonb as result_data,
+                    row_number() OVER () as row_num
+                FROM transformation_results t
+            ),
+            prepared_rows AS (
+                SELECT 
+                    json_build_object(
+                        'sheet_name', 'primary',
+                        'row_number', row_num,
+                        'data', result_data
+                    )::jsonb as full_data,
+                    -- For hash calculation, we only hash the actual data content
+                    -- This ensures deduplication works correctly
+                    encode(sha256(result_data::text::bytea), 'hex') as row_hash,
+                    row_num
+                FROM numbered_results
+            ),
+            row_inserts AS (
                 INSERT INTO dsa_core.rows (row_hash, data)
-                VALUES ($1, $2::jsonb)
+                SELECT DISTINCT
+                    row_hash,
+                    full_data
+                FROM prepared_rows
                 ON CONFLICT (row_hash) DO NOTHING
-                """,
-                row_hash, row_json
             )
-            
-            # Link to commit
-            logical_row_id = f"{target.table_key}:{row_hash}"
-            await conn.execute(
-                """
-                INSERT INTO dsa_core.commit_rows (
-                    commit_id, logical_row_id, row_hash
-                ) VALUES ($1, $2, $3)
-                ON CONFLICT (commit_id, logical_row_id) DO NOTHING
-                """,
-                commit_id, logical_row_id, row_hash
-            )
+            INSERT INTO dsa_core.commit_rows (commit_id, logical_row_id, row_hash)
+            SELECT 
+                '{commit_id}' as commit_id,
+                '{table_key}' || ':' || row_hash as logical_row_id,
+                row_hash
+            FROM prepared_rows
+            ON CONFLICT (commit_id, logical_row_id) DO NOTHING
+        """
         
-        return commit_id
+        # Format the query with actual values
+        # Note: commit_id is safe as it comes from our system
+        # Always use 'primary' as table key for workbench transformations
+        final_query = query_template.format(
+            transformation_sql=transformation_sql,
+            commit_id=commit_id,
+            table_key='primary'  # Workbench always outputs to primary table
+        )
+        
+        rows_processed = await conn.execute(final_query)
+        
+        # Get actual count of rows processed
+        row_count = await conn.fetchval("""
+            SELECT COUNT(*) FROM dsa_core.commit_rows 
+            WHERE commit_id = $1 AND logical_row_id LIKE $2 || ':%'
+        """, commit_id, 'primary')  # Always use 'primary' for workbench
+        
+        # Create schema for the workbench output
+        # First, get a sample row to extract column names
+        sample_row = await conn.fetchrow("""
+            SELECT r.data
+            FROM dsa_core.commit_rows cr
+            JOIN dsa_core.rows r ON cr.row_hash = r.row_hash
+            WHERE cr.commit_id = $1 AND cr.logical_row_id LIKE 'primary:%'
+            LIMIT 1
+        """, commit_id)
+        
+        columns_list = []
+        if sample_row and sample_row['data']:
+            data = sample_row['data']
+            if isinstance(data, str):
+                data = json.loads(data)
+            
+            # Extract actual data from standardized format
+            if isinstance(data, dict) and 'data' in data:
+                actual_data = data['data']
+                if isinstance(actual_data, dict):
+                    columns_list = list(actual_data.keys())
+        
+        # Create schema with 'primary' table
+        schema = {
+            'primary': {
+                'columns': columns_list
+            }
+        }
+        
+        # Insert the schema
+        await conn.execute("""
+            INSERT INTO dsa_core.commit_schemas (commit_id, schema_definition)
+            VALUES ($1, $2)
+            ON CONFLICT (commit_id) DO UPDATE SET schema_definition = EXCLUDED.schema_definition
+        """, commit_id, json.dumps(schema))
+        
+        return commit_id, row_count or 0
     
     async def _update_ref(
         self,
         conn: asyncpg.Connection,
         dataset_id: int,
         ref_name: str,
-        commit_id: str
+        commit_id: str,
+        expected_head_commit_id: str = None
     ) -> None:
-        """Update ref to point to new commit."""
-        await conn.execute(
-            """
-            UPDATE dsa_core.refs 
-            SET commit_id = $1
-            WHERE dataset_id = $2 AND name = $3
-            """,
-            commit_id, dataset_id, ref_name
-        )
+        """Update ref to point to new commit with optional optimistic locking."""
+        if expected_head_commit_id:
+            # Use optimistic locking to prevent race conditions
+            result = await conn.execute(
+                """
+                UPDATE dsa_core.refs 
+                SET commit_id = $1
+                WHERE dataset_id = $2 AND name = $3 AND commit_id = $4
+                """,
+                commit_id, dataset_id, ref_name, expected_head_commit_id
+            )
+            if result == "UPDATE 0":
+                raise Exception(
+                    f"Concurrent update detected: ref '{ref_name}' was updated by another transaction. "
+                    "Expected commit {expected_head_commit_id} but ref has moved. "
+                    "Please retry your transformation with the latest commit."
+                )
+        else:
+            # No optimistic locking - last write wins
+            await conn.execute(
+                """
+                UPDATE dsa_core.refs 
+                SET commit_id = $1
+                WHERE dataset_id = $2 AND name = $3
+                """,
+                commit_id, dataset_id, ref_name
+            )
     
     async def _create_branch(
         self,
