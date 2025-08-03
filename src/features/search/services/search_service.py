@@ -3,6 +3,7 @@
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 from dataclasses import dataclass
+import logging
 
 from src.infrastructure.postgres.uow import PostgresUnitOfWork
 from src.core.domain_exceptions import ValidationException
@@ -13,6 +14,8 @@ from ..models import (
     SearchResponse,
     SuggestResponse
 )
+
+logger = logging.getLogger(__name__)
 
 
 class SearchService:
@@ -144,11 +147,17 @@ class SearchService:
         
         Note: REFRESH MATERIALIZED VIEW is a DDL operation that auto-commits.
         """
+        logger.info("Starting search index refresh")
         async with self._uow as uow:
             success = await uow.search_repository.refresh_search_index()
             
             # Commit is not needed for REFRESH MATERIALIZED VIEW
             # as it's a DDL operation that auto-commits
+            
+            if success:
+                logger.info("Search index refresh completed successfully")
+            else:
+                logger.error("Search index refresh failed - check repository logs for details")
             
             return {
                 "success": success,

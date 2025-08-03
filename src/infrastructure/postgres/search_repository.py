@@ -4,8 +4,11 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 import json
 import asyncpg
+import logging
 
 # Remove interface import
+
+logger = logging.getLogger(__name__)
 
 
 class PostgresSearchRepository:
@@ -92,7 +95,9 @@ class PostgresSearchRepository:
             await self._connection.execute(
                 "REFRESH MATERIALIZED VIEW CONCURRENTLY dsa_search.datasets_summary"
             )
+            logger.info("Successfully refreshed search index materialized view")
             return True
-        except Exception:
-            # Log the error in production
+        except Exception as e:
+            logger.error(f"Failed to refresh search index: {type(e).__name__}: {str(e)}")
+            logger.exception("Full traceback:")
             return False
