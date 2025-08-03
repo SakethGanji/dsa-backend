@@ -40,7 +40,7 @@ class SqlExecutor:
                     cte_sql = f"""
                     {source['alias']} AS (
                         SELECT 
-                            (r.data->>'data')::jsonb as data,
+                            r.data as data,
                             cr.logical_row_id
                         FROM dsa_core.commit_rows cr
                         JOIN dsa_core.rows r ON cr.row_hash = r.row_hash
@@ -127,7 +127,7 @@ class SqlExecutor:
                     data_cte = f"""
                     {source['alias']} AS (
                         SELECT 
-                            (r.data->>'data')::jsonb as data,
+                            r.data as data,
                             f.logical_row_id
                         FROM __{source['alias']}_filtered f
                         JOIN dsa_core.rows r ON f.row_hash = r.row_hash

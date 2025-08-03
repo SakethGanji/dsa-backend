@@ -15,6 +15,7 @@ from src.infrastructure.external.password_manager import get_password_manager
 from src.workers.job_worker import JobWorker
 from src.workers.import_executor import ImportJobExecutor
 from src.workers.sampling_executor import SamplingJobExecutor
+from src.workers.exploration_executor import ExplorationExecutor
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,7 +30,7 @@ async def main():
     settings = get_settings()
     
     # Initialize database pool with dynamic password if configured
-    dsn = settings.database_url
+    dsn = f"postgresql://{settings.POSTGRESQL_USER}:{settings.POSTGRESQL_PASSWORD}@{settings.POSTGRESQL_HOST}:{settings.POSTGRESQL_PORT}/{settings.POSTGRESQL_DATABASE}"
     if settings.POSTGRESQL_PASSWORD_SECRET_NAME:
         try:
             password_manager = get_password_manager()
@@ -61,6 +62,7 @@ async def main():
     # Register executors
     worker.register_executor('import', ImportJobExecutor())
     worker.register_executor('sampling', SamplingJobExecutor())
+    worker.register_executor('exploration', ExplorationExecutor(db_pool))
     
     # Start worker
     try:

@@ -93,7 +93,7 @@ def create_approximate_preview_query(user_sql: str, sources: list[dict], limit: 
         data_cte = f"""
         {source['alias']} AS (
             SELECT 
-                (r.data->>'data')::jsonb as data,
+                r.data as data,
                 f.logical_row_id
             FROM __{source['alias']}_filtered f
             JOIN dsa_core.rows r ON f.row_hash = r.row_hash
