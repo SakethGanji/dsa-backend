@@ -98,6 +98,17 @@ class PostgresEventStore:
                 conn, event.aggregate_id, event.aggregate_type
             )
             
+            # Extract event payload by serializing all non-base attributes
+            payload = {}
+            for key, value in event.__dict__.items():
+                if key not in ['event_id', 'occurred_at', 'correlation_id', 'metadata', 
+                              'event_type', 'aggregate_type', 'aggregate_id']:
+                    # Convert UUID and other non-serializable types
+                    if hasattr(value, '__class__') and value.__class__.__name__ == 'UUID':
+                        payload[key] = str(value)
+                    else:
+                        payload[key] = value
+            
             await conn.execute("""
                 INSERT INTO dsa_events.domain_events (
                     event_id, event_type, aggregate_id, aggregate_type,
@@ -109,10 +120,10 @@ class PostgresEventStore:
                 event.event_type.value,
                 event.aggregate_id,
                 event.aggregate_type,
-                json.dumps(event.payload),
+                json.dumps(payload),
                 json.dumps(event.metadata),
                 event.occurred_at,
-                event.user_id,
+                getattr(event, 'user_id', None),
                 event.correlation_id,
                 version
             )

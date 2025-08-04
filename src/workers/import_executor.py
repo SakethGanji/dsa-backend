@@ -577,6 +577,14 @@ class ImportJobExecutor(JobExecutor):
                 
                 for row in sample_rows:
                     row_data = row['data']
+                    
+                    # Handle case where asyncpg returns JSONB as string
+                    if isinstance(row_data, str):
+                        try:
+                            row_data = json.loads(row_data)
+                        except json.JSONDecodeError:
+                            continue
+                    
                     if not isinstance(row_data, dict):
                         continue
                     
@@ -793,6 +801,14 @@ def _commit_batch_worker(conn, batch: List[Tuple[str, str, str]], commit_id: str
     buffer.seek(0)
     
     with conn.cursor() as cur:
+        # Create temp table if it doesn't exist
+        cur.execute("""
+            CREATE TEMP TABLE IF NOT EXISTS import_batch (
+                logical_row_id TEXT, 
+                row_hash TEXT, 
+                data JSONB
+            ) ON COMMIT DROP
+        """)
         cur.execute("TRUNCATE import_batch;")
         
         with cur.copy("COPY import_batch (logical_row_id, row_hash, data) FROM STDIN") as copy:
