@@ -245,8 +245,16 @@ class FileConverter:
     
     def _validate_and_normalize_schema(self, df: pl.DataFrame, table_key: str) -> pl.DataFrame:
         """Validate and normalize DataFrame schema."""
+        # Check if DataFrame is empty
+        if df.shape[0] == 0:
+            raise ValueError(f"Table '{table_key}' has no rows to import")
+        
         # Remove completely empty columns
         df = df.select([col for col in df.columns if not df[col].is_null().all()])
+        
+        # Check if we have any columns left
+        if len(df.columns) == 0:
+            raise ValueError(f"Table '{table_key}' has no valid columns (all columns were empty)")
         
         # Normalize column names (remove special characters, lowercase)
         df = df.rename(lambda col: self._normalize_column_name(col))

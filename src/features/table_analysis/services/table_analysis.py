@@ -366,19 +366,56 @@ class TableAnalysisService:
         """Perform comprehensive analysis on a table."""
         # Get schema
         schema_data = await self._table_reader.get_table_schema(commit_id, table_key)
+        
+        # Debug logging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Schema data for table {table_key}: type={type(schema_data)}, value={schema_data}")
+        
         if not schema_data:
             schema_data = {}
         
+        # Ensure columns is a list
+        columns = schema_data.get('columns', [])
+        
+        # Early validation - fail fast if no columns in schema
+        if not columns:
+            logger.warning(f"No columns found in schema for table {table_key}")
+        
+        # Get sample data (we'll need it for either schema inference or analysis)
+        sample_data = await self._table_reader.get_table_data(
+            commit_id, table_key, limit=sample_size
+        )
+        
+        # If no columns found in schema, try to infer from sample data
+        if not columns:
+            logger.warning(f"No columns found in schema for table {table_key}, attempting to infer from data")
+            
+            if sample_data and len(sample_data) > 0:
+                # Infer columns from first row
+                first_row = sample_data[0]
+                columns = []
+                for col_name in first_row.keys():
+                    if not col_name.startswith('_') and col_name != 'logical_row_id':  # Skip internal columns
+                        columns.append({
+                            'name': col_name,
+                            'type': 'string'  # Default type, will be refined later
+                        })
+                logger.info(f"Inferred {len(columns)} columns from sample data")
+            else:
+                # No data available either, cannot proceed
+                raise ValidationException(
+                    f"Cannot analyze table '{table_key}': No schema found in commit_schemas table and no data available to infer schema. "
+                    f"This may occur if: 1) The table was imported without proper schema detection, "
+                    f"2) The commit is corrupted, or 3) The table doesn't exist in this commit.",
+                    field="table_key"
+                )
+        
         schema = TableSchema(
-            columns=schema_data.get('columns', []),
+            columns=columns,
             primary_key=schema_data.get('primary_key'),
             row_count=schema_data.get('row_count', 0),
             size_bytes=schema_data.get('size_bytes')
-        )
-        
-        # Get sample data
-        sample_data = await self._table_reader.get_table_data(
-            commit_id, table_key, limit=sample_size
         )
         
         # Analyze columns
@@ -397,6 +434,9 @@ class TableAnalysisService:
             
             # Analyze each column
             for col_name, values in columns.items():
+                # Skip internal columns
+                if col_name.startswith('_') or col_name == 'logical_row_id':
+                    continue
                 # Infer type
                 inferred_type = self._type_inference.infer_column_type(values) if infer_types else 'string'
                 

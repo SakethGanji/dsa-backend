@@ -119,12 +119,11 @@ class CommitPreparationService:
         )
         
         if not raw_schema:
-            # No existing schema, infer from data
-            return TableSchema(
-                columns=[],
-                primary_key=None,
-                indexes=[],
-                row_count=0
+            # No existing schema, this should not happen during import
+            # The import process should have already created a schema
+            raise ValueError(
+                f"No schema found for table '{table_name}'. "
+                f"This indicates the import process failed to create a proper schema."
             )
         
         # Convert to our schema format
@@ -152,6 +151,13 @@ class CommitPreparationService:
                         'default': None,
                         'constraints': []
                     })
+        
+        # Validate that we have columns
+        if not columns:
+            raise ValueError(
+                f"Table '{table_name}' schema has no columns. "
+                f"Raw schema: {raw_schema}"
+            )
         
         return TableSchema(
             columns=columns,

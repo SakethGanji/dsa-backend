@@ -612,6 +612,13 @@ class ImportJobExecutor(JobExecutor):
                 """, commit_id, table_key)
                 total_rows = count_result['total']
                 
+                # Validate that we found columns
+                if not all_columns:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"Import job - Table '{table_key}' has no columns detected in {len(sample_rows)} sample rows")
+                    raise ValueError(f"Table '{table_key}' appears to have no columns. This may indicate corrupted or empty data.")
+                
                 # Build and store analysis
                 analysis = {
                     'total_rows': total_rows,
@@ -630,12 +637,19 @@ class ImportJobExecutor(JobExecutor):
                 """, commit_id, table_key, json.dumps(analysis))
                 
                 # Update commit_schemas using ON CONFLICT with JSONB merge
+                schema_columns = [
+                    {"name": col, "type": column_types.get(col, "string")} 
+                    for col in sorted(all_columns)
+                ]
+                
+                # Validate schema before storing
+                if not schema_columns:
+                    raise ValueError(f"Cannot create schema for table '{table_key}' with no columns")
+                
                 schema_data = {
                     table_key: {
-                        "columns": [
-                            {"name": col, "type": column_types.get(col, "string")} 
-                            for col in sorted(all_columns)
-                        ]
+                        "columns": schema_columns,
+                        "row_count": total_rows
                     }
                 }
                 

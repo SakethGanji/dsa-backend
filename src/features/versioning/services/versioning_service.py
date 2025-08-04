@@ -652,6 +652,18 @@ class VersioningService(PaginationMixin):
         
         commit_id = ref['commit_id']
         
+        # Early validation: check if table exists and has schema or data
+        if self._table_reader:
+            schema = await self._table_reader.get_table_schema(commit_id, table_key)
+            if not schema or not schema.get('columns'):
+                # Check if we at least have data
+                sample_check = await self._table_reader.get_table_data(commit_id, table_key, limit=1)
+                if not sample_check:
+                    raise ValidationException(
+                        f"Table '{table_key}' has no schema and no data available",
+                        field="table_key"
+                    )
+        
         if not self._table_analysis_service:
             # Create one if not provided
             self._table_analysis_service = TableAnalysisService(
