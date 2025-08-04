@@ -694,6 +694,33 @@ class VersioningService(PaginationMixin):
             data_types[stat.column_name] = stat.data_type
             columns.append({"name": stat.column_name, "type": stat.data_type})
         
+        # Fallback: if no columns from statistics, try to get from schema
+        if not columns and analysis.schema and analysis.schema.columns:
+            columns = [{"name": col.get('name', ''), "type": col.get('type', 'string')} 
+                      for col in analysis.schema.columns]
+            # Also populate other fields from schema columns
+            for col in analysis.schema.columns:
+                col_name = col.get('name', '')
+                col_type = col.get('type', 'string')
+                if col_name and col_name not in data_types:
+                    data_types[col_name] = col_type
+                    # Initialize with zeros if not present
+                    if col_name not in null_counts:
+                        null_counts[col_name] = 0
+                    if col_name not in unique_counts:
+                        unique_counts[col_name] = 0
+                    if col_name not in column_stats:
+                        column_stats[col_name] = {
+                            "min": None,
+                            "max": None,
+                            "mean": None,
+                            "median": None,
+                            "mode": None,
+                            "std_dev": None,
+                            "null_count": 0,
+                            "unique_count": 0
+                        }
+        
         # Convert sample data to list of dicts
         sample_data = []
         if analysis.sample_values:
