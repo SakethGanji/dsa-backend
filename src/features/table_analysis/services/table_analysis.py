@@ -369,16 +369,30 @@ class TableAnalysisService:
         if not schema_data:
             schema_data = {}
         
+        # Get sample data first to check if we need to build schema
+        sample_data = await self._table_reader.get_table_data(
+            commit_id, table_key, limit=sample_size
+        )
+        
+        # If schema has no columns but we have data, build columns from data
+        schema_columns = schema_data.get('columns', [])
+        needs_schema_update = False
+        if not schema_columns and sample_data:
+            # Extract columns from first row
+            first_row = sample_data[0]
+            schema_columns = [
+                {"name": col, "type": "string"}  # Default to string, will be refined later
+                for col in sorted(first_row.keys())
+                if not col.startswith('_') or col == '_logical_row_id'
+            ]
+            needs_schema_update = True
+        
+        # Create schema with columns (either from schema or extracted from data)
         schema = TableSchema(
-            columns=schema_data.get('columns', []),
+            columns=schema_columns,
             primary_key=schema_data.get('primary_key'),
             row_count=schema_data.get('row_count', 0),
             size_bytes=schema_data.get('size_bytes')
-        )
-        
-        # Get sample data
-        sample_data = await self._table_reader.get_table_data(
-            commit_id, table_key, limit=sample_size
         )
         
         # Analyze columns
@@ -464,6 +478,24 @@ class TableAnalysisService:
                             'severity': 'medium',
                             'details': f'{len(outlier_indices)} potential outliers detected'
                         })
+        
+        # Update schema in database if it was missing columns
+        if needs_schema_update and column_stats:
+            # Build proper schema with inferred types
+            updated_columns = []
+            for col_stat in column_stats:
+                updated_columns.append({
+                    "name": col_stat.column_name,
+                    "type": col_stat.data_type
+                })
+            
+            # Update the schema object with proper types
+            schema = TableSchema(
+                columns=updated_columns,
+                primary_key=schema.primary_key,
+                row_count=len(sample_data) if sample_data else 0,
+                size_bytes=schema.size_bytes
+            )
         
         # Create profiling metadata
         profiling_metadata = {

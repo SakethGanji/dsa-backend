@@ -635,7 +635,8 @@ class ImportJobExecutor(JobExecutor):
                         "columns": [
                             {"name": col, "type": column_types.get(col, "string")} 
                             for col in sorted(all_columns)
-                        ]
+                        ],
+                        "row_count": total_rows
                     }
                 }
                 
