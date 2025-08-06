@@ -4,7 +4,6 @@
 from .requests import (
     # Dataset requests
     CreateDatasetRequest,
-    CreateDatasetWithFileRequest,
     UpdateDatasetRequest,
     
     # User requests
@@ -21,7 +20,6 @@ from .requests import (
     CreateBranchRequest,
     
     # Data access requests
-    GetDataRequest,
     
     # Permission requests
     GrantPermissionRequest,
@@ -107,7 +105,7 @@ from .common import (
 __all__ = [
     # Request models
     "CreateDatasetRequest",
-    "CreateDatasetWithFileRequest", 
+ 
     "UpdateDatasetRequest",
     "CreateUserRequest",
     "UpdateUserRequest",
@@ -116,7 +114,6 @@ __all__ = [
     "CancelJobRequest",
     "CreateCommitRequest",
     "CreateBranchRequest",
-    "GetDataRequest",
     "GrantPermissionRequest",
     
     # Response models

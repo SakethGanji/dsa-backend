@@ -11,7 +11,7 @@ from ..api.models import (
     CurrentUser, ListDatasetsResponse, DatasetSummary,
     DatasetDetailResponse, UpdateDatasetRequest,
     UpdateDatasetResponse, DeleteDatasetResponse,
-    CreateDatasetWithFileRequest, CreateDatasetWithFileResponse
+    CreateDatasetWithFileResponse
 )
 from ..core.authorization import (
     get_current_user_info,
@@ -93,14 +93,14 @@ async def create_dataset_with_file(
     # Parse tags from comma-separated string
     tag_list = [tag.strip() for tag in tags.split(",")] if tags else []
     
-    # Create request object
-    request = CreateDatasetWithFileRequest(
-        name=name,
-        description=description,
-        tags=tag_list,
-        default_branch=default_branch,
-        commit_message=commit_message
-    )
+    # Create request object - using command directly since request model is missing
+    # request = CreateDatasetWithFileRequest(
+    #     name=name,
+    #     description=description,
+    #     tags=tag_list,
+    #     default_branch=default_branch,
+    #     commit_message=commit_message
+    # )
     
     # Create command
     command = CreateDatasetWithFileCommand(

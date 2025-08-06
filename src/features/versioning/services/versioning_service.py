@@ -14,7 +14,7 @@ from ...base_handler import with_transaction, with_error_handling
 from src.core.common.pagination import PaginationMixin
 from src.api.models import (
     CreateCommitRequest, CreateCommitResponse,
-    GetDataRequest, GetDataResponse,
+    GetDataResponse,
     CreateBranchRequest, CreateBranchResponse,
     ListRefsResponse, RefInfo,
     CommitSchemaResponse, TableAnalysisResponse,
@@ -445,16 +445,18 @@ class VersioningService(PaginationMixin):
     # ========== Data Operations ==========
     
     @with_error_handling
-    async def get_data_at_ref(
+    async def query_data_at_ref(
         self,
         dataset_id: int,
         ref_name: str,
-        request: GetDataRequest,
+        table_key: str,
+        query: 'DataQueryRequest',
         user_id: int
     ) -> GetDataResponse:
-        """Get data at a specific ref."""
-        # Validate pagination parameters
-        offset, limit = self.validate_pagination(request.offset, request.limit)
+        """Enhanced data query with multi-sort, array filters, and row flattening."""
+        import base64
+        import json
+        from src.api.models.requests import DataQueryRequest
         
         # Check read permission
         await self._permissions.require("dataset", dataset_id, user_id, "read")
@@ -470,38 +472,77 @@ class VersioningService(PaginationMixin):
         if not self._table_reader:
             raise ValueError("Table reader not available")
         
-        # Get data from the table
-        table_key = request.sheet_name or "primary"
+        # Handle cursor pagination
+        actual_offset = query.pagination.offset if query.pagination else 0
+        limit = query.pagination.limit if query.pagination else 100
         
-        # Get total row count first
-        total_rows = await self._table_reader.count_table_rows(commit_id, table_key)
+        if query.pagination and query.pagination.cursor:
+            # Decode cursor to get actual offset
+            try:
+                cursor_data = json.loads(base64.b64decode(query.pagination.cursor).decode('utf-8'))
+                actual_offset = cursor_data.get('offset', 0)
+            except:
+                pass
         
-        # Then get paginated data
-        rows = await self._table_reader.get_table_data(
+        # Validate pagination parameters
+        offset, limit = self.validate_pagination(actual_offset, limit)
+        
+        # Get filtered and sorted data using enhanced method
+        rows = await self._table_reader.get_table_data_enhanced(
             commit_id=commit_id,
             table_key=table_key,
             offset=offset,
-            limit=limit
+            limit=limit,
+            sorting=query.sorting,
+            filters=query.filters,
+            select_columns=query.select_columns
         )
         
-        # Get schema
-        schema = await self._table_reader.get_table_schema(commit_id, table_key)
+        # Get total count with filters applied
+        total_rows = await self._table_reader.count_table_rows_enhanced(
+            commit_id=commit_id, 
+            table_key=table_key,
+            filters=query.filters
+        )
         
         # Convert rows to DataRow objects
         from src.api.models import DataRow
         data_rows = []
         for i, row in enumerate(rows):
             # Extract logical_row_id if present
-            logical_row_id = row.get('_logical_row_id') or row.get('logical_row_id') or f"{table_key}:{i}"
-            # Remove system columns
-            clean_row = {k: v for k, v in row.items() 
-                        if not k.startswith('_') and k != 'logical_row_id'}
-            data_row = DataRow(
+            logical_row_id = row.get('_logical_row_id') or row.get('logical_row_id') or f"{table_key}:{offset + i}"
+            
+            # Remove internal fields
+            data = {k: v for k, v in row.items() if not k.startswith('_') and k != 'logical_row_id'}
+            
+            # Apply row flattening if requested
+            if query.format == "flat":
+                # Flatten nested objects to dot notation
+                data = self._flatten_row(data)
+            
+            data_rows.append(DataRow(
                 sheet_name=table_key,
                 logical_row_id=logical_row_id,
-                data=clean_row
-            )
-            data_rows.append(data_row)
+                data=data
+            ))
+        
+        # Calculate has_more
+        has_more = (offset + len(rows)) < total_rows
+        
+        # Create next cursor if there are more results
+        next_cursor = None
+        if has_more:
+            cursor_data = {
+                'offset': offset + limit,
+                'filters': query.filters.dict() if query.filters else None,
+                'sort': [s.dict() for s in query.sorting] if query.sorting else None
+            }
+            next_cursor = base64.b64encode(json.dumps(cursor_data).encode()).decode('utf-8')
+        
+        # Build sort_applied info for multi-sort
+        sort_applied = None
+        if query.sorting:
+            sort_applied = [{'column': s.column, 'order': 'desc' if s.desc else 'asc'} for s in query.sorting]
         
         return GetDataResponse(
             dataset_id=dataset_id,
@@ -511,9 +552,26 @@ class VersioningService(PaginationMixin):
             total_rows=total_rows,
             offset=offset,
             limit=limit,
-            has_more=(offset + len(rows)) < total_rows,
-            schema=schema
+            has_more=has_more,
+            next_cursor=next_cursor,
+            filters_applied=query.filters.dict() if query.filters else None,
+            sort_applied=sort_applied
         )
+    
+    def _flatten_row(self, data: Dict[str, Any], parent_key: str = '', sep: str = '.') -> Dict[str, Any]:
+        """Flatten nested dictionary to dot notation."""
+        import json
+        items = []
+        for k, v in data.items():
+            new_key = f"{parent_key}{sep}{k}" if parent_key else k
+            if isinstance(v, dict):
+                items.extend(self._flatten_row(v, new_key, sep=sep).items())
+            elif isinstance(v, list):
+                # For lists, keep as is or optionally stringify
+                items.append((new_key, json.dumps(v) if v and isinstance(v[0], (dict, list)) else v))
+            else:
+                items.append((new_key, v))
+        return dict(items)
     
     @with_error_handling
     async def get_table_data(

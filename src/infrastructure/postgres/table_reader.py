@@ -91,15 +91,10 @@ class PostgresTableReader:
         limit: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """Get paginated data for a specific table."""
-        # Handle both formats: "table_key:hash" and "table_key_hash"
-        if ':' in table_key:
-            pattern = f"{table_key}:%"
-        else:
-            pattern = f"{table_key}_%"
+        # Simple pattern matching for table_key
+        pattern = f"{table_key}_%"
         
-        # Also check if data contains sheet_name matching table_key
         if limit is None:
-            # Get all rows (use with caution for large datasets)
             query = """
                 SELECT r.data, cr.logical_row_id
                 FROM dsa_core.commit_rows cr
@@ -111,7 +106,6 @@ class PostgresTableReader:
             """
             rows = await self._conn.fetch(query, commit_id, pattern, offset)
         else:
-            # Get paginated rows
             query = """
                 SELECT r.data, cr.logical_row_id
                 FROM dsa_core.commit_rows cr
@@ -123,29 +117,19 @@ class PostgresTableReader:
             """
             rows = await self._conn.fetch(query, commit_id, pattern, offset, limit)
         
-        # Parse data and include row index
+        # Parse data - expect only direct format
         result = []
         for row in rows:
-            # Parse JSON data if needed
             data = row['data']
             if isinstance(data, str):
                 data = json.loads(data)
             
-            # Handle both standardized and raw formats
-            if isinstance(data, dict) and 'sheet_name' in data and 'data' in data:
-                # Standardized format: { "sheet_name": "...", "row_number": N, "data": {...} }
-                actual_data = data['data']
-            else:
-                # Raw format: direct data object
-                actual_data = data
-            
-            # Ensure actual_data is a dict
-            if not isinstance(actual_data, dict):
-                raise ValueError(f"Invalid data format - expected dict but got {type(actual_data)}")
+            if not isinstance(data, dict):
+                raise ValueError(f"Invalid data format - expected dict but got {type(data)}")
             
             result.append({
                 '_logical_row_id': row['logical_row_id'],
-                **actual_data
+                **data
             })
         
         return result
@@ -157,7 +141,7 @@ class PostgresTableReader:
         batch_size: int = 1000
     ) -> AsyncGenerator[List[Dict[str, Any]], None]:
         """Stream data for a specific table in batches."""
-        pattern = f"{table_key}:%"
+        pattern = f"{table_key}_%"
         offset = 0
         
         while True:
@@ -179,22 +163,16 @@ class PostgresTableReader:
             # Process batch
             batch = []
             for row in rows:
-                # Parse JSON data if needed
                 data = row['data']
                 if isinstance(data, str):
                     data = json.loads(data)
                 
-                # Handle both standardized and raw formats
-                if isinstance(data, dict) and 'sheet_name' in data and 'data' in data:
-                    # Standardized format
-                    actual_data = data['data']
-                else:
-                    # Raw format
-                    actual_data = data
+                if not isinstance(data, dict):
+                    raise ValueError(f"Invalid data format - expected dict but got {type(data)}")
                 
                 batch.append({
                     '_logical_row_id': row['logical_row_id'],
-                    **actual_data
+                    **data
                 })
             
             yield batch
@@ -208,11 +186,7 @@ class PostgresTableReader:
     
     async def count_table_rows(self, commit_id: str, table_key: str) -> int:
         """Get the total row count for a specific table."""
-        # Handle both formats: "table_key:hash" and "table_key_hash"
-        if ':' in table_key:
-            pattern = f"{table_key}:%"
-        else:
-            pattern = f"{table_key}_%"
+        pattern = f"{table_key}_%"
         
         query = """
             SELECT COUNT(*)
@@ -311,6 +285,231 @@ class PostgresTableReader:
                         '_logical_row_id': row['logical_row_id'],
                         **data
                     }
+    
+    async def get_table_data_enhanced(
+        self,
+        commit_id: str,
+        table_key: str,
+        offset: int = 0,
+        limit: Optional[int] = None,
+        sorting: Optional[List['SortSpec']] = None,
+        filters: Optional['DataFilters'] = None,
+        select_columns: Optional[List[str]] = None
+    ) -> List[Dict[str, Any]]:
+        """Enhanced data retrieval with multi-sort, array filters, and complex filter groups."""
+        from src.api.models.requests import SortSpec, DataFilters, ColumnFilter
+        
+        pattern = f"{table_key}_%"
+        
+        # Build query
+        query = """
+            SELECT r.data, cr.logical_row_id
+            FROM dsa_core.commit_rows cr
+            JOIN dsa_core.rows r ON cr.row_hash = r.row_hash
+            WHERE cr.commit_id = $1 
+            AND cr.logical_row_id LIKE $2
+        """
+        
+        params = [commit_id, pattern]
+        param_count = 2
+        
+        # Add filters
+        if filters:
+            # Add column filters (AND logic by default)
+            if filters.columns:
+                for col_filter in filters.columns:
+                    if col_filter.operator not in ['is_null', 'is_not_null']:
+                        param_count += 1
+                        params.append(col_filter.value)
+                        query += self._build_filter_clause(col_filter, param_count)
+                    else:
+                        # No parameter needed for null checks
+                        query += self._build_filter_clause(col_filter, None)
+            
+            # Add filter groups (complex logic)
+            if filters.groups:
+                group_conditions = []
+                for group in filters.groups:
+                    group_clauses = []
+                    for col_filter in group.conditions:
+                        if col_filter.operator not in ['is_null', 'is_not_null']:
+                            param_count += 1
+                            params.append(col_filter.value)
+                            group_clauses.append(self._build_filter_clause(col_filter, param_count, standalone=False))
+                        else:
+                            # No parameter needed for null checks
+                            group_clauses.append(self._build_filter_clause(col_filter, None, standalone=False))
+                    
+                    if group_clauses:
+                        logic_op = ' OR ' if group.logic == 'OR' else ' AND '
+                        group_conditions.append(f"({logic_op.join(group_clauses)})")
+                
+                if group_conditions:
+                    # Groups are ORed together by default
+                    query += f" AND ({' OR '.join(group_conditions)})"
+            
+            # Add global filter
+            if filters.global_filter:
+                param_count += 1
+                params.append(f"%{filters.global_filter}%")
+                query += f" AND r.data::text ILIKE ${param_count}"
+        
+        # Add multi-column sorting
+        if sorting:
+            order_clauses = []
+            for sort_spec in sorting:
+                order = "DESC" if sort_spec.desc else "ASC"
+                column = sort_spec.column
+                # Try to detect if column should be numeric based on common patterns
+                # or if the column contains numeric-like names
+                if any(keyword in column.lower() for keyword in ['price', 'amount', 'quantity', 'qty', 'total', 'sum', 'count', 'age', 'year', 'score', 'rating', 'level', 'stock']):
+                    # Cast to numeric for numeric columns, handle nulls
+                    order_clauses.append(f"CAST(NULLIF(r.data->>'{column}', '') AS NUMERIC) {order} NULLS LAST")
+                else:
+                    # Text sorting for other columns
+                    order_clauses.append(f"r.data->>'{column}' {order} NULLS LAST")
+            query += f" ORDER BY {', '.join(order_clauses)}, cr.logical_row_id"
+        else:
+            query += " ORDER BY cr.logical_row_id"
+        
+        # Add pagination
+        param_count += 1
+        params.append(offset)
+        query += f" OFFSET ${param_count}"
+        
+        if limit is not None:
+            param_count += 1
+            params.append(limit)
+            query += f" LIMIT ${param_count}"
+        
+        rows = await self._conn.fetch(query, *params)
+        
+        # Parse and process data
+        result = []
+        for row in rows:
+            data = row['data']
+            if isinstance(data, str):
+                data = json.loads(data)
+            
+            if not isinstance(data, dict):
+                raise ValueError(f"Invalid data format - expected dict but got {type(data)}")
+            
+            # Apply column selection if specified
+            if select_columns:
+                data = {k: v for k, v in data.items() if k in select_columns}
+            
+            result.append({
+                '_logical_row_id': row['logical_row_id'],
+                **data
+            })
+        
+        return result
+    
+    def _build_filter_clause(self, col_filter: 'ColumnFilter', param_num: Optional[int], standalone: bool = True) -> str:
+        """Build SQL filter clause for a single column filter."""
+        column = col_filter.column
+        operator = col_filter.operator
+        
+        prefix = " AND " if standalone else ""
+        
+        if operator == 'eq':
+            return f"{prefix}r.data->>'{column}' = ${param_num}"
+        elif operator == 'neq':
+            return f"{prefix}r.data->>'{column}' != ${param_num}"
+        elif operator == 'contains':
+            return f"{prefix}r.data->>'{column}' ILIKE '%' || ${param_num} || '%'"
+        elif operator == 'not_contains':
+            return f"{prefix}r.data->>'{column}' NOT ILIKE '%' || ${param_num} || '%'"
+        elif operator == 'starts_with':
+            return f"{prefix}r.data->>'{column}' ILIKE ${param_num} || '%'"
+        elif operator == 'ends_with':
+            return f"{prefix}r.data->>'{column}' ILIKE '%' || ${param_num}"
+        elif operator == 'gt':
+            return f"{prefix}(r.data->>'{column}')::numeric > ${param_num}::numeric"
+        elif operator == 'gte':
+            return f"{prefix}(r.data->>'{column}')::numeric >= ${param_num}::numeric"
+        elif operator == 'lt':
+            return f"{prefix}(r.data->>'{column}')::numeric < ${param_num}::numeric"
+        elif operator == 'lte':
+            return f"{prefix}(r.data->>'{column}')::numeric <= ${param_num}::numeric"
+        elif operator == 'in':
+            # Handle array values for IN operator
+            return f"{prefix}r.data->>'{column}' = ANY(${param_num}::text[])"
+        elif operator == 'not_in':
+            return f"{prefix}r.data->>'{column}' != ALL(${param_num}::text[])"
+        elif operator == 'is_null':
+            return f"{prefix}r.data->>'{column}' IS NULL"
+        elif operator == 'is_not_null':
+            return f"{prefix}r.data->>'{column}' IS NOT NULL"
+        else:
+            # Default to equality
+            return f"{prefix}r.data->>'{column}' = ${param_num}"
+    
+    async def count_table_rows_enhanced(
+        self,
+        commit_id: str,
+        table_key: str,
+        filters: Optional['DataFilters'] = None
+    ) -> int:
+        """Count rows with enhanced filters applied."""
+        from src.api.models.requests import DataFilters
+        
+        pattern = f"{table_key}_%"
+        
+        query = """
+            SELECT COUNT(*)
+            FROM dsa_core.commit_rows cr
+            JOIN dsa_core.rows r ON cr.row_hash = r.row_hash
+            WHERE cr.commit_id = $1 
+            AND cr.logical_row_id LIKE $2
+        """
+        
+        params = [commit_id, pattern]
+        param_count = 2
+        
+        # Add filters (same logic as get_table_data_enhanced)
+        if filters:
+            # Add column filters
+            if filters.columns:
+                for col_filter in filters.columns:
+                    if col_filter.operator not in ['is_null', 'is_not_null']:
+                        param_count += 1
+                        params.append(col_filter.value)
+                        query += self._build_filter_clause(col_filter, param_count)
+                    else:
+                        # No parameter needed for null checks
+                        query += self._build_filter_clause(col_filter, None)
+            
+            # Add filter groups
+            if filters.groups:
+                group_conditions = []
+                for group in filters.groups:
+                    group_clauses = []
+                    for col_filter in group.conditions:
+                        if col_filter.operator not in ['is_null', 'is_not_null']:
+                            param_count += 1
+                            params.append(col_filter.value)
+                            group_clauses.append(self._build_filter_clause(col_filter, param_count, standalone=False))
+                        else:
+                            # No parameter needed for null checks
+                            group_clauses.append(self._build_filter_clause(col_filter, None, standalone=False))
+                    
+                    if group_clauses:
+                        logic_op = ' OR ' if group.logic == 'OR' else ' AND '
+                        group_conditions.append(f"({logic_op.join(group_clauses)})")
+                
+                if group_conditions:
+                    # Groups are ORed together by default
+                    query += f" AND ({' OR '.join(group_conditions)})"
+            
+            # Add global filter
+            if filters.global_filter:
+                param_count += 1
+                params.append(f"%{filters.global_filter}%")
+                query += f" AND r.data::text ILIKE ${param_count}"
+        
+        count = await self._conn.fetchval(query, *params)
+        return count or 0
     
     async def batch_get_table_metadata(self, commit_ids: List[str]) -> Dict[str, List[Dict[str, Any]]]:
         """Batch fetch table metadata for multiple commits in a single operation."""

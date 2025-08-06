@@ -3,12 +3,13 @@ from typing import List, Dict, Any, Optional
 
 from src.api.models import (
     CreateCommitRequest, CreateCommitResponse,
-    GetDataRequest, GetDataResponse,
+    GetDataResponse,
     CommitSchemaResponse, QueueImportResponse,
     GetCommitHistoryResponse, CurrentUser,
     ListRefsResponse, CreateBranchRequest, CreateBranchResponse,
     TableAnalysisResponse, DatasetOverviewResponse
 )
+from src.api.models.requests import DataQueryRequest
 from src.features.versioning.services import VersioningService
 from src.features.versioning.services.commit_preparation_service import CommitPreparationService
 from src.core.domain_exceptions import EntityNotFoundException
@@ -83,22 +84,30 @@ async def import_file(
     )
 
 
-@router.get("/datasets/{dataset_id}/refs/{ref_name}/data", response_model=GetDataResponse)
+@router.post("/datasets/{dataset_id}/refs/{ref_name}/tables/{table_key}/data", response_model=GetDataResponse)
 async def get_data_at_ref(
     dataset_id: int,
     ref_name: str,
-    table_key: str = Query(None, description="Filter by specific table/sheet"),
-    offset: int = Query(0, ge=0, description="Pagination offset"),
-    limit: int = Query(100, ge=1, le=1000, description="Pagination limit"),
+    table_key: str,
+    query: DataQueryRequest,
     current_user: CurrentUser = Depends(get_current_user_info),
     uow: PostgresUnitOfWork = Depends(get_uow),
     permission_service = Depends(get_permission_service),
     _: CurrentUser = Depends(require_dataset_read)
 ):
-    """Get paginated data for a ref"""
+    """Get paginated, filtered, and sorted data from a specific table in a dataset reference.
+    
+    This endpoint supports:
+    - Multi-column sorting
+    - Complex filter groups with AND/OR logic
+    - Array-based filters (in, not_in)
+    - Null checks (is_null, is_not_null)
+    - Row flattening option for nested data
+    - Cursor-based pagination for infinite scroll
+    - Column selection for payload optimization
+    """
     service = VersioningService(uow, permissions=permission_service)
-    request = GetDataRequest(sheet_name=table_key, offset=offset, limit=limit)
-    return await service.get_data_at_ref(dataset_id, ref_name, request, current_user.user_id)
+    return await service.query_data_at_ref(dataset_id, ref_name, table_key, query, current_user.user_id)
 
 
 @router.get("/datasets/{dataset_id}/commits/{commit_id}/schema", response_model=CommitSchemaResponse)
@@ -134,33 +143,6 @@ async def list_tables(
     return await service.list_tables(dataset_id, ref['commit_id'], current_user.user_id)
 
 
-@router.get("/datasets/{dataset_id}/refs/{ref_name}/tables/{table_key}/data")
-async def get_table_data(
-    dataset_id: int,
-    ref_name: str,
-    table_key: str,
-    offset: int = Query(0, ge=0, description="Pagination offset"),
-    limit: int = Query(100, ge=1, le=10000, description="Pagination limit"),
-    current_user: CurrentUser = Depends(get_current_user_info),
-    uow: PostgresUnitOfWork = Depends(get_uow),
-    permission_service = Depends(get_permission_service),
-    _: CurrentUser = Depends(require_dataset_read)
-) -> Dict[str, Any]:
-    """Get paginated data for a specific table"""
-    service = VersioningService(uow, permissions=permission_service)
-    # Get current commit for ref
-    ref = await uow.commits.get_ref(dataset_id, ref_name)
-    if not ref:
-        from src.core.domain_exceptions import EntityNotFoundException
-        raise EntityNotFoundException("Ref", ref_name)
-    return await service.get_table_data(
-        dataset_id=dataset_id,
-        commit_id=ref['commit_id'],
-        table_key=table_key,
-        user_id=current_user.user_id,
-        offset=offset,
-        limit=limit
-    )
 
 
 @router.get("/datasets/{dataset_id}/refs/{ref_name}/tables/{table_key}/schema")

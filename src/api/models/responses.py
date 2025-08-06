@@ -233,6 +233,12 @@ class GetDataResponse(BaseModel):
     total_rows: int
     offset: int
     limit: int
+    # Cursor pagination for infinite scroll
+    next_cursor: Optional[str] = None
+    has_more: bool = False
+    # Applied filters/sorts for client reference
+    filters_applied: Optional[Dict[str, Any]] = None
+    sort_applied: Optional[List[Dict[str, str]]] = None
 
 
 class GetSchemaResponse(BaseModel):
