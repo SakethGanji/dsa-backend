@@ -1,6 +1,6 @@
 """API Request models."""
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, List, Dict, Any, Literal
 from datetime import datetime
 from uuid import UUID
@@ -31,6 +31,7 @@ class UpdateDatasetRequest(BaseModel):
 class CreateUserRequest(BaseModel):
     """Request to create a new user."""
     soeid: str = Field(..., min_length=1, max_length=50)
+    password: str = Field(..., min_length=1)
     role_id: int = Field(..., ge=1)
     is_active: bool = Field(True)
 

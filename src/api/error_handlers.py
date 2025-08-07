@@ -83,6 +83,35 @@ async def permission_error_handler(request: Request, exc: PermissionError):
     )
 
 
+def sanitize_validation_errors(errors: list) -> list:
+    """
+    Sanitize validation errors to ensure they're JSON serializable.
+    
+    Args:
+        errors: List of validation errors from Pydantic
+        
+    Returns:
+        Sanitized list of errors
+    """
+    sanitized = []
+    for error in errors:
+        sanitized_error = {}
+        for key, value in error.items():
+            if isinstance(value, bytes):
+                # Convert bytes to string representation
+                sanitized_error[key] = f"<binary data: {len(value)} bytes>"
+            elif isinstance(value, (list, tuple)):
+                # Recursively handle lists/tuples
+                sanitized_error[key] = [
+                    f"<binary data: {len(item)} bytes>" if isinstance(item, bytes) else item 
+                    for item in value
+                ]
+            else:
+                sanitized_error[key] = value
+        sanitized.append(sanitized_error)
+    return sanitized
+
+
 async def request_validation_error_handler(request: Request, exc: RequestValidationError):
     """
     Handle Pydantic request validation errors.
@@ -105,12 +134,15 @@ async def request_validation_error_handler(request: Request, exc: RequestValidat
     else:
         message = "Request validation failed"
     
+    # Sanitize errors to ensure they're JSON serializable
+    sanitized_errors = sanitize_validation_errors(errors)
+    
     return JSONResponse(
         status_code=422,
         content={
             "error": "VALIDATION_ERROR",
             "message": message,
-            "details": {"validation_errors": errors},
+            "details": {"validation_errors": sanitized_errors},
             "request_id": request_id
         }
     )

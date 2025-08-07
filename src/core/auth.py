@@ -46,13 +46,13 @@ def create_refresh_token(
 
 
 def create_signup_token(
-    sso_id: str,
+    sso_id: str,  # Keep parameter name for backward compatibility
     role_id: int,
     expires_delta: Optional[timedelta] = None
 ) -> str:
     """Create a JWT signup token."""
     to_encode = {
-        "sub": sso_id,
+        "sub": sso_id,  # JWT standard uses 'sub' for subject
         "type": "signup",
         "role_id": role_id
     }

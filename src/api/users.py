@@ -1,7 +1,6 @@
 """User management API endpoints."""
 
 from fastapi import APIRouter, Depends, status, Query
-from fastapi.security import OAuth2PasswordRequestForm
 from ..infrastructure.postgres.database import DatabasePool
 from ..infrastructure.postgres.uow import PostgresUnitOfWork
 from ..infrastructure.postgres import PostgresUserRepository
@@ -14,7 +13,7 @@ from ..api.models import (
 from ..core.authorization import require_admin_role, get_current_user_info
 from .dependencies import get_db_pool, get_permission_service, get_uow
 from ..core.domain_exceptions import ConflictException
-from typing import Annotated, List, Optional
+from typing import List, Optional
 from pydantic import BaseModel
 import jwt
 
@@ -32,7 +31,7 @@ class UpdateUserRequest(BaseModel):
 
 class GenerateInviteRequest(BaseModel):
     """Request for generating invite link."""
-    sso_id: str
+    soeid: str
     role_id: int = 2  # Default to 'user' role
     expires_in: int = 24  # Hours
 
@@ -96,29 +95,34 @@ async def create_user(
 
 @router.post("/login", response_model=LoginResponse)
 async def login(
-    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+    request: LoginRequest,
     uow: PostgresUnitOfWork = Depends(get_uow),
     user_repo: PostgresUserRepository = Depends(get_user_repo),
     permission_service = Depends(get_permission_service)
 ) -> LoginResponse:
-    """Login with username (SOEID) and password."""
+    """Login with SOEID and password."""
     # Create service and execute
     service = UserService(uow, user_repo, permission_service)
     return await service.login(
-        soeid=form_data.username,
-        password=form_data.password
+        soeid=request.soeid,
+        password=request.password
     )
 
 
 @router.post("/token", response_model=LoginResponse)
 async def token(
-    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+    request: LoginRequest,
     uow: PostgresUnitOfWork = Depends(get_uow),
     user_repo: PostgresUserRepository = Depends(get_user_repo),
     permission_service = Depends(get_permission_service)
 ) -> LoginResponse:
-    """OAuth2 compatible token endpoint."""
-    return await login(form_data, uow, user_repo, permission_service)
+    """OAuth2 compatible token endpoint - accepts JSON."""
+    # Create service and execute
+    service = UserService(uow, user_repo, permission_service)
+    return await service.login(
+        soeid=request.soeid,
+        password=request.password
+    )
 
 
 @router.post("/register-public", response_model=CreateUserResponse)
@@ -270,14 +274,14 @@ async def generate_invite(
     from datetime import datetime, timedelta
     
     token = create_signup_token(
-        sso_id=request.sso_id,
+        sso_id=request.soeid,
         role_id=request.role_id,
         expires_delta=timedelta(hours=request.expires_in)
     )
     
     return {
         "token": token,
-        "sso_id": request.sso_id,
+        "soeid": request.soeid,
         "role_id": request.role_id,
         "expires_at": (datetime.utcnow() + timedelta(hours=request.expires_in)).isoformat()
     }
